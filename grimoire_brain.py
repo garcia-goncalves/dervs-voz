@@ -147,6 +147,21 @@ sozinho olha a página e decide os cliques — você só precisa dar um 'objetiv
 escrito. Um passo de navegador NÃO tem "comando". Prefira UM passo de navegador \
 com objetivo completo a vários cliques picados.
 
+Um passo pode também ENRIQUECER UM LEAD — quando o dono quer saber sobre um \
+DOMÍNIO/empresa ("o que você acha do dominio tal", "pesquisa a empresa X.com", \
+"levanta o que dá desse cliente", "faz um OSINT de fulano.com.br"). Isso puxa \
+dado PÚBLICO (subdomínios, e-mails, tecnologias, buckets) sem tocar o alvo. \
+Formato:
+   {"descricao":"<o que faz, em português simples>",
+    "tipo":"enriquecer",
+    "dominio":"<só o domínio, ex.: empresa.com.br — sem http, sem caminho>",
+    "risco":"muda_estado",
+    "toca_alvo":false}
+É passivo e defensivo (só fonte pública), então não pede autorização. Se o dono \
+quiser um teste ATIVO/invasivo no alvo (portas, web, exploração), aí NÃO use este \
+passo — monte o comando da ferramenta certa (nmap etc.), que a máquina vai pedir \
+a autorização por escrito. Um passo de enriquecer NÃO tem "comando".
+
 Para conversar/responder sem rodar nada:
 {"modo":"conversar","fala":"<resposta curta e natural, em voz, 1-2 frases>"}
 
@@ -241,6 +256,14 @@ def _normalizar(ficha: dict) -> dict:
                 p.setdefault("risco", "muda_estado")
                 p.setdefault("reversivel", False)
                 p.setdefault("toca_alvo", True)
+            elif p.get("tipo") == "enriquecer":
+                # enriquecimento PASSIVO de lead: tem 'dominio', não 'comando'.
+                # Só fonte pública — não toca o alvo, não pede autorização.
+                p.setdefault("dominio", p.get("comando", ""))
+                p.setdefault("comando", "")
+                p.setdefault("risco", "muda_estado")
+                p.setdefault("reversivel", True)
+                p.setdefault("toca_alvo", False)
             else:
                 p.setdefault("comando", "")
                 p.setdefault("risco", "reversivel")

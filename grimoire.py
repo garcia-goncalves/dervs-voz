@@ -24,6 +24,7 @@ import grimoire_safety as seg
 import grimoire_brain as brain
 import grimoire_exec as execu
 import grimoire_browser as navegador
+import grimoire_enrich as enriquecimento
 import grimoire_atalhos as atalhos
 import grimoire_config as cfg
 from grimoire_tts import Voz
@@ -754,9 +755,14 @@ class PopUp(QtWidgets.QWidget):
         if not self.plano:
             return
         self._aguardando_ok = True
-        cmds = [("🌐 navegador: " + p.get("objetivo", "")) if p.get("tipo") == "navegador"
-                else p.get("comando", "")
-                for p in self.plano if p.get("tipo") == "navegador" or p.get("comando")]
+        def _rotulo_passo(p):
+            if p.get("tipo") == "navegador":
+                return "🌐 navegador: " + p.get("objetivo", "")
+            if p.get("tipo") == "enriquecer":
+                return "🔎 enriquecer (público): " + p.get("dominio", "")
+            return p.get("comando", "")
+        cmds = [_rotulo_passo(p) for p in self.plano
+                if p.get("tipo") in ("navegador", "enriquecer") or p.get("comando")]
         n = len(self.plano)
         self.b_desc.setText("Vou fazer isto — dá um OK (ou diga 'ok') que eu executo:"
                             if n == 1 else
@@ -804,6 +810,16 @@ class PopUp(QtWidgets.QWidget):
                 self.voz.falar("Beleza, tô no navegador cuidando disso. Deixa seu "
                                "Chrome fechado que eu abro ele.")
             self._rodar_navegador(objetivo)
+            return
+        # passo de enriquecimento passivo de lead: só fonte pública, não toca o
+        # alvo — roda direto, como o navegador.
+        if passo.get("tipo") == "enriquecer":
+            self._auto_seguidos += 1
+            dominio = passo.get("dominio", "") or passo.get("descricao", "")
+            self._diz("grimoire", f"levantando o que dá de público sobre {dominio}", cor=GOLD)
+            if self.voz.ligada:
+                self.voz.falar(f"Beleza, tô levantando o que dá de público sobre {dominio}.")
+            self._rodar_enriquecimento(dominio)
             return
         d = seg.decidir_risco(passo.get("comando", ""), passo.get("risco", "reversivel"))
         self._risco_atual = d
@@ -892,6 +908,19 @@ class PopUp(QtWidgets.QWidget):
         self._ocupado(True, "no navegador…")
         self._cmd_atual = f"navegador: {objetivo}"
         self._tarefa = Tarefa(navegador.rodar_para_app, objetivo)
+        self._registrar(self._tarefa)
+        self._tarefa.pronto.connect(self._passo_rodou)
+        self._tarefa.erro.connect(lambda m: self._diz("erro", m))
+        self._tarefa.finished.connect(self._tarefa_fim)
+        self._tarefa.start()
+
+    def _rodar_enriquecimento(self, dominio):
+        """Despacha o enriquecimento passivo de lead numa thread. O bbot pode
+        levar minutos; o próprio módulo tem timeout, então não usa o executor
+        de comando (timeout curto)."""
+        self._ocupado(True, "levantando o lead…")
+        self._cmd_atual = f"enriquecer: {dominio}"
+        self._tarefa = Tarefa(enriquecimento.rodar_para_app, dominio, False)
         self._registrar(self._tarefa)
         self._tarefa.pronto.connect(self._passo_rodou)
         self._tarefa.erro.connect(lambda m: self._diz("erro", m))

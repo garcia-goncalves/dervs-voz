@@ -55,6 +55,17 @@ def test_normalizar_navegador_sem_objetivo_usa_descricao():
     assert ficha["passos"][0]["objetivo"] == "abrir o YouTube"
 
 
+def test_normalizar_passo_enriquecer_e_passivo():
+    ficha = _normalizar({"modo": "planejar", "passos": [
+        {"tipo": "enriquecer", "dominio": "empresa.com.br"}]})
+    p = ficha["passos"][0]
+    # passivo/defensivo: NÃO toca o alvo, não vira destrutivo
+    assert p["toca_alvo"] is False
+    assert p["risco"] == "muda_estado"
+    assert p["dominio"] == "empresa.com.br"
+    assert p["comando"] == ""
+
+
 def test_normalizar_sem_modo_vira_conversar():
     assert _normalizar({}).get("fala") == ""
 

@@ -216,6 +216,7 @@ E instantânea é uma placa de vídeo (GPU) — que esta máquina não tem.
 | `grimoire_safety.py` | A rede de segurança: a palavra final sobre o risco de cada comando. |
 | `grimoire_exec.py` | O executor: roda o comando e traz a prova (código + saída). |
 | `grimoire_browser.py` | O navegador autônomo: cumpre um objetivo clicando/digitando sozinho no seu Chrome. |
+| `grimoire_enrich.py` | Enriquecimento de lead: puxa dado público de um domínio (bbot) e resume. |
 | `grimoire_tts.py` | A voz: fala em português com o Piper, offline. |
 | `grimoire_listen.py` | A escuta contínua: detecta início/fim da fala pela energia do áudio. |
 | `grimoire_stt_daemon.py` | Os ouvidos: transcreve sua fala offline com o Whisper. |
@@ -226,7 +227,8 @@ E instantânea é uma placa de vídeo (GPU) — que esta máquina não tem.
 destrutivo e alvo de rede sempre no topo; desconhecido sempre confirma), o
 parsing do cérebro, a detecção de fim de fala, a validação da config e a lógica
 do navegador autônomo (montar o estado da página, normalizar a ação, reconhecer
-o Chrome travado, executar uma ação com página falsa). Hoje: **106 testes verdes**.
+o Chrome travado, executar uma ação com página falsa) e o enriquecimento de lead
+(validar domínio, agregar eventos do bbot, passivo≠ativo). Hoje: **117 testes verdes**.
 
 ## Navegador autônomo — clicar e digitar sozinho no seu Chrome
 
@@ -258,6 +260,27 @@ de laboratório do dono, que autorizou o Grimoire a agir no Chrome dele).
 (python do sistema) chama o laço como processo à parte, igual ao Whisper e à voz.
 Liga/desliga e ajustes na config: `navegador_ligado`, `navegador_max_passos`,
 `navegador_perfil_chrome`, `navegador_modelo`.
+
+## Enriquecimento de lead — OSINT público de um domínio
+
+Quando você pergunta sobre uma empresa/domínio ("levanta o que dá desse cliente",
+"faz um OSINT de fulano.com.br"), o cérebro propõe um passo do tipo **enriquecer**
+com o domínio. Depois do OK, o `grimoire_enrich.py` roda o **bbot** (o orquestrador
+de recon já instalado) e devolve um resumo: subdomínios, e-mails, tecnologias,
+buckets de nuvem, achados. Serve para qualificar um lead — e, na visão defensiva,
+para ver onde a superfície do próprio cliente está exposta.
+
+**Passivo por padrão, e isso é de LEI, não de gosto:** o passo de voz roda SÓ
+módulos passivos (`-rf passive`) — fonte pública (DNS, certificados, bases de
+OSINT), **sem conectar no alvo**. Por isso não pede autorização: não toca a
+máquina de ninguém. Se você quiser um teste **ativo/invasivo** (portas, web,
+exploração) de um alvo de terceiro, isso NÃO passa por aqui — o cérebro monta o
+comando da ferramenta certa (nmap etc.), e a máquina exige a autorização por
+escrito na carta de confirmação (regra §0 da casa). O módulo tem modo ativo
+(`--ativo`, restrito a `-rf safe`), mas ele não é acionado pela voz.
+
+**Contexto:** a saída do bbot é enorme; o módulo guarda o bruto num arquivo e a
+voz fala só o resumo (contagens + exemplos), para não estourar o contexto.
 
 ## O que ficou para depois (de propósito)
 
