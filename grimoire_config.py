@@ -27,6 +27,12 @@ PADRAO = {
     # Ponha false para tudo passar pelo cérebro.
     "atalhos_ligados": True,
 
+    # Ouvido (transcrição): "openai" (gpt-4o-mini-transcribe — mais rápido e
+    # preciso, ~US$ 0,003/min, precisa de chave e internet) ou "local" (Whisper
+    # no processador, grátis e offline, ~4,7s). "openai" cai no local se falhar.
+    "stt": "openai",
+    "stt_openai_modelo": "gpt-4o-mini-transcribe",
+
     # Cérebro: "openai" (gpt-4.1-nano — ultrarrápido e barato, precisa de chave
     # em ~/voice/.env e internet) ou "claude" (CLI local, grátis na assinatura).
     # Se "openai" mas sem chave/internet, cai no Claude sozinho.
@@ -57,6 +63,10 @@ def _validar(conf: dict) -> dict:
     except (TypeError, ValueError):
         conf["janela_desperto_seg"] = PADRAO["janela_desperto_seg"]
     conf["atalhos_ligados"] = bool(conf.get("atalhos_ligados", True))
+    if conf.get("stt") not in ("openai", "local"):
+        conf["stt"] = PADRAO["stt"]
+    if not isinstance(conf.get("stt_openai_modelo"), str) or not conf["stt_openai_modelo"]:
+        conf["stt_openai_modelo"] = PADRAO["stt_openai_modelo"]
     if conf.get("cerebro") not in ("openai", "claude"):
         conf["cerebro"] = PADRAO["cerebro"]
     if not isinstance(conf.get("cerebro_openai_modelo"), str) or not conf["cerebro_openai_modelo"]:
