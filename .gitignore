@@ -1,0 +1,25 @@
+# Ambientes Python (recriáveis via pip)
+.venv/
+whisper-venv/
+tts-venv/
+xtts-venv/
+
+# Modelos e vozes (baixados, pesam GB)
+model
+vosk-model-*/
+piper-voices/
+model-small-android-backup/
+nerd-dictation/
+
+# Cache e temporários
+__pycache__/
+*.pyc
+.pytest_cache/
+*.wav
+*.log
+*.bak-*
+*.bak-20*
+
+# Segredos e artefatos de execução (nunca versionar)
+.env
+*.key
