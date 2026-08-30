@@ -230,7 +230,8 @@ class PopUp(QtWidgets.QWidget):
         self._conf = cfg.carregar()
         # Voz LIGADA por padrão (se o Piper/voz existirem): o dono ouve as
         # respostas sem precisar caçar botão. Desliga no botão se quiser silêncio.
-        self.voz = Voz(ligada=False, voz=self._conf["voz"])
+        self.voz = Voz(ligada=False, motor=self._conf["motor"],
+                       voz=self._conf["voz"], voz_kokoro=self._conf["voz_kokoro"])
         self.voz.ligada = self.voz.disponivel()
         self.escuta = None             # thread de escuta contínua (modo conversa)
         self._auto_submeter = False    # a próxima transcrição veio da conversa contínua?

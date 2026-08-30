@@ -69,13 +69,16 @@ def main() -> None:
                 # de falar, que ensina acento, pontuação e o formato de números em pt-BR.
                 initial_prompt=(
                     "Transcrição em português do Brasil, com acentuação e pontuação "
-                    "corretas. O assunto varia entre o dia a dia, trabalho, tecnologia, "
-                    "segurança da informação, negócios, finanças, saúde e viagens. "
+                    "corretas. É uma pessoa falando com um assistente de voz chamado "
+                    "Grimoire. Frases típicas: 'Grimoire, que horas são?', 'Grimoire, "
+                    "que dia é hoje?', 'abre o Firefox', 'lista os arquivos', 'roda o "
+                    "nmap no alvo'. O assunto varia entre o dia a dia, trabalho, "
+                    "tecnologia, segurança da informação, negócios e finanças. "
                     "Vocabulário comum: e-mail, WhatsApp, site, aplicativo, reunião, "
-                    "orçamento, projeto, cliente, empresa, CNPJ, OSINT, subdomínio, "
-                    "domínio, DNS, certificado, vulnerabilidade, Grimoire, Parrot. "
-                    "Números e valores aparecem como 2026, R$ 1.500,00 e 10%, com "
-                    "vírgula, ponto, interrogação e exclamação usados naturalmente."
+                    "projeto, cliente, OSINT, subdomínio, domínio, DNS, certificado, "
+                    "vulnerabilidade, Grimoire, Parrot. Números e valores aparecem como "
+                    "2026, R$ 1.500,00 e 10%, com vírgula, ponto, interrogação e "
+                    "exclamação usados naturalmente."
                 ),
             )
             texto = "".join(seg.text for seg in segmentos).strip()

@@ -89,7 +89,9 @@ primeiro boot (`grimoire_config.py`):
 |---|---|---|
 | `janela_desperto_seg` | 20 | segundos que segue ouvindo depois de te atender, sem repetir "Grimoire"; passado isso, dorme |
 | `atalhos_ligados` | true | liga/desliga os atalhos locais acima |
-| `voz` | jeff | voz do Piper: `jeff`, `cadu` ou `faber` |
+| `motor` | kokoro | motor de voz: `kokoro` (humana, padrão), `piper` (sintética, reserva) ou `xtts` (humana, lenta) |
+| `voz_kokoro` | pm_santa | voz do Kokoro: `pm_santa` (masculina grave), `pm_alex` (masculina) ou `pf_dora` (feminina) |
+| `voz` | jeff | voz do Piper (só se `motor` = piper): `jeff`, `cadu` ou `faber` |
 
 Config faltando ou torta **cai no padrão** em silêncio — nunca derruba a voz.
 Mudou o arquivo? Reinicie: `systemctl --user restart grimoire`.
@@ -164,17 +166,24 @@ PC, e também fica na **bandeja do sistema**.
 **Limpar** recomeça do zero: apaga o campo de baixo, a conversa de cima **e a
 memória do cérebro**.
 
-## A voz: XTTS (humana) vs Piper (instantânea)
+## A voz: Kokoro (humana E rápida), Piper (reserva), XTTS (opcional)
 
-Dois motores, escolhidos em `grimoire_tts.py` (constante `MOTOR_PADRAO`):
+Três motores. O padrão vem da config (`motor` em `~/.config/grimoire/config.json`);
+`MOTOR_PADRAO` em `grimoire_tts.py` é o fallback do código.
 
-- **xtts** (padrão) — Coqui XTTS v2, voz humana. Roda por um daemon
-  (`grimoire_tts_daemon.py`, venv `xtts-venv`) que carrega o modelo (~1,8 GB) uma
-  vez no arranque (~13s) e fica pronto. Falante embutido "Ana Florence", idioma
-  `pt`. Latência por frase: ~5-7s (é o preço da voz humana sem GPU).
-- **piper** (reserva) — sintético, porém **instantâneo**. Se o XTTS falhar, a voz
-  cai no Piper sozinha (nunca fica muda). Para tornar o Piper o padrão de novo:
-  `MOTOR_PADRAO = "piper"` e `systemctl --user restart grimoire`.
+- **kokoro** (PADRÃO) — modelo aberto (82M, Apache-2.0), voz **humana E rápida**.
+  Daemon `grimoire_kokoro_daemon.py` (venv `kokoro-venv`) carrega o modelo (~325 MB)
+  uma vez e fala frase a frase. MEDIDO nesta máquina: **~0,6 s até o primeiro som**
+  com o daemon quente, 3–4× o tempo real. Vozes pt-BR: `pm_santa` (masculina grave,
+  feiticeiro — padrão), `pm_alex` (masculina), `pf_dora` (feminina); troca em
+  `voz_kokoro` na config. É o meio-termo que faltava entre o Piper (robótico) e o
+  XTTS (lento). Instalar do zero: `kokoro-venv` com `kokoro-onnx`+`soundfile`, e os
+  pesos em `kokoro-model/` (kokoro-v1.0.onnx + voices-v1.0.bin).
+- **piper** (RESERVA universal) — sintético, porém instantâneo. Se o Kokoro não
+  estiver instalado ou falhar numa fala, a voz **cai no Piper sozinha** (nunca fica
+  muda). Vozes em `voz`: jeff/cadu/faber.
+- **xtts** (opcional) — Coqui XTTS v2, a mais humana, mas ~5–7 s por frase no CPU.
+  Ficou lento demais para conversa; disponível por `motor: "xtts"`.
 
 **Streaming foi testado e descartado:** faria a voz começar em ~2s, mas neste
 processador a geração é mais lenta que a fala, então o áudio **engasgaria**. Um

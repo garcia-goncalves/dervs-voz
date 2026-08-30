@@ -27,7 +27,15 @@ PADRAO = {
     # Ponha false para tudo passar pelo cérebro.
     "atalhos_ligados": True,
 
-    # Voz do Piper. Uma de: "jeff", "cadu", "faber".
+    # Motor de voz: "kokoro" (humana, offline, grátis — PADRÃO), "piper"
+    # (sintética, instantânea, reserva) ou "xtts" (a mais humana, mas lenta).
+    "motor": "kokoro",
+
+    # Voz do Kokoro (quando motor="kokoro"): "pm_santa" (masculina grave,
+    # feiticeiro), "pm_alex" (masculina) ou "pf_dora" (feminina).
+    "voz_kokoro": "pm_santa",
+
+    # Voz do Piper (quando motor="piper"): "jeff", "cadu" ou "faber".
     "voz": "jeff",
 }
 
@@ -41,6 +49,10 @@ def _validar(conf: dict) -> dict:
     except (TypeError, ValueError):
         conf["janela_desperto_seg"] = PADRAO["janela_desperto_seg"]
     conf["atalhos_ligados"] = bool(conf.get("atalhos_ligados", True))
+    if conf.get("motor") not in ("kokoro", "piper", "xtts"):
+        conf["motor"] = PADRAO["motor"]
+    if conf.get("voz_kokoro") not in ("pm_santa", "pm_alex", "pf_dora"):
+        conf["voz_kokoro"] = PADRAO["voz_kokoro"]
     if conf.get("voz") not in ("jeff", "cadu", "faber"):
         conf["voz"] = PADRAO["voz"]
     return conf

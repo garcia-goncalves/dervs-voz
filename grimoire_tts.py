@@ -42,12 +42,22 @@ LENGTH_SCALE = 0.95
 NOISE_W = 0.9
 SILENCIO_FRASE = "0.35"          # só usado no modo de reserva (sem daemon)
 
+# --- Kokoro (humano E rápido, padrão novo) ---
+KOKORO_PY = f"{VOICE_DIR}/kokoro-venv/bin/python"
+KOKORO_DAEMON = f"{VOICE_DIR}/grimoire_kokoro_daemon.py"
+KOKORO_MODELO = f"{VOICE_DIR}/kokoro-model/kokoro-v1.0.onnx"
+VOZ_KOKORO_PADRAO = "pm_santa"   # masculina grave (feiticeiro)
+KOKORO_SPEED = 1.0               # 1.0 = natural; >1 fala mais rápido
+KOKORO_LANG = "pt-br"
+
 # --- XTTS (humano, opcional) ---
 XTTS_PY = f"{VOICE_DIR}/xtts-venv/bin/python"
 XTTS_DAEMON = f"{VOICE_DIR}/grimoire_tts_daemon.py"
 
-# Motor padrão: o dono prioriza velocidade e inteligência à voz humana.
-MOTOR_PADRAO = "piper"
+# Motor padrão: Kokoro — humano E rápido no CPU (~0,6 s até o 1º som quente),
+# o meio-termo que faltava entre Piper (robótico) e XTTS (lento). Cai no Piper
+# sozinho se o Kokoro não estiver instalado/falhar.
+MOTOR_PADRAO = "kokoro"
 
 
 def caminho_voz(nome: str) -> str:
@@ -67,10 +77,12 @@ def _player():
 class Voz:
     """Fala frases, uma de cada vez. Ligada/desligada por um interruptor."""
 
-    def __init__(self, ligada: bool = False, motor: str = MOTOR_PADRAO, voz: str = VOZ_PADRAO):
+    def __init__(self, ligada: bool = False, motor: str = MOTOR_PADRAO,
+                 voz: str = VOZ_PADRAO, voz_kokoro: str = VOZ_KOKORO_PADRAO):
         self.ligada = ligada
         self.motor = motor
         self.modelo = caminho_voz(voz)    # voz do Piper
+        self.voz_kokoro = voz_kokoro      # voz do Kokoro
         self._synth = None                 # processo de síntese "de reserva" (sem daemon)
         self._play = None                  # processo do player
         self._daemon = None                # processo do daemon XTTS (persistente)
@@ -79,12 +91,18 @@ class Voz:
         self._piper_daemon = None          # processo do daemon Piper (persistente)
         self._piper_pronto = False
         self._piper_daemon_morto = False   # daemon Piper falhou → usa Piper "de reserva"
+        self._kokoro_daemon = None         # processo do daemon Kokoro (persistente)
+        self._kokoro_pronto = False
+        self._kokoro_morto = False         # daemon Kokoro falhou → cai no Piper
         self._gerando = False              # true enquanto sintetiza, mesmo sem processo próprio
         self._evento_atual = None          # threading.Event da fala em andamento (p/ calar())
         self._lock = threading.Lock()          # guarda _play/_synth (calar() precisa ser instantâneo)
         self._lock_piper = threading.Lock()    # serializa a conversa com o daemon do Piper
+        self._lock_kokoro = threading.Lock()   # serializa a conversa com o daemon do Kokoro
         # já sobe o daemon do motor escolhido, para o modelo estar quente na 1a fala
-        if self.motor == "xtts" and self._xtts_instalado():
+        if self.motor == "kokoro" and self._kokoro_instalado():
+            self._garantir_kokoro_daemon()
+        elif self.motor == "xtts" and self._xtts_instalado():
             self._garantir_daemon()
         elif self.motor == "piper" and self._piper_daemon_instalado():
             self._garantir_piper_daemon()
@@ -100,9 +118,17 @@ class Voz:
     def _xtts_instalado(self):
         return os.path.exists(XTTS_PY) and os.path.exists(XTTS_DAEMON)
 
+    def _kokoro_instalado(self):
+        return (os.path.exists(KOKORO_PY) and os.path.exists(KOKORO_DAEMON)
+                and os.path.exists(KOKORO_MODELO) and _player() is not None)
+
+    def _kokoro_disponivel(self):
+        return self._kokoro_instalado() and not self._kokoro_morto
+
     def disponivel(self) -> bool:
         """Tem como falar por ALGUM motor?"""
-        return self._piper_disponivel() or (self._xtts_instalado() and not self._xtts_morto)
+        return (self._kokoro_disponivel() or self._piper_disponivel()
+                or (self._xtts_instalado() and not self._xtts_morto))
 
     def trocar_voz(self, nome: str):
         alvo = caminho_voz(nome)
@@ -146,7 +172,7 @@ class Voz:
         """Encerra tudo, inclusive os daemons (ao fechar o app)."""
         self.calar()
         with self._lock:
-            for nome in ("_daemon", "_piper_daemon"):
+            for nome in ("_daemon", "_piper_daemon", "_kokoro_daemon"):
                 proc = getattr(self, nome)
                 if proc and proc.poll() is None:
                     try:
@@ -167,18 +193,20 @@ class Voz:
         evento = threading.Event()
         self._evento_atual = evento
         self._gerando = True
-        usar_xtts = (self.motor == "xtts" and self._xtts_instalado() and not self._xtts_morto)
         try:
-            if usar_xtts:
-                wav = self._sintetizar_xtts(texto)
-                if wav is None:                      # XTTS falhou → tenta Piper
-                    if self._piper_disponivel():
-                        self._falar_piper(texto, evento)
+            # 1) Kokoro (padrão): humano E rápido, frase a frase. Se falhar, Piper.
+            if self.motor == "kokoro" and self._kokoro_disponivel():
+                if self._falar_kokoro(texto, evento):
                     return
-                self._tocar_e_apagar(wav)
-                return
-            # padrão: Piper. Com daemon quente, fala frase a frase (mais rápido
-            # até o primeiro som); sem daemon, cai no modo antigo (um wav só).
+                # Kokoro falhou nesta fala → cai no Piper abaixo.
+            # 2) XTTS (opcional): humano, porém lento.
+            if self.motor == "xtts" and self._xtts_instalado() and not self._xtts_morto:
+                wav = self._sintetizar_xtts(texto)
+                if wav is not None:
+                    self._tocar_e_apagar(wav)
+                    return
+                # XTTS falhou → cai no Piper abaixo.
+            # 3) Piper (reserva universal): sintético, mas sempre disponível.
             if self._piper_daemon_instalado() and not self._piper_daemon_morto:
                 self._falar_piper(texto, evento)
             elif self._piper_disponivel():
@@ -264,6 +292,78 @@ class Voz:
                         yield s[4:]
             except Exception:
                 self._piper_daemon_morto = True
+                return
+
+    # ---- síntese Kokoro via daemon (padrão — humana, frase a frase) ----
+    def _garantir_kokoro_daemon(self):
+        if self._kokoro_daemon is not None and self._kokoro_daemon.poll() is None:
+            return
+        try:
+            self._kokoro_daemon = subprocess.Popen(
+                [KOKORO_PY, KOKORO_DAEMON],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self._kokoro_pronto = False
+        except Exception:
+            self._kokoro_daemon = None
+            self._kokoro_morto = True
+
+    def _falar_kokoro(self, texto: str, evento: threading.Event) -> bool:
+        """Fala pelo Kokoro, tocando cada frase assim que chega. Devolve True se
+        tratou a fala; False se o daemon falhou (o chamador cai no Piper)."""
+        for wav in self._pedir_kokoro(texto, evento):
+            if evento.is_set():
+                try:
+                    os.remove(wav)
+                except Exception:
+                    pass
+                continue
+            self._tocar_e_apagar(wav)
+        return not self._kokoro_morto
+
+    def _pedir_kokoro(self, texto: str, evento: threading.Event):
+        """Gerador: manda o texto ao daemon do Kokoro e devolve o caminho de cada
+        frase pronta, na ordem. Drena até FIM/ERRO mesmo com barge-in, para não
+        contaminar o próximo pedido."""
+        with self._lock_kokoro:
+            self._garantir_kokoro_daemon()
+            d = self._kokoro_daemon
+            if d is None or d.stdin is None or d.stdout is None:
+                self._kokoro_morto = True
+                return
+            try:
+                if not self._kokoro_pronto:
+                    while True:
+                        linha = d.stdout.readline()
+                        if not linha:                # daemon morreu na carga do modelo
+                            self._kokoro_morto = True
+                            return
+                        s = linha.decode("utf-8", "replace").strip()
+                        if s == "READY":
+                            self._kokoro_pronto = True
+                            break
+                        if s.startswith("ERRO"):     # falhou ao carregar o modelo
+                            self._kokoro_morto = True
+                            return
+                pedido = json.dumps({
+                    "texto": texto, "voz": self.voz_kokoro,
+                    "speed": KOKORO_SPEED, "lang": KOKORO_LANG,
+                }) + "\n"
+                d.stdin.write(pedido.encode("utf-8"))
+                d.stdin.flush()
+                while True:
+                    linha = d.stdout.readline()
+                    if not linha:
+                        self._kokoro_morto = True
+                        return
+                    s = linha.decode("utf-8", "replace").strip()
+                    if s == "FIM":
+                        return
+                    if s.startswith("ERRO"):
+                        return
+                    if s.startswith("WAV "):
+                        yield s[4:]
+            except Exception:
+                self._kokoro_morto = True
                 return
 
     # ---- síntese Piper direta (reserva — sem daemon, um processo por fala) ----
