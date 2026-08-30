@@ -23,6 +23,7 @@ import time
 import grimoire_safety as seg
 import grimoire_brain as brain
 import grimoire_exec as execu
+import grimoire_browser as navegador
 import grimoire_atalhos as atalhos
 import grimoire_config as cfg
 from grimoire_tts import Voz
@@ -753,7 +754,9 @@ class PopUp(QtWidgets.QWidget):
         if not self.plano:
             return
         self._aguardando_ok = True
-        cmds = [p.get("comando", "") for p in self.plano if p.get("comando")]
+        cmds = [("🌐 navegador: " + p.get("objetivo", "")) if p.get("tipo") == "navegador"
+                else p.get("comando", "")
+                for p in self.plano if p.get("tipo") == "navegador" or p.get("comando")]
         n = len(self.plano)
         self.b_desc.setText("Vou fazer isto — dá um OK (ou diga 'ok') que eu executo:"
                             if n == 1 else
@@ -790,6 +793,18 @@ class PopUp(QtWidgets.QWidget):
             self._pensar()
             return
         passo = self.plano[self.passo_i]
+        # passo de navegador autônomo: age no Chrome logado do dono (o plano
+        # inteiro já foi aprovado por ele). Despacha pro laço e conta como um
+        # passo automático — não vira comando de terminal.
+        if passo.get("tipo") == "navegador":
+            self._auto_seguidos += 1
+            objetivo = passo.get("objetivo", "") or passo.get("descricao", "")
+            self._diz("grimoire", f"abrindo o navegador e cuidando disso: {objetivo}", cor=GOLD)
+            if self.voz.ligada:
+                self.voz.falar("Beleza, tô no navegador cuidando disso. Deixa seu "
+                               "Chrome fechado que eu abro ele.")
+            self._rodar_navegador(objetivo)
+            return
         d = seg.decidir_risco(passo.get("comando", ""), passo.get("risco", "reversivel"))
         self._risco_atual = d
         self._2conf = False
@@ -864,6 +879,19 @@ class PopUp(QtWidgets.QWidget):
         self._ocupado(True, "rodando…")
         self._cmd_atual = comando
         self._tarefa = Tarefa(execu.rodar, comando, 60, terminal)
+        self._registrar(self._tarefa)
+        self._tarefa.pronto.connect(self._passo_rodou)
+        self._tarefa.erro.connect(lambda m: self._diz("erro", m))
+        self._tarefa.finished.connect(self._tarefa_fim)
+        self._tarefa.start()
+
+    def _rodar_navegador(self, objetivo):
+        """Despacha a tarefa de navegador autônomo numa thread. O laço do
+        grimoire_browser gerencia o próprio tempo (tem teto de passos), então
+        NÃO passa pelo timeout curto do executor de comando."""
+        self._ocupado(True, "no navegador…")
+        self._cmd_atual = f"navegador: {objetivo}"
+        self._tarefa = Tarefa(navegador.rodar_para_app, objetivo)
         self._registrar(self._tarefa)
         self._tarefa.pronto.connect(self._passo_rodou)
         self._tarefa.erro.connect(lambda m: self._diz("erro", m))

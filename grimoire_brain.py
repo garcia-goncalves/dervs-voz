@@ -132,6 +132,21 @@ Para agir (o caso comum — aja sem pedir licença):
     "toca_alvo":true|false}
  ]}
 
+Um passo pode, em vez de "comando", ser uma TAREFA DE NAVEGADOR AUTÔNOMO — quando \
+o dono quer que você AJA DENTRO de uma página (clicar, digitar, navegar, ler algo \
+de dentro do site): entrar no Gmail e contar não lidos, pesquisar e abrir o \
+primeiro resultado, tocar um vídeo no YouTube, preencher um formulário. Formato:
+   {"descricao":"<o que a tarefa faz, em português simples>",
+    "tipo":"navegador",
+    "objetivo":"<o objetivo COMPLETO em uma frase, com tudo que o autônomo precisa \
+saber: qual site, o que fazer lá, e o que trazer de volta>",
+    "risco":"muda_estado",
+    "toca_alvo":true}
+O autônomo age no Chrome REAL do dono, já logado, e devolve o que conseguiu. Ele \
+sozinho olha a página e decide os cliques — você só precisa dar um 'objetivo' bem \
+escrito. Um passo de navegador NÃO tem "comando". Prefira UM passo de navegador \
+com objetivo completo a vários cliques picados.
+
 Para conversar/responder sem rodar nada:
 {"modo":"conversar","fala":"<resposta curta e natural, em voz, 1-2 frases>"}
 
@@ -159,10 +174,12 @@ COMANDOS QUE JÁ EXISTEM NESTA MÁQUINA (use estes, não invente):
 - Apps de tela: firefox, chromium, konsole (terminal), dolphin (arquivos), \
   kcalc (calculadora), kate (editor).
 Para "conversar com o GPT", "abrir o ChatGPT", "pesquisar tal coisa", "abrir \
-tal site" — monte o passo com o comando acima e confirme com o dono antes.
-Se ele pedir para CLICAR/DIGITAR dentro de uma página aberta, diga na 'fala' \
-que por enquanto você abre a página no lugar certo, mas ainda não clica sozinho \
-dentro dela — e pergunte se abrir já ajuda.
+tal site" quando basta ABRIR — monte o passo com o comando acima.
+Quando o dono quer AGIR DENTRO da página (clicar, digitar, ler algo de dentro, \
+preencher, contar não lidos), use um passo do tipo "navegador" com um 'objetivo' \
+completo — você AGORA clica sozinho dentro das páginas. Avise na 'fala', de leve, \
+que enquanto você navega o Chrome normal dele precisa estar fechado (o autônomo \
+usa o perfil dele), e peça o OK como sempre.
 
 Marque 'risco' com honestidade: 'reversivel' abre/lista/lê; 'muda_estado' \
 instala/edita/cria; 'destrutivo' apaga/formata. Marque 'toca_alvo' true para \
@@ -216,10 +233,19 @@ def _normalizar(ficha: dict) -> dict:
         passos = ficha.get("passos") or []
         for p in passos:
             p.setdefault("descricao", "")
-            p.setdefault("comando", "")
-            p.setdefault("risco", "reversivel")
-            p.setdefault("reversivel", True)
-            p.setdefault("toca_alvo", False)
+            if p.get("tipo") == "navegador":
+                # passo de navegador autônomo: tem 'objetivo', não 'comando'.
+                p.setdefault("objetivo", p.get("comando", "") or p.get("descricao", ""))
+                p.setdefault("comando", "")
+                # age no Chrome logado do dono: no mínimo muda_estado e toca alvo.
+                p.setdefault("risco", "muda_estado")
+                p.setdefault("reversivel", False)
+                p.setdefault("toca_alvo", True)
+            else:
+                p.setdefault("comando", "")
+                p.setdefault("risco", "reversivel")
+                p.setdefault("reversivel", True)
+                p.setdefault("toca_alvo", False)
         ficha["passos"] = passos
     return ficha
 

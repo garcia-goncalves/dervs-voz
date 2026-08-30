@@ -3,6 +3,7 @@
 whisper-venv/
 tts-venv/
 xtts-venv/
+playwright-venv/
 
 # Modelos e vozes (baixados, pesam GB)
 model

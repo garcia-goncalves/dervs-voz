@@ -37,6 +37,24 @@ def test_normalizar_preenche_campos_do_passo():
     assert "descricao" in p
 
 
+def test_normalizar_passo_navegador_ganha_defaults_certos():
+    ficha = _normalizar({"modo": "planejar", "passos": [
+        {"tipo": "navegador", "objetivo": "entrar no Gmail e contar não lidos"}]})
+    p = ficha["passos"][0]
+    # navegador age no Chrome logado: no mínimo muda_estado e toca alvo
+    assert p["risco"] == "muda_estado"
+    assert p["reversivel"] is False
+    assert p["toca_alvo"] is True
+    assert p["objetivo"] == "entrar no Gmail e contar não lidos"
+    assert p["comando"] == ""
+
+
+def test_normalizar_navegador_sem_objetivo_usa_descricao():
+    ficha = _normalizar({"modo": "planejar", "passos": [
+        {"tipo": "navegador", "descricao": "abrir o YouTube"}]})
+    assert ficha["passos"][0]["objetivo"] == "abrir o YouTube"
+
+
 def test_normalizar_sem_modo_vira_conversar():
     assert _normalizar({}).get("fala") == ""
 

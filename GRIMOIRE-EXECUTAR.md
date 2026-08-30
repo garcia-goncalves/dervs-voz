@@ -215,6 +215,7 @@ E instantânea é uma placa de vídeo (GPU) — que esta máquina não tem.
 | `grimoire_brain.py` | O cérebro: conversa com o `claude` e devolve uma ficha estruturada (pergunta/plano). |
 | `grimoire_safety.py` | A rede de segurança: a palavra final sobre o risco de cada comando. |
 | `grimoire_exec.py` | O executor: roda o comando e traz a prova (código + saída). |
+| `grimoire_browser.py` | O navegador autônomo: cumpre um objetivo clicando/digitando sozinho no seu Chrome. |
 | `grimoire_tts.py` | A voz: fala em português com o Piper, offline. |
 | `grimoire_listen.py` | A escuta contínua: detecta início/fim da fala pela energia do áudio. |
 | `grimoire_stt_daemon.py` | Os ouvidos: transcreve sua fala offline com o Whisper. |
@@ -222,14 +223,47 @@ E instantânea é uma placa de vídeo (GPU) — que esta máquina não tem.
 ## Testes
 
 `python -m pytest -q` — cobre a rede de segurança (o modelo nunca rebaixa o risco;
-destrutivo e alvo de rede sempre no topo; desconhecido sempre confirma) e o
-parsing do cérebro e a detecção de fim de fala. Hoje: **22 testes verdes**.
+destrutivo e alvo de rede sempre no topo; desconhecido sempre confirma), o
+parsing do cérebro, a detecção de fim de fala, a validação da config e a lógica
+do navegador autônomo (montar o estado da página, normalizar a ação, reconhecer
+o Chrome travado, executar uma ação com página falsa). Hoje: **106 testes verdes**.
+
+## Navegador autônomo — clicar e digitar sozinho no seu Chrome
+
+Quando você pede algo DENTRO de uma página ("entra no meu Gmail e me diz quantos
+não lidos", "pesquisa X e abre o primeiro", "toca lo-fi no YouTube"), o cérebro
+propõe um passo do tipo **navegador** com um objetivo. Depois do seu OK, o
+`grimoire_browser.py` cumpre sozinho, num laço fechado:
+
+> olhar a página → decidir a próxima ação → clicar/digitar/navegar → repetir,
+> até terminar (ou até bater o teto de passos).
+
+Como ele "vê" a página: não manda foto ao modelo (caro). Varre o DOM, numera os
+elementos clicáveis/digitáveis e manda essa lista compacta ao modelo mais barato
+da OpenAI, que devolve UMA ação por vez (técnica *set-of-marks* — barata e rápida).
+
+**Onde age, e o preço:** no seu Chrome DE VERDADE, com seus logins. O Chrome
+moderno bloqueia "espiar" uma janela já aberta, então o Playwright abre o Chrome
+usando o **seu próprio perfil**. Por isso, enquanto o autônomo trabalha, **seu
+Chrome do dia a dia precisa estar fechado** (o perfil só abre num lugar por vez);
+se estiver aberto, o Grimoire avisa e pede para fechar. Ao terminar, reabra normal.
+
+**Freios:** teto de passos (config `navegador_max_passos`, padrão 15); para e
+avisa se empacar; **recusa digitar em campo de senha** (login continua sendo seu);
+o prompt proíbe comprar/pagar/apagar/postar fora do objetivo. A autorização é a
+mesma do resto: você aprova o plano UMA vez na tela; daí ele age (esta é a máquina
+de laboratório do dono, que autorizou o Grimoire a agir no Chrome dele).
+
+**Isolamento:** o Playwright é pesado e mora na venv `playwright-venv/`. O app
+(python do sistema) chama o laço como processo à parte, igual ao Whisper e à voz.
+Liga/desliga e ajustes na config: `navegador_ligado`, `navegador_max_passos`,
+`navegador_perfil_chrome`, `navegador_modelo`.
 
 ## O que ficou para depois (de propósito)
 
-- **Clicar sozinho no navegador** (apontar-e-clicar por conta própria) é frágil e
-  não entrou. O Grimoire abre apps e digita em terminais — isso é sólido. Clicar
-  na tela fica como capacidade separada, mais tarde.
+- **Clicar em app nativo** (fora do navegador — uma janela do KDE, um app de
+  desktop) não entrou: o autônomo age dentro do Chrome, que cobre a maioria dos
+  pedidos. Automação de desktop fica para mais tarde, se precisar.
 
 ## Instalar / rodar
 

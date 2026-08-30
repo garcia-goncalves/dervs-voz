@@ -51,6 +51,23 @@ PADRAO = {
 
     # Voz do Piper (quando motor="piper"): "jeff", "cadu" ou "faber".
     "voz": "jeff",
+
+    # --- Navegador autônomo (o Grimoire clica/digita sozinho no seu Chrome) ---
+    # Liga o recurso. Com true, o cérebro pode propor um passo do tipo
+    # "navegador" quando você pede algo DENTRO de uma página ("entra no Gmail e
+    # me diz os não lidos"). ATENÇÃO: enquanto ele trabalha, seu Chrome do dia a
+    # dia precisa estar FECHADO (o perfil só abre num lugar por vez).
+    "navegador_ligado": True,
+    # Quantos passos (cliques/digitações) ele pode dar sozinho antes de parar
+    # para você conferir. Suba para tarefas mais longas; desça para segurar a rédea.
+    "navegador_max_passos": 15,
+    # Pasta do perfil do Chrome (onde ficam seus logins) e o nome do perfil.
+    # Só mude se você usa outro navegador/perfil.
+    "navegador_perfil_chrome": "~/.config/google-chrome",
+    "navegador_perfil_nome": "Default",
+    # Modelo que decide cada clique. Vazio = usa o mesmo do cérebro (o mais
+    # barato). Suba só se a navegação exigir mais esperteza.
+    "navegador_modelo": "",
 }
 
 
@@ -77,6 +94,18 @@ def _validar(conf: dict) -> dict:
         conf["voz_kokoro"] = PADRAO["voz_kokoro"]
     if conf.get("voz") not in ("jeff", "cadu", "faber"):
         conf["voz"] = PADRAO["voz"]
+    conf["navegador_ligado"] = bool(conf.get("navegador_ligado", True))
+    try:
+        n = int(conf["navegador_max_passos"])
+        conf["navegador_max_passos"] = min(max(n, 1), 60)  # entre 1 e 60 passos
+    except (TypeError, ValueError, KeyError):
+        conf["navegador_max_passos"] = PADRAO["navegador_max_passos"]
+    if not isinstance(conf.get("navegador_perfil_chrome"), str) or not conf["navegador_perfil_chrome"]:
+        conf["navegador_perfil_chrome"] = PADRAO["navegador_perfil_chrome"]
+    if not isinstance(conf.get("navegador_perfil_nome"), str) or not conf["navegador_perfil_nome"]:
+        conf["navegador_perfil_nome"] = PADRAO["navegador_perfil_nome"]
+    if not isinstance(conf.get("navegador_modelo"), str):
+        conf["navegador_modelo"] = PADRAO["navegador_modelo"]
     return conf
 
 
