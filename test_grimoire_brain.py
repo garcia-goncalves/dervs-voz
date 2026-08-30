@@ -112,6 +112,7 @@ def test_delta_resultado_de_comando_eh_reenviado():
 def test_pensar_usa_streaming_quando_ok(monkeypatch):
     """Se a sessão responde, pensar devolve a ficha do streaming e NÃO cai no
     modo antigo."""
+    monkeypatch.setattr(gb, "CEREBRO", "claude")  # testa o caminho do Claude, não a OpenAI
     monkeypatch.setattr(gb, "USAR_STREAM", True)
     monkeypatch.setattr(gb._sessao, "pensar",
                         lambda conversa, timeout: '{"modo":"conversar","fala":"oi"}')
@@ -126,6 +127,7 @@ def test_pensar_usa_streaming_quando_ok(monkeypatch):
 def test_pensar_cai_no_fallback_quando_streaming_falha(monkeypatch):
     """Se o streaming explode (daemon morreu, timeout...), pensar NÃO fica mudo:
     usa o modo antigo."""
+    monkeypatch.setattr(gb, "CEREBRO", "claude")  # testa o caminho do Claude, não a OpenAI
     monkeypatch.setattr(gb, "USAR_STREAM", True)
     def _explode(conversa, timeout):
         raise RuntimeError("daemon morreu")
@@ -138,6 +140,7 @@ def test_pensar_cai_no_fallback_quando_streaming_falha(monkeypatch):
 
 def test_pensar_stream_desligado_vai_direto_no_oneshot(monkeypatch):
     """Com GRIMOIRE_BRAIN_STREAM=0 o streaming nem é tentado."""
+    monkeypatch.setattr(gb, "CEREBRO", "claude")  # testa o caminho do Claude, não a OpenAI
     monkeypatch.setattr(gb, "USAR_STREAM", False)
     monkeypatch.setattr(gb, "_pensar_oneshot",
                         lambda conversa, timeout: {"modo": "conversar", "fala": "antigo"})
@@ -145,3 +148,29 @@ def test_pensar_stream_desligado_vai_direto_no_oneshot(monkeypatch):
         raise AssertionError("não deveria tocar a sessão persistente")
     monkeypatch.setattr(gb._sessao, "pensar", _nao)
     assert gb.pensar([{"papel": "dono", "texto": "oi"}])["fala"] == "antigo"
+
+
+def test_pensar_usa_openai_quando_configurado(monkeypatch):
+    """cerebro=openai com chave: usa a OpenAI e NÃO toca o Claude."""
+    monkeypatch.setattr(gb, "CEREBRO", "openai")
+    monkeypatch.setattr(gb, "OPENAI_KEY", "sk-teste")
+    monkeypatch.setattr(gb, "_pensar_openai",
+                        lambda conversa, timeout: {"modo": "conversar", "fala": "via openai"})
+    def _nao(*a, **k):
+        raise AssertionError("não deveria tocar o Claude")
+    monkeypatch.setattr(gb._sessao, "pensar", _nao)
+    monkeypatch.setattr(gb, "_pensar_oneshot", _nao)
+    assert gb.pensar([{"papel": "dono", "texto": "oi"}])["fala"] == "via openai"
+
+
+def test_pensar_openai_falha_cai_no_claude(monkeypatch):
+    """Se a OpenAI falhar (sem internet, chave ruim), cai no Claude — não fica mudo."""
+    monkeypatch.setattr(gb, "CEREBRO", "openai")
+    monkeypatch.setattr(gb, "OPENAI_KEY", "sk-teste")
+    def _explode(conversa, timeout):
+        raise RuntimeError("sem internet")
+    monkeypatch.setattr(gb, "_pensar_openai", _explode)
+    monkeypatch.setattr(gb, "USAR_STREAM", True)
+    monkeypatch.setattr(gb._sessao, "pensar",
+                        lambda conversa, timeout: '{"modo":"conversar","fala":"claude reserva"}')
+    assert gb.pensar([{"papel": "dono", "texto": "oi"}])["fala"] == "claude reserva"

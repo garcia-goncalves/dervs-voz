@@ -32,6 +32,8 @@ import shutil
 import select
 import threading
 import subprocess
+import urllib.request
+import urllib.error
 
 # Caminho ABSOLUTO do 'claude'. Como serviço do systemd o PATH é mínimo e não
 # inclui ~/.local/bin — por isso "claude" cru dava [Errno 2]. Resolvemos aqui.
@@ -43,6 +45,39 @@ CLAUDE = (shutil.which("claude")
 # segurança local protege independentemente do modelo. MEDIDO: haiku responde
 # em ~1,5–3 s por turno com a sessão quente; foi o mais rápido testado.
 MODELO = "haiku"
+
+# --- cérebro na OpenAI (ultrarrápido e barato; pedido do dono) ---------------
+# Config decide: cerebro="openai" usa a OpenAI (gpt-4.1-nano por padrão, o mais
+# barato); "claude" usa o CLI local. Se escolher openai mas não houver chave ou
+# internet, CAI sozinho no Claude/local — nunca deixa o Grimoire mudo.
+def _ler_config():
+    try:
+        import grimoire_config as _cfg
+        return _cfg.carregar()
+    except Exception:
+        return {}
+
+
+def _carregar_chave_openai():
+    """Lê OPENAI_API_KEY de ~/voice/.env (ou do ambiente). Nunca loga o valor."""
+    v = os.environ.get("OPENAI_API_KEY")
+    if v:
+        return v.strip()
+    caminho = os.path.expanduser("~/voice/.env")
+    try:
+        for linha in open(caminho, encoding="utf-8"):
+            linha = linha.strip()
+            if linha.startswith("OPENAI_API_KEY="):
+                return linha.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return None
+
+
+_conf = _ler_config()
+CEREBRO = _conf.get("cerebro", "claude")            # "openai" | "claude"
+OPENAI_MODELO = _conf.get("cerebro_openai_modelo", "gpt-4.1-nano")
+OPENAI_KEY = _carregar_chave_openai()
 
 # Liga/desliga a sessão persistente. Ligada por padrão (é o ganho de latência).
 # Pôr GRIMOIRE_BRAIN_STREAM=0 no ambiente força o modo antigo (um processo por
@@ -373,7 +408,13 @@ _sessao = _Sessao()
 
 
 def aquecer():
-    """Atalho público: sobe o daemon do cérebro adiantado (chame no boot)."""
+    """Atalho público: sobe o daemon do cérebro adiantado (chame no boot).
+
+    Com o cérebro na OpenAI, NÃO sobe o Claude (economiza ~260 MB) — a OpenAI
+    não precisa de daemon (é HTTP), e o Claude fica só de reserva, subindo sob
+    demanda se a internet cair."""
+    if CEREBRO == "openai" and OPENAI_KEY:
+        return
     if USAR_STREAM:
         _sessao.aquecer()
 
@@ -409,13 +450,55 @@ def _pensar_oneshot(conversa: list, timeout: int) -> dict:
     return _normalizar(ficha)
 
 
-def pensar(conversa: list, timeout: int = 120) -> dict:
-    """Manda a conversa ao Claude e devolve a ficha já normalizada.
+def _mensagens_openai(conversa: list) -> list:
+    """Converte a conversa do Grimoire no formato de mensagens da OpenAI."""
+    msgs = [{"role": "system", "content": SISTEMA}]
+    for m in conversa:
+        papel = m.get("papel", "")
+        texto = m.get("texto", "")
+        if papel == "grimoire":
+            msgs.append({"role": "assistant", "content": texto})
+        elif papel == "resultado":
+            msgs.append({"role": "user", "content": "[resultado de um comando]\n" + texto})
+        else:  # dono
+            msgs.append({"role": "user", "content": texto})
+    msgs.append({"role": "user",
+                 "content": "Responda AGORA com o próximo JSON, seguindo a regra de ouro."})
+    return msgs
 
-    Usa a sessão persistente (rápida) e, se ela falhar por qualquer motivo,
-    cai sozinha no modo antigo (um processo por turno) para NUNCA deixar o
-    Grimoire mudo. Levanta RuntimeError com mensagem em português só se os DOIS
-    caminhos falharem."""
+
+def _pensar_openai(conversa: list, timeout: int) -> dict:
+    """Cérebro na OpenAI (rápido e barato). response_format json_object força
+    JSON válido, então o Grimoire nunca fica mudo por resposta fora do formato."""
+    body = json.dumps({
+        "model": OPENAI_MODELO,
+        "messages": _mensagens_openai(conversa),
+        "response_format": {"type": "json_object"},
+        "max_tokens": 800,
+        "temperature": 0.3,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions", data=body,
+        headers={"Authorization": "Bearer " + OPENAI_KEY,
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=min(timeout, 30)) as r:
+        d = json.load(r)
+    texto = d["choices"][0]["message"]["content"]
+    return _normalizar(_extrair_json(texto))
+
+
+def pensar(conversa: list, timeout: int = 120) -> dict:
+    """Manda a conversa ao cérebro e devolve a ficha já normalizada.
+
+    Ordem: OpenAI (se configurado e com chave) → Claude em sessão persistente →
+    Claude oneshot. Cada camada cai na próxima se falhar, para NUNCA deixar o
+    Grimoire mudo."""
+    if CEREBRO == "openai" and OPENAI_KEY:
+        try:
+            return _pensar_openai(conversa, timeout)
+        except Exception:
+            # sem internet, erro da API, chave ruim → cai no Claude local
+            pass
     if USAR_STREAM:
         try:
             bruto = _sessao.pensar(conversa, timeout=timeout)

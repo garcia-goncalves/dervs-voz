@@ -27,6 +27,14 @@ PADRAO = {
     # Ponha false para tudo passar pelo cérebro.
     "atalhos_ligados": True,
 
+    # Cérebro: "openai" (gpt-4.1-nano — ultrarrápido e barato, precisa de chave
+    # em ~/voice/.env e internet) ou "claude" (CLI local, grátis na assinatura).
+    # Se "openai" mas sem chave/internet, cai no Claude sozinho.
+    "cerebro": "openai",
+    # Modelo da OpenAI para o cérebro. "gpt-4.1-nano" é o mais barato; suba para
+    # "gpt-4o-mini" se quiser um pouco mais de esperteza (custa ~50% mais).
+    "cerebro_openai_modelo": "gpt-4.1-nano",
+
     # Motor de voz: "kokoro" (humana, offline, grátis — PADRÃO), "piper"
     # (sintética, instantânea, reserva) ou "xtts" (a mais humana, mas lenta).
     "motor": "kokoro",
@@ -49,6 +57,10 @@ def _validar(conf: dict) -> dict:
     except (TypeError, ValueError):
         conf["janela_desperto_seg"] = PADRAO["janela_desperto_seg"]
     conf["atalhos_ligados"] = bool(conf.get("atalhos_ligados", True))
+    if conf.get("cerebro") not in ("openai", "claude"):
+        conf["cerebro"] = PADRAO["cerebro"]
+    if not isinstance(conf.get("cerebro_openai_modelo"), str) or not conf["cerebro_openai_modelo"]:
+        conf["cerebro_openai_modelo"] = PADRAO["cerebro_openai_modelo"]
     if conf.get("motor") not in ("kokoro", "piper", "xtts"):
         conf["motor"] = PADRAO["motor"]
     if conf.get("voz_kokoro") not in ("pm_santa", "pm_alex", "pf_dora"):
