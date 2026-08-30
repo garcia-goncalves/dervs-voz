@@ -166,9 +166,17 @@ def _normalizar(ficha: dict) -> dict:
 
 def _cmd_stream() -> list:
     """Monta a linha de comando do daemon. Corta tudo que o cérebro NÃO usa —
-    MCP, ferramentas de arquivo/rede, slash-commands — porque cada um desses
-    pesa no init e no contexto de cada turno. MEDIDO: com MCP e tools cortados
-    o turno quente caiu para ~1,5–3 s."""
+    config da máquina, MCP, ferramentas de arquivo/rede, slash-commands — porque
+    cada um pesa no init, no contexto e no CUSTO de cada turno.
+
+    A parte mais importante é `--setting-sources ""`: sem isso, o `claude` carrega
+    o CLAUDE.md global (o perfil de segurança gigante), as memórias e as skills a
+    CADA frase. MEDIDO: isso somava ~40 mil tokens de contexto, custava US$ 0,03
+    por frase, subia o tempo até responder para ~8,5 s E SEQUESTRAVA o modelo — em
+    vez do JSON que o Grimoire espera, ele respondia prosa (o Grimoire ficava
+    mudo, 'nenhum JSON encontrado'). Com o contexto isolado: ~1,7 s, US$ 0,0075,
+    e o JSON volta a sair certo. O cérebro tem o próprio `--system-prompt`; não
+    precisa de NADA da config da máquina."""
     return [
         CLAUDE, "-p",
         "--input-format", "stream-json",
@@ -176,6 +184,8 @@ def _cmd_stream() -> list:
         "--verbose",  # obrigatório junto de stream-json na saída
         "--system-prompt", SISTEMA,
         "--model", MODELO,
+        # Contexto isolado: não carrega CLAUDE.md, memória, skills, hooks, plugins.
+        "--setting-sources", "",
         # Sem servidores MCP: o cérebro não fala com nenhum.
         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
         # Sem ferramentas: o cérebro só PLANEJA comando em texto, não executa.
@@ -342,7 +352,10 @@ def _pensar_oneshot(conversa: list, timeout: int) -> dict:
     """Modo antigo, de segurança: um `claude -p` por turno. Mais lento (~10 s)
     mas não depende do daemon. É o fallback quando o streaming falha."""
     prompt = montar_prompt(conversa)
-    cmd = [CLAUDE, "-p", "--output-format", "json", "--system-prompt", SISTEMA]
+    cmd = [CLAUDE, "-p", "--output-format", "json", "--system-prompt", SISTEMA,
+           # mesmo isolamento do daemon: sem CLAUDE.md/memória/skills (ver _cmd_stream)
+           "--setting-sources", "",
+           "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
     if MODELO:
         cmd += ["--model", MODELO]
     try:
