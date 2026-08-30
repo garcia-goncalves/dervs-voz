@@ -102,6 +102,10 @@ primeiro boot (`grimoire_config.py`):
 |---|---|---|
 | `janela_desperto_seg` | 20 | segundos que segue ouvindo depois de te atender, sem repetir "Grimoire"; passado isso, dorme |
 | `atalhos_ligados` | true | liga/desliga os atalhos locais acima |
+| `stt` | openai | ouvido: `openai` (gpt-4o-mini-transcribe, rápido/preciso, ~US$0,003/min) ou `local` (Whisper, grátis/offline) |
+| `stt_openai_modelo` | gpt-4o-mini-transcribe | modelo de transcrição da OpenAI |
+| `cerebro` | openai | cérebro: `openai` (gpt-4.1-nano, rápido/barato) ou `claude` (CLI local, grátis na assinatura) |
+| `cerebro_openai_modelo` | gpt-4.1-nano | modelo do cérebro na OpenAI (`gpt-4o-mini` = um pouco mais esperto, mais caro) |
 | `motor` | kokoro | motor de voz: `kokoro` (humana, padrão), `piper` (sintética, reserva) ou `xtts` (humana, lenta) |
 | `voz_kokoro` | pm_santa | voz do Kokoro: `pm_santa` (masculina grave), `pm_alex` (masculina) ou `pf_dora` (feminina) |
 | `voz` | jeff | voz do Piper (só se `motor` = piper): `jeff`, `cadu` ou `faber` |
