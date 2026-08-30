@@ -139,6 +139,9 @@ def _ficha_conversar(fala: str) -> dict:
 def _ficha_abrir(comando: str, nome: str) -> dict:
     return {
         "modo": "planejar",
+        # "local": este plano já resolve tudo aqui — o Grimoire NÃO precisa
+        # chamar o cérebro depois de rodá-lo (economiza ~2,7 s e uma chamada).
+        "local": True,
         "fala": f"Beleza, abrindo {nome}.",
         "passos": [{
             "descricao": f"Abrir {nome}",

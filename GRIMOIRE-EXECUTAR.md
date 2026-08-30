@@ -66,6 +66,34 @@ cortado em 1 s, que levou o mesmo tempo que um de 11 s. Modelos menores são mai
 rápidos mas erram palavra de verdade (`medium` e `small` trocam "pelo" por
 "pela"; o `small` chega a comer palavras), então foram reprovados.
 
+### Atalhos locais — o trivial sem esperar o cérebro
+
+Perguntas simples não precisam do Claude. **Que horas são**, **que dia é hoje** e
+**abrir um app** (firefox, navegador, chrome, chromium, terminal, arquivos,
+calculadora, editor) são respondidas **na hora**, sem os ~2,7 s do cérebro nem
+custo de API. Fica em `grimoire_atalhos.py`, interceptado no `executar()` antes
+do cérebro.
+
+Regra de ouro do atalho: **na dúvida, deixa o cérebro decidir**. O casamento é
+conservador e a lista de apps é curada (só o que existe na máquina). "Abre o
+relatório", "abre o site do banco", "marca reunião às três horas" NÃO viram
+atalho — vão para o cérebro, como antes. É otimização, nunca fonte de erro.
+Coberto por 26 testes (`test_grimoire_atalhos.py`), metade deles de negativa.
+
+### Configuração editável — `~/.config/grimoire/config.json`
+
+O que o dono pode mudar sem tocar no código, num arquivo JSON criado sozinho no
+primeiro boot (`grimoire_config.py`):
+
+| Chave | Padrão | O que faz |
+|---|---|---|
+| `janela_desperto_seg` | 20 | segundos que segue ouvindo depois de te atender, sem repetir "Grimoire"; passado isso, dorme |
+| `atalhos_ligados` | true | liga/desliga os atalhos locais acima |
+| `voz` | jeff | voz do Piper: `jeff`, `cadu` ou `faber` |
+
+Config faltando ou torta **cai no padrão** em silêncio — nunca derruba a voz.
+Mudou o arquivo? Reinicie: `systemctl --user restart grimoire`.
+
 ## Voz e conversa contínua
 
 Dois interruptores no topo. Eles **acendem em dourado quando ligados**.

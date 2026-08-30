@@ -244,6 +244,7 @@ class PopUp(QtWidgets.QWidget):
         self.conversa = []             # transcript: [{papel, texto}]
         self.plano = []                # passos aprovados pelo cérebro, esperando confirmação
         self.passo_i = 0               # qual passo do plano está na vez
+        self._plano_local = False      # plano veio de atalho local? (não chama o cérebro no fim)
         self._2conf = False            # 2a confirmação pendente (trilho destrutivo)
         self._tarefa = None            # thread lógica em andamento (cérebro/execução)
         self._threads = []             # referência forte a TODA thread viva (senão o Qt aborta)
@@ -721,13 +722,20 @@ class PopUp(QtWidgets.QWidget):
         modo = ficha.get("modo")
         if modo == "planejar" and ficha.get("passos"):
             self.plano = ficha["passos"]; self.passo_i = 0
+            # plano de atalho local: roda os passos mas NÃO chama o cérebro no fim
+            self._plano_local = ficha.get("local", False)
             self._processar_passo()
 
     # ---- passo a passo: reversível/muda-estado rodam sozinhos; só o perigoso pede OK ----
     def _processar_passo(self):
         if self.passo_i >= len(self.plano):
-            # acabou o plano: manda os resultados de volta e vê se o cérebro continua
+            # acabou o plano
             self.plano = []; self.barra.hide()
+            if getattr(self, "_plano_local", False):
+                # atalho local: já resolveu, não gasta o cérebro num comentário.
+                self._plano_local = False
+                return
+            # plano do cérebro: manda os resultados de volta e vê se ele continua.
             self._pensar()
             return
         passo = self.plano[self.passo_i]
