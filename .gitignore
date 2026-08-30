@@ -23,3 +23,7 @@ __pycache__/
 # Segredos e artefatos de execução (nunca versionar)
 .env
 *.key
+
+# Modelo Kokoro (baixado, ~350MB)
+kokoro-model/
+kokoro-venv/
