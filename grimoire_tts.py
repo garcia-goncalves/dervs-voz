@@ -47,7 +47,7 @@ KOKORO_PY = f"{VOICE_DIR}/kokoro-venv/bin/python"
 KOKORO_DAEMON = f"{VOICE_DIR}/grimoire_kokoro_daemon.py"
 KOKORO_MODELO = f"{VOICE_DIR}/kokoro-model/kokoro-v1.0.onnx"
 VOZ_KOKORO_PADRAO = "pm_santa"   # masculina grave (feiticeiro)
-KOKORO_SPEED = 1.0               # 1.0 = natural; >1 fala mais rápido
+KOKORO_SPEED = 1.15              # 1.0 = natural; 1.15 = mais ágil, ainda claro (pedido do dono)
 KOKORO_LANG = "pt-br"
 
 # --- XTTS (humano, opcional) ---

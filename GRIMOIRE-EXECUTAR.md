@@ -27,14 +27,27 @@ faz. Só para nos casos perigosos é que ele para e pede confirmação.
    dupla confirmação e a caixa de autorização quando toca alvo.
 4. **Prova, não "feito".** Cada passo mostra o código de saída e a saída real.
 
+## Fluxo assertivo: entender → confirmar → só então executar
+
+O dono pediu para ser assertivo e organizado. **Nada roda antes do OK dele.** O
+laço é sempre:
+1. **Entender.** Se ficou dúvida que muda o que fazer, o cérebro **pergunta** (uma
+   coisa de cada vez); o dono responde.
+2. **Confirmar.** Sem mais dúvida, o Grimoire **resume o que entendeu e o que vai
+   fazer** e pede o OK — por voz ("...Posso?") e mostrando o plano na barra.
+3. **OK e executa.** O dono dá o OK **por voz** ("ok", "pode", "faz", "isso") ou
+   pelo botão. Aí — e só aí — os passos rodam. "não/cancela" cancela; uma frase
+   maior ("não, faz no Firefox") é tratada como **correção** e o cérebro re-planeja.
+
 ## Os três trilhos de risco — e a palavra final é da máquina
 
-- **Reversível** (abrir app, listar, ler) → **roda sozinho**, sem pedir nada.
-- **Muda estado** (instala, edita, cria) → **roda sozinho** também (o dono deu
-  liberdade); aparece "fazendo: comando" e o resultado.
-- **Destrutivo** (apaga, formata) **ou toca um alvo de rede** → **para e pede
-  confirmação**, com dupla confirmação; e, se toca alvo, uma caixa de
-  **autorização** trava o botão até você marcar que é seu/laboratório/autorizado.
+Depois do OK do plano, cada passo ainda passa pela rede de segurança local:
+
+- **Reversível** (abrir app, listar, ler) e **muda estado** (instala, edita, cria)
+  → rodam após o OK do plano.
+- **Destrutivo** (apaga, formata) **ou toca um alvo de rede** → **pedem um OK
+  EXTRA**, com dupla confirmação; e, se toca alvo, uma caixa de **autorização**
+  trava o botão até você marcar que é seu/laboratório/autorizado.
 
 O cérebro sugere o risco, mas `grimoire_safety.py` — uma lista local aqui na
 máquina — pode **subir** o trilho e nunca descer. Se o Claude disser "tranquilo"

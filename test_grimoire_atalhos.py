@@ -130,3 +130,21 @@ def test_vazio_devolve_none():
 
 def test_norm_tira_acento_e_pontuacao():
     assert at._norm("Que HORAS são?!") == "que horas sao"
+
+
+# ---- confirmação por voz (ok / não / correção) ----
+def test_confirma_sim():
+    for f in ["ok", "OK!", "pode", "faz", "isso", "confirma", "beleza", "manda ver",
+              "pode sim", "isso mesmo", "vai la"]:
+        assert at.eh_confirmacao(f) == "sim", f
+
+def test_confirma_nao():
+    for f in ["não", "nao", "cancela", "deixa", "esquece", "para", "melhor não",
+              "cancela isso"]:
+        assert at.eh_confirmacao(f) == "nao", f
+
+def test_confirma_correcao_vira_none():
+    # frase longa NÃO é um simples ok: é correção → cérebro re-planeja
+    assert at.eh_confirmacao("não, faz no Firefox em vez do Chrome") is None
+    assert at.eh_confirmacao("na verdade abre o chromium") is None
+    assert at.eh_confirmacao("") is None

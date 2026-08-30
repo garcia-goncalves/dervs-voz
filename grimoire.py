@@ -246,6 +246,7 @@ class PopUp(QtWidgets.QWidget):
         self.plano = []                # passos aprovados pelo cérebro, esperando confirmação
         self.passo_i = 0               # qual passo do plano está na vez
         self._plano_local = False      # plano veio de atalho local? (não chama o cérebro no fim)
+        self._aguardando_ok = False    # plano montado, esperando o dono confirmar (voz/botão)
         self._2conf = False            # 2a confirmação pendente (trilho destrutivo)
         self._tarefa = None            # thread lógica em andamento (cérebro/execução)
         self._threads = []             # referência forte a TODA thread viva (senão o Qt aborta)
@@ -643,6 +644,8 @@ class PopUp(QtWidgets.QWidget):
         self.conversa = []
         self.plano = []; self.passo_i = 0
         self._auto_seguidos = 0
+        self._aguardando_ok = False
+        self._plano_local = False
         self.barra.hide()
         self._toast("limpo ✓")
 
@@ -668,6 +671,22 @@ class PopUp(QtWidgets.QWidget):
         texto = self.entrada.toPlainText().strip()
         if not texto or self._tarefa is not None:
             return
+        # ESPERANDO O OK DE UM PLANO? A fala curta é 'ok' (roda), 'não' (cancela),
+        # ou uma correção (frase maior → re-planeja com o cérebro).
+        if self._aguardando_ok:
+            resposta = atalhos.eh_confirmacao(texto)
+            if resposta == "sim":
+                self._diz("dono", texto); self.entrada.clear()
+                self.conversa.append({"papel": "dono", "texto": "(ok, pode executar)"})
+                self.confirmar_plano_ok()
+                return
+            if resposta == "nao":
+                self._diz("dono", texto); self.entrada.clear()
+                self.cancelar_plano()
+                return
+            # correção/novo pedido: larga o plano pendente e manda pro cérebro re-planejar
+            self._aguardando_ok = False
+            self.plano = []; self.barra.hide()
         self.conversa.append({"papel": "dono", "texto": texto})
         self._diz("dono", texto)
         self.entrada.clear()
@@ -725,9 +744,40 @@ class PopUp(QtWidgets.QWidget):
             self.plano = ficha["passos"]; self.passo_i = 0
             # plano de atalho local: roda os passos mas NÃO chama o cérebro no fim
             self._plano_local = ficha.get("local", False)
-            self._processar_passo()
+            # NÃO roda de cara: mostra o plano e espera o OK do dono (voz ou botão).
+            self._confirmar_plano()
 
-    # ---- passo a passo: reversível/muda-estado rodam sozinhos; só o perigoso pede OK ----
+    def _confirmar_plano(self):
+        """Mostra o plano inteiro e ESPERA o OK do dono (voz 'ok/pode/faz' ou
+        botão). Nada roda antes disso — é o fluxo assertivo que o dono pediu."""
+        if not self.plano:
+            return
+        self._aguardando_ok = True
+        cmds = [p.get("comando", "") for p in self.plano if p.get("comando")]
+        n = len(self.plano)
+        self.b_desc.setText("Vou fazer isto — dá um OK (ou diga 'ok') que eu executo:"
+                            if n == 1 else
+                            f"Vou fazer estes {n} passos — dá um OK (ou diga 'ok'):")
+        self.b_chip.setText("esperando seu OK")
+        self.b_chip.setStyleSheet(f"background:{ARCANE}; color:{INK};")
+        self.b_cmd.setText("  •  ".join(cmds))
+        self.b_auth.hide(); self.b_auth.setChecked(False)
+        self.b_confirmar.setText("Confirmar e rodar")
+        self.b_confirmar.setEnabled(True)
+        self.barra.show()
+        # a 'fala' do cérebro já disse o que vai fazer e pediu o OK; não repete voz aqui.
+
+    def confirmar_plano_ok(self):
+        """OK do dono ao plano inteiro: agora sim executa os passos."""
+        if not self._aguardando_ok:
+            return
+        self._aguardando_ok = False
+        self.barra.hide()
+        self.passo_i = 0
+        self._auto_seguidos = 0
+        self._processar_passo()
+
+    # ---- passo a passo: roda depois do OK do plano; destrutivo pede OK extra ----
     def _processar_passo(self):
         if self.passo_i >= len(self.plano):
             # acabou o plano
@@ -791,6 +841,10 @@ class PopUp(QtWidgets.QWidget):
         self.b_confirmar.setEnabled(pode)
 
     def confirmar_passo(self):
+        # se estamos esperando o OK do plano inteiro, é isso que o botão faz
+        if self._aguardando_ok:
+            self.confirmar_plano_ok()
+            return
         d = getattr(self, "_risco_atual", None)
         if not d:
             return
@@ -831,7 +885,11 @@ class PopUp(QtWidgets.QWidget):
 
     def cancelar_plano(self):
         self.plano = []; self.barra.hide()
+        self._aguardando_ok = False
+        self._plano_local = False
         self._diz("grimoire", "cancelado — nada foi executado.", cor=PARCH_DIM)
+        if self.voz.ligada:
+            self.voz.falar("Beleza, cancelei.")
         self.conversa.append({"papel": "dono", "texto": "(cancelei o plano)"})
 
     # ---- arrastar pelo cabecalho ----

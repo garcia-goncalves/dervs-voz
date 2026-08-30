@@ -171,6 +171,47 @@ def _casar_abrir(n: str) -> dict | None:
     return _ficha_abrir(comando, nome)
 
 
+# ---------------------------------------------------------------------------
+# Confirmação por voz — quando um plano está esperando o OK do dono.
+# ---------------------------------------------------------------------------
+_AFIRMA = {
+    "ok", "okay", "oquei", "okei", "sim", "pode", "faz", "faca", "manda",
+    "vai", "isso", "confirma", "confirmado", "confirmar", "positivo", "beleza",
+    "blz", "fechou", "bora", "vamos", "claro", "perfeito", "exato", "aham",
+    "certo", "correto", "roda", "executa", "manda ver", "pode ser", "pode sim",
+    "isso ai", "isso mesmo", "ta bom", "tá bom", "com certeza", "vai la", "manda bala",
+}
+_NEGA = {
+    "nao", "cancela", "cancelar", "cancelado", "deixa", "para", "pare", "esquece",
+    "negativo", "nem", "para nao", "melhor nao", "deixa pra la", "deixa quieto",
+    "nao precisa", "cancela isso", "para tudo",
+}
+
+
+def eh_confirmacao(texto: str) -> str | None:
+    """Numa frase CURTA, diz se o dono confirmou ('sim'), recusou ('nao') ou
+    nenhum dos dois (None → é uma correção/novo pedido, vai para o cérebro).
+
+    Conservador de propósito: só decide em frase curta (até 4 palavras). "Não,
+    faz no Firefox" tem mais de 4 palavras → None → o cérebro re-planeja."""
+    n = _norm(texto)
+    if not n:
+        return None
+    if n in _AFIRMA:
+        return "sim"
+    if n in _NEGA:
+        return "nao"
+    palavras = n.split()
+    if len(palavras) > 4:
+        return None  # frase longa = correção/instrução nova, não um simples ok
+    # começa com palavra de negação ("não", "cancela ...") pesa como recusa
+    if palavras[0] in {"nao", "cancela", "cancelar", "para", "pare", "esquece", "negativo"}:
+        return "nao"
+    if palavras[0] in _AFIRMA or n in _AFIRMA:
+        return "sim"
+    return None
+
+
 def tentar(fala: str, agora: datetime | None = None) -> dict | None:
     """Devolve a ficha pronta se a fala é trivial e conhecida; senão None.
 
