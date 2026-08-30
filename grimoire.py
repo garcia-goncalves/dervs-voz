@@ -23,6 +23,8 @@ import time
 import grimoire_safety as seg
 import grimoire_brain as brain
 import grimoire_exec as execu
+import grimoire_atalhos as atalhos
+import grimoire_config as cfg
 from grimoire_tts import Voz
 from grimoire_listen import Endpointer, salvar_wav, separar_chamada, FRAME_BYTES
 
@@ -222,9 +224,13 @@ class PopUp(QtWidgets.QWidget):
         self._confirma = 0
 
         # --- estado do Executar (a conversa) ---
+        # config do dono (~/.config/grimoire/config.json): voz, tempo até dormir
+        # e se os atalhos locais estão ligados. Cai no padrão se faltar/tortar.
+        cfg.garantir_arquivo()
+        self._conf = cfg.carregar()
         # Voz LIGADA por padrão (se o Piper/voz existirem): o dono ouve as
         # respostas sem precisar caçar botão. Desliga no botão se quiser silêncio.
-        self.voz = Voz(ligada=False)
+        self.voz = Voz(ligada=False, voz=self._conf["voz"])
         self.voz.ligada = self.voz.disponivel()
         self.escuta = None             # thread de escuta contínua (modo conversa)
         self._auto_submeter = False    # a próxima transcrição veio da conversa contínua?
@@ -233,7 +239,8 @@ class PopUp(QtWidgets.QWidget):
         self.MAX_FILA = 4              # guarda no máximo 4 — depois é conversa velha demais
         self._desperto = False         # já acordou pela palavra "Grimoire"?
         self._desperto_ate = 0.0       # até quando fica desperto sem repetir o nome
-        self.JANELA_DESPERTO = 20      # segundos que segue ouvindo depois de te atender
+        self.JANELA_DESPERTO = self._conf["janela_desperto_seg"]  # segs ouvindo após te atender
+        self._atalhos_ligados = self._conf["atalhos_ligados"]     # responder trivial sem o cérebro
         self.conversa = []             # transcript: [{papel, texto}]
         self.plano = []                # passos aprovados pelo cérebro, esperando confirmação
         self.passo_i = 0               # qual passo do plano está na vez
@@ -663,6 +670,14 @@ class PopUp(QtWidgets.QWidget):
         self._diz("dono", texto)
         self.entrada.clear()
         self._auto_seguidos = 0   # você falou: zera a trava anti-loop
+        # ATALHO LOCAL: se a fala é trivial e conhecida (hora, data, abrir app),
+        # responde na hora, sem os ~2,7 s do cérebro. Se não reconhece, cai no
+        # cérebro como sempre. É só otimização — nunca decide errado no lugar dele.
+        if self._atalhos_ligados:
+            ficha = atalhos.tentar(texto)
+            if ficha is not None:
+                self._cerebro_respondeu(ficha)
+                return
         self._pensar()
 
     def _registrar(self, t):
