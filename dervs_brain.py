@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire — o cérebro.
+"""DERVS — o cérebro.
 
 Conversa com o `claude` (que já está instalado e já obedece as regras desta
 máquina) e devolve uma FICHA estruturada, nunca prosa solta. É dessa ficha que
@@ -8,7 +8,7 @@ a tela monta a conversa e os cartões de confirmação.
 Duas regras que este módulo impõe ao Claude:
   1. Enquanto houver UMA dúvida, ele PERGUNTA — nunca planeja no escuro.
   2. Quando entende tudo, devolve um plano em passos, cada um com o comando
-     exato e o risco. Quem dá a palavra final sobre o risco é grimoire_safety.
+     exato e o risco. Quem dá a palavra final sobre o risco é dervs_safety.
 
 LATÊNCIA — por que existe a sessão persistente (o miolo deste arquivo):
 Antes, cada turno fazia um `subprocess.run` de um `claude -p` novo e pagava a
@@ -21,7 +21,7 @@ chama continua passando a conversa inteira; o segredo do daemon fica escondido
 aqui dentro.
 
 Robustez: se qualquer coisa do streaming falhar (cano quebrado, timeout, o
-daemon morreu), `pensar()` NÃO deixa o Grimoire mudo — ele mata a sessão e cai
+daemon morreu), `pensar()` NÃO deixa o DERVS mudo — ele mata a sessão e cai
 no modo antigo (um `claude -p` de uma tacada só) para aquele turno, e reinicia
 a sessão no turno seguinte.
 """
@@ -49,10 +49,10 @@ MODELO = "haiku"
 # --- cérebro na OpenAI (ultrarrápido e barato; pedido do dono) ---------------
 # Config decide: cerebro="openai" usa a OpenAI (gpt-4.1-nano por padrão, o mais
 # barato); "claude" usa o CLI local. Se escolher openai mas não houver chave ou
-# internet, CAI sozinho no Claude/local — nunca deixa o Grimoire mudo.
+# internet, CAI sozinho no Claude/local — nunca deixa o DERVS mudo.
 def _ler_config():
     try:
-        import grimoire_config as _cfg
+        import dervs_config as _cfg
         return _cfg.carregar()
     except Exception:
         return {}
@@ -80,11 +80,11 @@ OPENAI_MODELO = _conf.get("cerebro_openai_modelo", "gpt-4.1-nano")
 OPENAI_KEY = _carregar_chave_openai()
 
 # Liga/desliga a sessão persistente. Ligada por padrão (é o ganho de latência).
-# Pôr GRIMOIRE_BRAIN_STREAM=0 no ambiente força o modo antigo (um processo por
+# Pôr DERVS_BRAIN_STREAM=0 no ambiente força o modo antigo (um processo por
 # turno) — útil para depurar se o streaming der problema numa máquina.
-USAR_STREAM = os.environ.get("GRIMOIRE_BRAIN_STREAM", "1") != "0"
+USAR_STREAM = os.environ.get("DERVS_BRAIN_STREAM", "1") != "0"
 
-SISTEMA = """Você é o CÉREBRO do Grimoire, um parceiro de VOZ que roda na máquina \
+SISTEMA = """Você é o CÉREBRO do DERVS, um parceiro de VOZ que roda na máquina \
 Linux (Parrot, de segurança ofensiva autorizada) do dono. Você e ele conversam \
 como duas pessoas. Você responde em português do Brasil.
 
@@ -207,7 +207,7 @@ def montar_prompt(conversa: list) -> str:
     """Renderiza o transcript inteiro num texto para o Claude ler.
 
     'conversa' é uma lista de dicts {"papel","texto"} onde papel é um de:
-    'dono' (o que a pessoa falou), 'grimoire' (o que o cérebro respondeu),
+    'dono' (o que a pessoa falou), 'dervs' (o que o cérebro respondeu),
     'resultado' (a saída de um comando que já rodou)."""
     linhas = ["CONVERSA ATÉ AGORA:"]
     for msg in conversa:
@@ -217,7 +217,7 @@ def montar_prompt(conversa: list) -> str:
     return "\n".join(linhas)
 
 
-_ROTULOS = {"dono": "[dono]", "grimoire": "[grimoire]",
+_ROTULOS = {"dono": "[dono]", "dervs": "[dervs]",
             "resultado": "[resultado de um comando]"}
 
 
@@ -287,7 +287,7 @@ def _cmd_stream() -> list:
     o CLAUDE.md global (o perfil de segurança gigante), as memórias e as skills a
     CADA frase. MEDIDO: isso somava ~40 mil tokens de contexto, custava US$ 0,03
     por frase, subia o tempo até responder para ~8,5 s E SEQUESTRAVA o modelo — em
-    vez do JSON que o Grimoire espera, ele respondia prosa (o Grimoire ficava
+    vez do JSON que o DERVS espera, ele respondia prosa (o DERVS ficava
     mudo, 'nenhum JSON encontrado'). Com o contexto isolado: ~1,7 s, US$ 0,0075,
     e o JSON volta a sair certo. O cérebro tem o próprio `--system-prompt`; não
     precisa de NADA da config da máquina."""
@@ -401,7 +401,7 @@ class _Sessao:
             return montar_prompt(conversa), True
         novos = conversa[n:]
         # Só interessa reenviar o que o daemon ainda não viu: fala do dono e
-        # resultado de comando. As respostas do próprio grimoire ele já tem
+        # resultado de comando. As respostas do próprio dervs ele já tem
         # como saída dele mesmo — reenviar seria redundante.
         relevantes = [m for m in novos if m.get("papel") in ("dono", "resultado")]
         if not relevantes:
@@ -437,7 +437,7 @@ class _Sessao:
             return bruto
 
     def aquecer(self, timeout: float = 40.0):
-        """Sobe o processo `claude` adiantado (no boot do Grimoire), para o
+        """Sobe o processo `claude` adiantado (no boot do DERVS), para o
         interpretador Node já estar carregado quando o dono falar.
 
         Por que só spawn, sem 'ping' ao modelo: MEDIDO nesta máquina, mandar um
@@ -452,7 +452,7 @@ class _Sessao:
                 self._iniciar()
 
 
-# Instância única do daemon para todo o processo do Grimoire.
+# Instância única do daemon para todo o processo do DERVS.
 _sessao = _Sessao()
 
 
@@ -500,12 +500,12 @@ def _pensar_oneshot(conversa: list, timeout: int) -> dict:
 
 
 def _mensagens_openai(conversa: list) -> list:
-    """Converte a conversa do Grimoire no formato de mensagens da OpenAI."""
+    """Converte a conversa do DERVS no formato de mensagens da OpenAI."""
     msgs = [{"role": "system", "content": SISTEMA}]
     for m in conversa:
         papel = m.get("papel", "")
         texto = m.get("texto", "")
-        if papel == "grimoire":
+        if papel == "dervs":
             msgs.append({"role": "assistant", "content": texto})
         elif papel == "resultado":
             msgs.append({"role": "user", "content": "[resultado de um comando]\n" + texto})
@@ -518,7 +518,7 @@ def _mensagens_openai(conversa: list) -> list:
 
 def _pensar_openai(conversa: list, timeout: int) -> dict:
     """Cérebro na OpenAI (rápido e barato). response_format json_object força
-    JSON válido, então o Grimoire nunca fica mudo por resposta fora do formato."""
+    JSON válido, então o DERVS nunca fica mudo por resposta fora do formato."""
     body = json.dumps({
         "model": OPENAI_MODELO,
         "messages": _mensagens_openai(conversa),
@@ -541,7 +541,7 @@ def pensar(conversa: list, timeout: int = 120) -> dict:
 
     Ordem: OpenAI (se configurado e com chave) → Claude em sessão persistente →
     Claude oneshot. Cada camada cai na próxima se falhar, para NUNCA deixar o
-    Grimoire mudo."""
+    DERVS mudo."""
     if CEREBRO == "openai" and OPENAI_KEY:
         try:
             return _pensar_openai(conversa, timeout)
@@ -561,7 +561,7 @@ def pensar(conversa: list, timeout: int = 120) -> dict:
 
 
 if __name__ == "__main__":
-    # Teste manual: python3 grimoire_brain.py "abre o firefox"
+    # Teste manual: python3 dervs_brain.py "abre o firefox"
     import sys
     fala = sys.argv[1] if len(sys.argv) > 1 else "abre o firefox pra mim"
     print(json.dumps(pensar([{"papel": "dono", "texto": fala}]),

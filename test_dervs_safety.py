@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Testes da rede de segurança do Grimoire.
+"""Testes da rede de segurança do DERVS.
 
-Rodar: python -m pytest test_grimoire_safety.py -q
+Rodar: python -m pytest test_dervs_safety.py -q
 (Nesta máquina 'pytest' só responde por 'python -m pytest'.)
 
 O que estes testes protegem: a promessa central do produto — nada perigoso
 roda sem o trilho certo, e a máquina sempre pode SUBIR o risco que o Claude
 sugeriu, nunca descer.
 """
-from grimoire_safety import classificar_local, decidir_risco, _nivel_max
+from dervs_safety import classificar_local, decidir_risco, _nivel_max
 
 
 # --- a regra de ouro: a máquina sobe o risco, nunca desce ---------------------

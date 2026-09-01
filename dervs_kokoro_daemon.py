@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire Kokoro — daemon da voz humana e rápida (síntese frase a frase).
+"""DERVS Kokoro — daemon da voz humana e rápida (síntese frase a frase).
 
 Roda no ambiente isolado ~/voice/kokoro-venv (onde estão kokoro-onnx e
 soundfile). O Kokoro é um modelo aberto (82M, Apache-2.0) que gera voz bem mais
@@ -10,8 +10,8 @@ XTTS (humano, mas lento demais no CPU).
 Mesmo motivo de existir do daemon do Piper: carregar o modelo (~325 MB) custa
 alguns segundos; feito UMA vez aqui, cada fala depois paga só a síntese.
 
-Protocolo de linha, IGUAL ao do Piper (grimoire_piper_daemon.py) para o
-grimoire_tts.py falar com os dois do mesmo jeito:
+Protocolo de linha, IGUAL ao do Piper (dervs_piper_daemon.py) para o
+dervs_tts.py falar com os dois do mesmo jeito:
   - ao subir, carrega o modelo e imprime                 READY
   - recebe, por linha, um JSON:
         {"texto":"...", "voz":"pm_santa", "speed":1.0, "lang":"pt-br"}
@@ -49,7 +49,7 @@ def _frases(texto: str):
 
 def _gravar_wav(audio, sr: int) -> str:
     """Grava um trecho (uma frase) num wav int16 e devolve o caminho."""
-    tmp = tempfile.NamedTemporaryFile(prefix="grimoire_kokoro_", suffix=".wav", delete=False)
+    tmp = tempfile.NamedTemporaryFile(prefix="dervs_kokoro_", suffix=".wav", delete=False)
     caminho = tmp.name
     tmp.close()
     a = np.asarray(audio, dtype=np.float32)
@@ -70,7 +70,7 @@ def main() -> None:
     try:
         kokoro = Kokoro(MODELO, VOZES)
     except Exception as erro:
-        sys.stderr.write("grimoire_kokoro: falha ao carregar modelo (%s)\n" % erro)
+        sys.stderr.write("dervs_kokoro: falha ao carregar modelo (%s)\n" % erro)
         sys.stderr.flush()
         sys.stdout.write("ERRO carga do modelo: %s\n" % str(erro).replace("\n", " "))
         sys.stdout.flush()
@@ -99,7 +99,7 @@ def main() -> None:
                 sys.stdout.flush()    # manda JÁ, frase por frase
             sys.stdout.write("FIM\n")
         except Exception as erro:     # nunca derruba o daemon por uma fala ruim
-            sys.stderr.write("grimoire_kokoro: erro (%s)\n" % erro)
+            sys.stderr.write("dervs_kokoro: erro (%s)\n" % erro)
             sys.stderr.flush()
             sys.stdout.write("ERRO " + str(erro).replace("\n", " ") + "\n")
         sys.stdout.flush()

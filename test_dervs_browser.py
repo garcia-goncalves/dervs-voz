@@ -6,7 +6,7 @@ testa na máquina, à mão. Aqui cobrimos o que é função pura: montar o estad
 página para o modelo, normalizar a ação que ele devolve, reconhecer o erro de
 'Chrome já aberto', e o executor de UMA ação com uma página falsa (sem abrir
 navegador nenhum)."""
-import grimoire_browser as nav
+import dervs_browser as nav
 
 
 # --- montar_estado: vira texto compacto que o modelo lê -----------------------

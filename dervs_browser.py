@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire — o navegador autônomo.
+"""DERVS — o navegador autônomo.
 
 Recebe um OBJETIVO em português ("entra no meu Gmail e me diz quantos não lidos",
 "abre o YouTube e toca lo-fi") e o cumpre sozinho, num laço fechado:
@@ -22,14 +22,14 @@ aberto, o Playwright bate no cadeado do perfil e este módulo devolve um recado
 claro pedindo para fechar — nunca trava mudo.
 
 Autorização: esta máquina é laboratório do dono (Parrot), e ele autorizou por
-escrito o Grimoire a agir no Chrome dele, em todas as guias (ver a memória
-grimoire-autonomo-autorizacao). Por isso o laço age sem pedir licença a cada
+escrito o DERVS a agir no Chrome dele, em todas as guias (ver a memória
+dervs-autonomo-autorizacao). Por isso o laço age sem pedir licença a cada
 clique — a confirmação acontece UMA vez, quando o dono aprova o plano na tela.
 Mesmo assim há freios: um teto de passos, parada quando empaca, e recusa de
 digitar em campo de senha (login manual continua sendo do dono).
 
-Contrato com o resto do Grimoire: rodar_tarefa(objetivo) devolve o MESMO formato
-que grimoire_exec.rodar — {"codigo", "saida", "tipo"} — para a tela e o cérebro
+Contrato com o resto do DERVS: rodar_tarefa(objetivo) devolve o MESMO formato
+que dervs_exec.rodar — {"codigo", "saida", "tipo"} — para a tela e o cérebro
 tratarem o resultado como o de qualquer outro passo.
 """
 import os
@@ -39,11 +39,11 @@ import urllib.request
 import urllib.error
 
 # ---------------------------------------------------------------------------
-# Config e chave (os mesmos do resto do Grimoire, lidos de forma tolerante).
+# Config e chave (os mesmos do resto do DERVS, lidos de forma tolerante).
 # ---------------------------------------------------------------------------
 def _ler_config() -> dict:
     try:
-        import grimoire_config as _cfg
+        import dervs_config as _cfg
         return _cfg.carregar()
     except Exception:
         return {}
@@ -77,7 +77,7 @@ NAV_MODELO = _conf.get("navegador_modelo") or _conf.get(
 MAX_ELEMENTOS = 60      # teto de elementos por página no prompt (mantém barato)
 TIMEOUT_ACAO_MS = 8000  # quanto esperar um clique/campo aparecer
 
-# Python da venv onde o Playwright mora. O app do Grimoire roda no python do
+# Python da venv onde o Playwright mora. O app do DERVS roda no python do
 # sistema (que tem o PyQt6 mas NÃO o Playwright, que é pesado e fica isolado),
 # então a tarefa de navegador roda como PROCESSO À PARTE nesta venv — igual ao
 # Whisper e à voz. Marcador na saída para separar o JSON do resultado de

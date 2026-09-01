@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire — rede de segurança local.
+"""DERVS — rede de segurança local.
 
 Esta é a peça que dá a PALAVRA FINAL sobre o risco de um comando. O cérebro
 (Claude) sugere um nível de risco; aqui a máquina confere e pode SUBIR esse
@@ -61,7 +61,7 @@ _DESTRUTIVOS = [
 ]
 
 # --- ferramentas/ações que TOCAM UM ALVO DE REDE: pedem autorização ------------
-# Se aparece qualquer uma, o trilho vira destrutivo E o Grimoire pergunta se é
+# Se aparece qualquer uma, o trilho vira destrutivo E o DERVS pergunta se é
 # laboratório/alvo próprio ou se há autorização por escrito (regra 0 da casa).
 _FERRAMENTAS_ALVO = [
     r"\bnmap\b", r"\bmasscan\b", r"\bnaabu\b", r"\brustscan\b", r"\bzmap\b",
@@ -166,7 +166,7 @@ def decidir_risco(comando: str, risco_do_claude: str = "reversivel") -> dict:
 
 
 if __name__ == "__main__":
-    # Demonstração rápida no terminal: python3 grimoire_safety.py
+    # Demonstração rápida no terminal: python3 dervs_safety.py
     for c in ["ls -la", "pip install requests", "rm -rf /home/user/x",
               "nmap -sV 10.0.0.5", "wifite --kill", "echo oi"]:
         print(f"{c!r:40} -> {decidir_risco(c)}")

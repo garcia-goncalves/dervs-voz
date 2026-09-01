@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Grimoire — a voz (falar em português, offline).
+"""DERVS — a voz (falar em português, offline).
 
 Dois motores:
-  - "piper" → PADRÃO. Voz sintética, mas rápida: um daemon (grimoire_piper_daemon.py,
+  - "piper" → PADRÃO. Voz sintética, mas rápida: um daemon (dervs_piper_daemon.py,
               na venv tts-venv) carrega o modelo .onnx uma vez só e fica vivo; cada
               fala paga só o tempo de síntese (dezenas de ms por frase), não o
               recarregamento do modelo (~0,7 s). O texto é falado FRASE POR FRASE —
               a primeira frase começa a tocar enquanto o daemon ainda gera a
               segunda — para o "tempo até o primeiro som" ficar bem abaixo de 1 s.
-  - "xtts"  → voz humana (Coqui XTTS v2), via daemon próprio (grimoire_tts_daemon.py,
+  - "xtts"  → voz humana (Coqui XTTS v2), via daemon próprio (dervs_tts_daemon.py,
               na venv xtts-venv). Muito mais natural, porém ~7 s por frase — o dono
               decidiu que isso é lento demais para conversar, então deixou de ser o
               padrão. Continua disponível para quem preferir naturalidade a velocidade.
@@ -32,7 +32,7 @@ VOICE_DIR = f"{HOME}/voice"
 
 # --- Piper (rápido, padrão) ---
 PIPER_PY = f"{VOICE_DIR}/tts-venv/bin/python"
-PIPER_DAEMON = f"{VOICE_DIR}/grimoire_piper_daemon.py"
+PIPER_DAEMON = f"{VOICE_DIR}/dervs_piper_daemon.py"
 VOZES_DIR = f"{VOICE_DIR}/piper-voices"
 VOZ_PADRAO = "jeff"             # faber / cadu / jeff — ver escolha no relatório da tarefa
 # length_scale < 1 fala mais rápido (1.0 = padrão do modelo). 0.95 deixa a
@@ -44,7 +44,7 @@ SILENCIO_FRASE = "0.35"          # só usado no modo de reserva (sem daemon)
 
 # --- Kokoro (humano E rápido, padrão novo) ---
 KOKORO_PY = f"{VOICE_DIR}/kokoro-venv/bin/python"
-KOKORO_DAEMON = f"{VOICE_DIR}/grimoire_kokoro_daemon.py"
+KOKORO_DAEMON = f"{VOICE_DIR}/dervs_kokoro_daemon.py"
 KOKORO_MODELO = f"{VOICE_DIR}/kokoro-model/kokoro-v1.0.onnx"
 VOZ_KOKORO_PADRAO = "pm_santa"   # masculina grave (feiticeiro)
 KOKORO_SPEED = 1.15              # 1.0 = natural; 1.15 = mais ágil, ainda claro (pedido do dono)
@@ -52,7 +52,7 @@ KOKORO_LANG = "pt-br"
 
 # --- XTTS (humano, opcional) ---
 XTTS_PY = f"{VOICE_DIR}/xtts-venv/bin/python"
-XTTS_DAEMON = f"{VOICE_DIR}/grimoire_tts_daemon.py"
+XTTS_DAEMON = f"{VOICE_DIR}/dervs_tts_daemon.py"
 
 # Motor padrão: Kokoro — humano E rápido no CPU (~0,6 s até o 1º som quente),
 # o meio-termo que faltava entre Piper (robótico) e XTTS (lento). Cai no Piper
@@ -368,7 +368,7 @@ class Voz:
 
     # ---- síntese Piper direta (reserva — sem daemon, um processo por fala) ----
     def _sintetizar_piper_direto(self, texto):
-        tmp = tempfile.NamedTemporaryFile(prefix="grimoire_voz_", suffix=".wav", delete=False)
+        tmp = tempfile.NamedTemporaryFile(prefix="dervs_voz_", suffix=".wav", delete=False)
         wav = tmp.name; tmp.close()
         with self._lock:
             self._synth = subprocess.Popen(
@@ -448,7 +448,7 @@ if __name__ == "__main__":
     v = Voz(ligada=True, motor=motor)
     if not v.disponivel():
         print("voz indisponível"); sys.exit(1)
-    frase = sys.argv[1] if len(sys.argv) > 1 else "Olá, eu sou o Grimoire. Estou aqui pra te ajudar."
+    frase = sys.argv[1] if len(sys.argv) > 1 else "Olá, eu sou o DERVS. Estou aqui pra te ajudar."
     print(f"motor={motor} — falando: {frase!r}")
     t = time.time()
     v._falar_bloqueante(frase)

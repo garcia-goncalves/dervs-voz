@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Grimoire Piper — daemon da voz rápida (síntese frase a frase).
+"""DERVS Piper — daemon da voz rápida (síntese frase a frase).
 
 Roda no ambiente isolado ~/voice/tts-venv (onde o pacote "piper-tts" está
-instalado — o venv principal do Grimoire não tem onnxruntime).
+instalado — o venv principal do DERVS não tem onnxruntime).
 
 O motivo de existir: gerar a fala pelo Piper na linha de comando (um processo
 novo por frase) mede ~0,7 s SÓ para o processo subir e carregar o modelo .onnx
 — antes mesmo de sintetizar qualquer coisa. Este daemon carrega o modelo UMA
-vez e fica vivo, então esse custo é pago só na inicialização do Grimoire; cada
+vez e fica vivo, então esse custo é pago só na inicialização do DERVS; cada
 fala depois disso paga só o tempo de síntese em si (dezenas de ms por frase).
 
 Devolve o áudio FRASE POR FRASE — o método `PiperVoice.synthesize()` já separa
@@ -15,7 +15,7 @@ o texto em sentenças e gera uma de cada vez — para quem chama poder tocar a
 primeira frase enquanto este daemon ainda gera a segunda (é isso que derruba o
 "tempo até o primeiro som" num texto longo).
 
-Protocolo de linha, no mesmo espírito do daemon do XTTS (grimoire_tts_daemon.py):
+Protocolo de linha, no mesmo espírito do daemon do XTTS (dervs_tts_daemon.py):
   - ao subir, carrega o modelo padrão (argv[1], se vier) e imprime      READY
   - recebe, por linha, um JSON:
         {"texto": "...", "modelo": "/caminho/voz.onnx",
@@ -30,7 +30,7 @@ Protocolo de linha, no mesmo espírito do daemon do XTTS (grimoire_tts_daemon.py
 Importante: mesmo se quem chamou perder o interesse na fala no meio do caminho
 (barge-in), ele PRECISA continuar lendo as linhas até o FIM antes de mandar o
 próximo pedido — senão a resposta de um pedido velho se mistura com a do novo.
-Isso é responsabilidade de quem lê (grimoire_tts.py), não deste daemon.
+Isso é responsabilidade de quem lê (dervs_tts.py), não deste daemon.
 """
 import os
 import sys
@@ -59,7 +59,7 @@ def _carregar(caminho: str) -> PiperVoice:
 
 def _gravar_wav(chunk) -> str:
     """Grava um pedaço de áudio (uma frase) num wav próprio e devolve o caminho."""
-    tmp = tempfile.NamedTemporaryFile(prefix="grimoire_piper_", suffix=".wav", delete=False)
+    tmp = tempfile.NamedTemporaryFile(prefix="dervs_piper_", suffix=".wav", delete=False)
     caminho = tmp.name
     tmp.close()
     amostras = chunk.audio_int16_array
@@ -81,7 +81,7 @@ def main() -> None:
         try:
             _carregar(modelo_padrao)   # aquece já na subida — some o custo depois
         except Exception as erro:
-            sys.stderr.write("grimoire_piper: falha ao carregar %s (%s)\n" % (modelo_padrao, erro))
+            sys.stderr.write("dervs_piper: falha ao carregar %s (%s)\n" % (modelo_padrao, erro))
             sys.stderr.flush()
 
     sys.stdout.write("READY\n")
@@ -111,7 +111,7 @@ def main() -> None:
                 sys.stdout.flush()    # manda JÁ, frase por frase — não junta tudo
             sys.stdout.write("FIM\n")
         except Exception as erro:     # nunca derruba o daemon por uma fala ruim
-            sys.stderr.write("grimoire_piper: erro (%s)\n" % erro)
+            sys.stderr.write("dervs_piper: erro (%s)\n" % erro)
             sys.stderr.flush()
             sys.stdout.write("ERRO " + str(erro).replace("\n", " ") + "\n")
         sys.stdout.flush()

@@ -6,7 +6,7 @@ prova na máquina, à mão. Aqui cobrimos o que é função pura: validar domín
 agregar eventos NDJSON do bbot, resumir, e a diferença passivo/ativo no comando
 (que é a trava de LEI — passivo nunca pode virar ativo por acidente)."""
 import json
-import grimoire_enrich as en
+import dervs_enrich as en
 
 
 # --- dominio_valido: barra lixo de transcrição ------------------------------

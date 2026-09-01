@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire — atalhos locais para o trivial.
+"""DERVS — atalhos locais para o trivial.
 
 Algumas perguntas não precisam do cérebro (o Claude): que horas são, que dia é
 hoje, abrir um app. O cérebro custa ~2,7 s por turno; aqui a resposta sai em
@@ -13,7 +13,7 @@ CONTRATO: `tentar(fala)` devolve uma FICHA no MESMO formato de brain.pensar()
 REGRA DE OURO: na dúvida, devolve None. Um atalho é uma OTIMIZAÇÃO, nunca uma
 fonte de erro — melhor o cérebro pensar 2,7 s do que o atalho responder errado.
 Por isso o casamento é conservador e a lista de apps é curada (só o que existe
-nesta máquina e abre solto pelo grimoire_exec).
+nesta máquina e abre solto pelo dervs_exec).
 """
 import re
 import shutil
@@ -139,7 +139,7 @@ def _ficha_conversar(fala: str) -> dict:
 def _ficha_abrir(comando: str, nome: str) -> dict:
     return {
         "modo": "planejar",
-        # "local": este plano já resolve tudo aqui — o Grimoire NÃO precisa
+        # "local": este plano já resolve tudo aqui — o DERVS NÃO precisa
         # chamar o cérebro depois de rodá-lo (economiza ~2,7 s e uma chamada).
         "local": True,
         "fala": f"Beleza, abrindo {nome}.",

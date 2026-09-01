@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Grimoire — configuração editável pelo dono, sem tocar no código.
+"""DERVS — configuração editável pelo dono, sem tocar no código.
 
-Um único arquivo JSON em ~/.config/grimoire/config.json. O app lê ao ligar e
+Um único arquivo JSON em ~/.config/dervs/config.json. O app lê ao ligar e
 completa com valores-padrão tudo que faltar — então o arquivo pode ter só o que
-você quer mudar, e o Grimoire nunca quebra por causa de config torta (config
+você quer mudar, e o DERVS nunca quebra por causa de config torta (config
 ilegível cai no padrão em silêncio, não derruba a voz).
 
 Cada chave está documentada no PADRAO abaixo; é ele que vira o arquivo de
@@ -12,13 +12,13 @@ exemplo em `garantir_arquivo()`.
 import os
 import json
 
-CONFIG_DIR = os.path.expanduser("~/.config/grimoire")
+CONFIG_DIR = os.path.expanduser("~/.config/dervs")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 # Valores de fábrica. Editar o config.json sobrescreve só o que você mudar.
 PADRAO = {
-    # Segundos que o Grimoire segue ouvindo depois de te atender, SEM você
-    # repetir "Grimoire". Passado isso ele "dorme" e só acorda no nome de novo.
+    # Segundos que o DERVS segue ouvindo depois de te atender, SEM você
+    # repetir "DERVS". Passado isso ele "dorme" e só acorda no nome de novo.
     # Suba para conversar mais tempo à vontade; desça para ele dormir mais rápido.
     "janela_desperto_seg": 20,
 
@@ -52,7 +52,7 @@ PADRAO = {
     # Voz do Piper (quando motor="piper"): "jeff", "cadu" ou "faber".
     "voz": "jeff",
 
-    # --- Navegador autônomo (o Grimoire clica/digita sozinho no seu Chrome) ---
+    # --- Navegador autônomo (o DERVS clica/digita sozinho no seu Chrome) ---
     # Liga o recurso. Com true, o cérebro pode propor um passo do tipo
     # "navegador" quando você pede algo DENTRO de uma página ("entra no Gmail e
     # me diz os não lidos"). ATENÇÃO: enquanto ele trabalha, seu Chrome do dia a
@@ -73,7 +73,7 @@ PADRAO = {
 
 def _validar(conf: dict) -> dict:
     """Conserta valores fora do razoável sem quebrar — a config é do dono, mas
-    um número absurdo não pode deixar o Grimoire inutilizável."""
+    um número absurdo não pode deixar o DERVS inutilizável."""
     try:
         j = int(conf["janela_desperto_seg"])
         conf["janela_desperto_seg"] = min(max(j, 3), 3600)  # entre 3 s e 1 h
@@ -128,7 +128,7 @@ def carregar() -> dict:
 def garantir_arquivo() -> str | None:
     """Cria o config.json com os valores-padrão se ele ainda não existe, para o
     dono ter um arquivo pronto para editar. Devolve o caminho, ou None se não
-    deu para criar (nunca quebra o Grimoire por isso)."""
+    deu para criar (nunca quebra o DERVS por isso)."""
     if os.path.exists(CONFIG_PATH):
         return CONFIG_PATH
     try:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire STT — o 'ouvido' que fica ligado esperando fala.
+"""DERVS STT — o 'ouvido' que fica ligado esperando fala.
 
 Roda no ambiente isolado ~/voice/whisper-venv (que tem o faster-whisper).
 
@@ -26,18 +26,18 @@ import urllib.error
 
 COLA = (
     "Transcrição em português do Brasil, com acentuação e pontuação corretas. "
-    "É uma pessoa falando com um assistente de voz chamado Grimoire. Frases "
-    "típicas: 'Grimoire, que horas são?', 'Grimoire, que dia é hoje?', 'abre o "
+    "É uma pessoa falando com um assistente de voz chamado DERVS. Frases "
+    "típicas: 'DERVS, que horas são?', 'DERVS, que dia é hoje?', 'abre o "
     "Firefox', 'lista os arquivos', 'abre o ChatGPT', 'roda o nmap no alvo'. "
     "Vocabulário comum: e-mail, WhatsApp, site, aplicativo, ChatGPT, navegador, "
-    "OSINT, subdomínio, domínio, DNS, certificado, vulnerabilidade, Grimoire, "
+    "OSINT, subdomínio, domínio, DNS, certificado, vulnerabilidade, DERVS, "
     "Parrot. Números como 2026, R$ 1.500,00 e 10%."
 )
 
 
 def _ler_config():
     try:
-        import grimoire_config as _cfg
+        import dervs_config as _cfg
         return _cfg.carregar()
     except Exception:
         return {}
@@ -90,7 +90,7 @@ def _transcrever_openai(caminho: str) -> str:
     (o chamador cai no local)."""
     with open(caminho, "rb") as f:
         audio = f.read()
-    boundary = "----grimoire" + uuid.uuid4().hex
+    boundary = "----dervs" + uuid.uuid4().hex
     campos = {"model": STT_MODELO, "language": "pt", "response_format": "text",
               "prompt": COLA}
     partes = []
@@ -117,7 +117,7 @@ def _transcrever(caminho: str) -> str:
         try:
             return _transcrever_openai(caminho)
         except Exception as erro:
-            sys.stderr.write("grimoire_stt: OpenAI falhou (%s), caindo no local\n" % erro)
+            sys.stderr.write("dervs_stt: OpenAI falhou (%s), caindo no local\n" % erro)
             sys.stderr.flush()
     return _transcrever_local(caminho)
 
@@ -143,7 +143,7 @@ def main() -> None:
             texto = _transcrever(caminho)
         except Exception as erro:  # nunca derruba o daemon por um áudio ruim
             texto = ""
-            sys.stderr.write("grimoire_stt: erro ao transcrever %s (%s)\n" % (caminho, erro))
+            sys.stderr.write("dervs_stt: erro ao transcrever %s (%s)\n" % (caminho, erro))
             sys.stderr.flush()
         sys.stdout.write("RESULT " + json.dumps(texto, ensure_ascii=True) + "\n")
         sys.stdout.flush()

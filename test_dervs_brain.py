@@ -2,11 +2,11 @@
 """Testes das partes puras do cérebro e da lógica da sessão persistente.
 
 Nenhum teste aqui chama o `claude` de verdade — a parte que conversa com o
-modelo é isolada com dublês. Rodar: python -m pytest test_grimoire_brain.py -q
+modelo é isolada com dublês. Rodar: python -m pytest test_dervs_brain.py -q
 """
 import pytest
-import grimoire_brain as gb
-from grimoire_brain import _extrair_json, _normalizar, montar_prompt, _Sessao
+import dervs_brain as gb
+from dervs_brain import _extrair_json, _normalizar, montar_prompt, _Sessao
 
 
 def test_extrai_json_limpo():
@@ -73,12 +73,12 @@ def test_normalizar_sem_modo_vira_conversar():
 def test_montar_prompt_inclui_papeis():
     conversa = [
         {"papel": "dono", "texto": "abre o firefox"},
-        {"papel": "grimoire", "texto": "qual site?"},
+        {"papel": "dervs", "texto": "qual site?"},
         {"papel": "resultado", "texto": "exit 0"},
     ]
     p = montar_prompt(conversa)
     assert "[dono] abre o firefox" in p
-    assert "[grimoire] qual site?" in p
+    assert "[dervs] qual site?" in p
     assert "[resultado de um comando] exit 0" in p
 
 
@@ -94,21 +94,21 @@ def test_delta_sessao_fria_manda_a_conversa_inteira():
     assert "que horas são?" in texto
 
 
-def test_delta_continuacao_manda_so_o_novo_e_pula_grimoire():
+def test_delta_continuacao_manda_so_o_novo_e_pula_dervs():
     """Depois de um turno, só o dado NOVO do dono/resultado vai — a resposta
-    do próprio grimoire NÃO é reenviada (o daemon já a tem)."""
+    do próprio dervs NÃO é reenviada (o daemon já a tem)."""
     s = _Sessao()
     conversa1 = [{"papel": "dono", "texto": "que horas são?"}]
     # simula que o turno 1 já foi entregue ao daemon
     s._enviada = [(m["papel"], m["texto"]) for m in conversa1]
     conversa2 = conversa1 + [
-        {"papel": "grimoire", "texto": "São três e meia."},
+        {"papel": "dervs", "texto": "São três e meia."},
         {"papel": "dono", "texto": "e a data?"},
     ]
     texto, reiniciar = s._delta(conversa2)
     assert reiniciar is False
     assert "e a data?" in texto
-    assert "São três e meia" not in texto   # resposta do grimoire não reenviada
+    assert "São três e meia" not in texto   # resposta do dervs não reenviada
     assert "que horas são?" not in texto     # turno velho não reenviado
 
 
@@ -127,7 +127,7 @@ def test_delta_resultado_de_comando_eh_reenviado():
     conversa1 = [{"papel": "dono", "texto": "lista os arquivos"}]
     s._enviada = [(m["papel"], m["texto"]) for m in conversa1]
     conversa2 = conversa1 + [
-        {"papel": "grimoire", "texto": "Já listo."},
+        {"papel": "dervs", "texto": "Já listo."},
         {"papel": "resultado", "texto": "a.txt b.txt c.txt"},
     ]
     texto, reiniciar = s._delta(conversa2)
@@ -168,7 +168,7 @@ def test_pensar_cai_no_fallback_quando_streaming_falha(monkeypatch):
 
 
 def test_pensar_stream_desligado_vai_direto_no_oneshot(monkeypatch):
-    """Com GRIMOIRE_BRAIN_STREAM=0 o streaming nem é tentado."""
+    """Com DERVS_BRAIN_STREAM=0 o streaming nem é tentado."""
     monkeypatch.setattr(gb, "CEREBRO", "claude")  # testa o caminho do Claude, não a OpenAI
     monkeypatch.setattr(gb, "USAR_STREAM", False)
     monkeypatch.setattr(gb, "_pensar_oneshot",

@@ -5,7 +5,7 @@ O que mais importa aqui NÃO é acertar a hora — é NÃO disparar em frase que
 cérebro deveria pensar. Um atalho que responde errado no lugar do cérebro é
 pior que atalho nenhum. Por isso metade dos testes é de negativa."""
 from datetime import datetime
-import grimoire_atalhos as at
+import dervs_atalhos as at
 
 
 # ---- hora por extenso ----

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Testes da config: garante que valor torto nunca quebra o Grimoire e que as
+"""Testes da config: garante que valor torto nunca quebra o DERVS e que as
 chaves do navegador autônomo têm padrão e limite sãos."""
-import grimoire_config as cfg
+import dervs_config as cfg
 
 
 def test_padrao_completo_carrega():

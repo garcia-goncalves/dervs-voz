@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire — conferir se o microfone está bom para ele te ouvir.
+"""DERVS — conferir se o microfone está bom para ele te ouvir.
 
 Guia por BIPE, não por texto: rodando pelo `!` da conversa a tela só aparece no
 fim, e você não veria a hora de falar. Então:
@@ -21,7 +21,7 @@ import sys
 import wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from grimoire_listen import Endpointer, rms, salvar_wav, FRAME_BYTES  # noqa: E402
+from dervs_listen import Endpointer, rms, salvar_wav, FRAME_BYTES  # noqa: E402
 
 SEGUNDOS_FALA = 12
 SEGUNDOS_SIL = 3
@@ -39,7 +39,7 @@ def bipe(freq=880, ms=180, volume=0.35):
         "h", [int(volume * 22000 * math.sin(2 * math.pi * freq * i / taxa)
                   * min(1.0, min(i, n - i) / 200.0))      # sobe/desce suave: sem estalo
               for i in range(n)])
-    caminho = "/tmp/grimoire_bipe.wav"
+    caminho = "/tmp/dervs_bipe.wav"
     with wave.open(caminho, "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(taxa)
         w.writeframes(amostras.tobytes())
@@ -157,7 +157,7 @@ def main():
     print()
     print("BARULHO DA SALA (você calado)   típico %6.0f   pico %6.0f" % (ruido_tipico, ruido_pico))
     print("SUA VOZ (parte alta da fala)    típico %6.0f   pico %6.0f" % (voz_tipica, voz_pico))
-    print("LINHA DE CORTE do Grimoire      %6.0f" % limiar)
+    print("LINHA DE CORTE do DERVS      %6.0f" % limiar)
     print()
 
     # 1) O sinal está estourando? Áudio estourado é áudio distorcido — o Whisper
@@ -203,7 +203,7 @@ def main():
         print("      amixer -c %s -q sset 'Front Mic Boost' %d" % (PLACA, b))
         print("      amixer -c %s -q sset Capture %d" % (PLACA, c))
         print("    para valer sempre, troque os dois ExecStartPre em")
-        print("      ~/.config/systemd/user/grimoire.service")
+        print("      ~/.config/systemd/user/dervs.service")
     print()
 
     print("=" * 64)
@@ -223,14 +223,14 @@ def main():
     sys.stdout.flush()
     m = WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")
     for n, pcm in enumerate(frases, 1):
-        caminho = "/tmp/grimoire_calib_%d.wav" % n
+        caminho = "/tmp/dervs_calib_%d.wav" % n
         salvar_wav(pcm, caminho)
         segs, _ = m.transcribe(caminho, language="pt", vad_filter=True, beam_size=5,
                                condition_on_previous_text=False)
         texto = "".join(s.text for s in segs).strip()
         print("  frase %d (%.1fs): %s" % (n, len(pcm) / 32000, texto or "(vazio — era ruído)"))
     print("\nSe cada frase saiu inteira e certa, o ouvido está bom.")
-    print("Guardei os arquivos em /tmp/grimoire_calib_*.wav.")
+    print("Guardei os arquivos em /tmp/dervs_calib_*.wav.")
 
 
 if __name__ == "__main__":

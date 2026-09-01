@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire — companheiro de voz do assistente.
+"""DERVS — companheiro de voz do assistente.
 
 Um selo flutuante embaixo da tela. Clique nele e abre um pop-up no centro:
 Gravar/Parar, um campo que recebe o texto da sua fala, e três ações — Copiar,
@@ -20,15 +20,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 import time
-import grimoire_safety as seg
-import grimoire_brain as brain
-import grimoire_exec as execu
-import grimoire_browser as navegador
-import grimoire_enrich as enriquecimento
-import grimoire_atalhos as atalhos
-import grimoire_config as cfg
-from grimoire_tts import Voz
-from grimoire_listen import Endpointer, salvar_wav, separar_chamada, FRAME_BYTES
+import dervs_safety as seg
+import dervs_brain as brain
+import dervs_exec as execu
+import dervs_browser as navegador
+import dervs_enrich as enriquecimento
+import dervs_atalhos as atalhos
+import dervs_config as cfg
+from dervs_tts import Voz
+from dervs_listen import Endpointer, salvar_wav, separar_chamada, FRAME_BYTES
 
 HOME = os.path.expanduser("~")
 
@@ -40,8 +40,8 @@ MODEL     = f"{VOICE_DIR}/model"
 
 # --- motor de voz novo: Whisper large-v3-turbo via faster-whisper ---
 STT_PY    = f"{VOICE_DIR}/whisper-venv/bin/python"   # python do ambiente isolado do Whisper
-STT_DMN   = f"{VOICE_DIR}/grimoire_stt_daemon.py"    # cérebro que fica carregado esperando fala
-REC_WAV   = "/tmp/grimoire_rec.wav"                  # onde a gravação é salva antes de transcrever
+STT_DMN   = f"{VOICE_DIR}/dervs_stt_daemon.py"    # cérebro que fica carregado esperando fala
+REC_WAV   = "/tmp/dervs_rec.wav"                  # onde a gravação é salva antes de transcrever
 
 # --- paleta Grimorio Arcano (valores do globals.css do produto) ---
 INK      = "#07080e"   # fundo mais fundo
@@ -81,7 +81,7 @@ def gravando() -> bool:
 
 
 def _selo(px: int = 44, aceso: bool = False) -> QtGui.QPixmap:
-    """O selo do Grimoire: losango (grimorio fechado) + faceta dourada + um raio
+    """O selo do DERVS: losango (grimorio fechado) + faceta dourada + um raio
     curto que termina num ponto aceso (o achado). 'aceso' = gravando (ponto brilha)."""
     pm = QtGui.QPixmap(px, px); pm.fill(QtCore.Qt.GlobalColor.transparent)
     p = QtGui.QPainter(pm); p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
@@ -139,7 +139,7 @@ class Tarefa(QtCore.QThread):
 class Escuta(QtCore.QThread):
     """Escuta o microfone o tempo todo e, quando você termina uma frase, avisa
     (emite o caminho de um .wav pronto para transcrever). É o que permite
-    conversar sem clicar em Gravar/Parar. Enquanto o Grimoire fala ou trabalha,
+    conversar sem clicar em Gravar/Parar. Enquanto o DERVS fala ou trabalha,
     fica 'pausado' — para não escutar a própria voz nem atropelar."""
     fala = QtCore.pyqtSignal(str)
 
@@ -159,7 +159,7 @@ class Escuta(QtCore.QThread):
                     ["arecord", "-q", "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "raw"],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             except Exception as e:
-                sys.stderr.write("grimoire: não consegui abrir o microfone (%s)\n" % e)
+                sys.stderr.write("dervs: não consegui abrir o microfone (%s)\n" % e)
                 sys.stderr.flush()
                 return
             try:
@@ -178,7 +178,7 @@ class Escuta(QtCore.QThread):
                     estava_pausado = False
                     pcm = ep.processar(frame)
                     if pcm:
-                        caminho = "/tmp/grimoire_fala_%d.wav" % int(time.time() * 1000)
+                        caminho = "/tmp/dervs_fala_%d.wav" % int(time.time() * 1000)
                         salvar_wav(pcm, caminho)
                         self.fala.emit(caminho)
             finally:
@@ -194,7 +194,7 @@ class Escuta(QtCore.QThread):
             if self._rodando:
                 # o microfone caiu sozinho (troca de dispositivo, pipewire reiniciou):
                 # religa em vez de ficar surdo para sempre, como acontecia antes.
-                sys.stderr.write("grimoire: microfone caiu, religando em 1s %s\n"
+                sys.stderr.write("dervs: microfone caiu, religando em 1s %s\n"
                                  % erro.decode("utf-8", "replace").strip()[:200])
                 sys.stderr.flush()
                 time.sleep(1.0)
@@ -214,7 +214,7 @@ class PopUp(QtWidgets.QWidget):
     """Janela central: gravar, conversa, e as três ações (copiar/enviar/executar)."""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Grimoire")
+        self.setWindowTitle("DERVS")
         self.setWindowFlags(QtCore.Qt.WindowType.Window
                             | QtCore.Qt.WindowType.FramelessWindowHint
                             | QtCore.Qt.WindowType.WindowStaysOnTopHint)
@@ -226,7 +226,7 @@ class PopUp(QtWidgets.QWidget):
         self._confirma = 0
 
         # --- estado do Executar (a conversa) ---
-        # config do dono (~/.config/grimoire/config.json): voz, tempo até dormir
+        # config do dono (~/.config/dervs/config.json): voz, tempo até dormir
         # e se os atalhos locais estão ligados. Cai no padrão se faltar/tortar.
         cfg.garantir_arquivo()
         self._conf = cfg.carregar()
@@ -240,7 +240,7 @@ class PopUp(QtWidgets.QWidget):
         self._transcrevendo = False    # esperando o Whisper terminar uma frase da conversa
         self._fila_fala = []           # frases que chegaram enquanto ele estava ocupado
         self.MAX_FILA = 4              # guarda no máximo 4 — depois é conversa velha demais
-        self._desperto = False         # já acordou pela palavra "Grimoire"?
+        self._desperto = False         # já acordou pela palavra "DERVS"?
         self._desperto_ate = 0.0       # até quando fica desperto sem repetir o nome
         self.JANELA_DESPERTO = self._conf["janela_desperto_seg"]  # segs ouvindo após te atender
         self._atalhos_ligados = self._conf["atalhos_ligados"]     # responder trivial sem o cérebro
@@ -278,16 +278,16 @@ class PopUp(QtWidgets.QWidget):
         # cabecalho
         top = QtWidgets.QHBoxLayout()
         self.selo = QtWidgets.QLabel(); self.selo.setPixmap(_selo(26)); self.selo.setFixedSize(26,26)
-        titulo = QtWidgets.QLabel("Grimoire"); titulo.setObjectName("titulo")
+        titulo = QtWidgets.QLabel("DERVS"); titulo.setObjectName("titulo")
         self.status = QtWidgets.QLabel("pronto"); self.status.setObjectName("status")
         # Dois interruptores que ACENDEM (dourado) quando ligados — sem adivinhação.
         self.b_voz = QtWidgets.QPushButton("🔊 Voz"); self.b_voz.setObjectName("toggle")
         self.b_voz.setCheckable(True); self.b_voz.setChecked(self.voz.ligada)
-        self.b_voz.setToolTip("Ligado = o Grimoire fala as respostas em voz alta. Desligado = você só lê.")
+        self.b_voz.setToolTip("Ligado = o DERVS fala as respostas em voz alta. Desligado = você só lê.")
         self.b_voz.toggled.connect(self.alternar_voz)
-        self.b_conversa = QtWidgets.QPushButton("🎙️ Ei Grimoire"); self.b_conversa.setObjectName("toggle")
+        self.b_conversa = QtWidgets.QPushButton("🎙️ Ei DERVS"); self.b_conversa.setObjectName("toggle")
         self.b_conversa.setCheckable(True)
-        self.b_conversa.setToolTip("Ligado = fica sempre ouvindo. Diga 'Grimoire' e ele te atende na "
+        self.b_conversa.setToolTip("Ligado = fica sempre ouvindo. Diga 'DERVS' e ele te atende na "
                                    "hora, como a Siri. Depois de responder, segue ouvindo uns segundos "
                                    "para você emendar sem repetir o nome.")
         self.b_conversa.toggled.connect(self.alternar_conversa)
@@ -312,7 +312,7 @@ class PopUp(QtWidgets.QWidget):
         # campo da fala atual (editável — dá para corrigir uma palavra antes de agir)
         self.entrada = QtWidgets.QTextEdit(); self.entrada.setObjectName("notas")
         self.entrada.setPlaceholderText("Aperte Gravar e fale. Depois: Copiar, Enviar, "
-                                        "ou Executar (o Grimoire conversa e faz).")
+                                        "ou Executar (o DERVS conversa e faz).")
         self.entrada.setMinimumSize(420, 96); self.entrada.setMaximumHeight(140)
         v.addWidget(self.entrada)
 
@@ -346,7 +346,7 @@ class PopUp(QtWidgets.QWidget):
         self.b_enviar.setToolTip("Copia e cola na janela que você estava usando")
         self.b_enviar.clicked.connect(self.enviar)
         self.b_exec = QtWidgets.QPushButton("Executar"); self.b_exec.setObjectName("acao")
-        self.b_exec.setToolTip("Conversa com o Grimoire e faz o que você pedir — sempre com confirmação")
+        self.b_exec.setToolTip("Conversa com o DERVS e faz o que você pedir — sempre com confirmação")
         self.b_exec.clicked.connect(self.executar)
         self.b_limpar = QtWidgets.QPushButton("Limpar"); self.b_limpar.setObjectName("ghost")
         self.b_limpar.clicked.connect(self.limpar)
@@ -395,8 +395,8 @@ class PopUp(QtWidgets.QWidget):
         self.timer = QtCore.QTimer(self); self.timer.timeout.connect(self.atualizar)
         self.timer.start(500)
 
-        # A ESCUTA JÁ NASCE LIGADA. Antes o botão "🎙️ Ei Grimoire" nascia
-        # desligado: a cada reinício do serviço o Grimoire ficava SURDO até
+        # A ESCUTA JÁ NASCE LIGADA. Antes o botão "🎙️ Ei DERVS" nascia
+        # desligado: a cada reinício do serviço o DERVS ficava SURDO até
         # alguém clicar nele de novo. Sintoma que o dono relatou — "não acorda
         # quando eu falo o nome dele" — e a prova foi zero captura de fala em
         # 40 minutos de serviço no ar. Ele não ignorava; não estava ouvindo.
@@ -432,9 +432,9 @@ class PopUp(QtWidgets.QWidget):
             self.escuta.start()
             self._fila_fala = []
             self._desperto = False
-            self._toast("ouvindo 🎙️ — me chame por 'Grimoire'")
+            self._toast("ouvindo 🎙️ — me chame por 'DERVS'")
             if self.voz.ligada:
-                self.voz.falar("Tô ligado. É só me chamar de Grimoire.")
+                self.voz.falar("Tô ligado. É só me chamar de DERVS.")
         else:
             if self.escuta is not None:
                 self.escuta.parar()        # mata o arecord; a thread sai sozinha
@@ -470,14 +470,14 @@ class PopUp(QtWidgets.QWidget):
         self.stt.write((wav + "\n").encode())
 
     def _entrada_continua(self, texto):
-        """Aplica a palavra de acordar. Dormindo, só reage se ouvir 'Grimoire'.
+        """Aplica a palavra de acordar. Dormindo, só reage se ouvir 'DERVS'.
         Desperto (janela de alguns segundos), atende tudo — como a Siri."""
         tem_nome, resto = separar_chamada(texto)
         agora = time.time()
         desperto = self._desperto and agora < self._desperto_ate
 
         if not desperto and not tem_nome:
-            self.status.setText("💤 me chame por 'Grimoire'")
+            self.status.setText("💤 me chame por 'DERVS'")
             self.status.setStyleSheet(f"color:{PARCH_DIM};")
             return
 
@@ -488,7 +488,7 @@ class PopUp(QtWidgets.QWidget):
 
         if not texto.strip():
             # você só chamou o nome: atende e fica ouvindo o pedido
-            self._diz("grimoire", "Oi! Pode falar.")
+            self._diz("dervs", "Oi! Pode falar.")
             if self.voz.ligada:
                 self.voz.falar("Oi! Pode falar.")
             return
@@ -499,7 +499,7 @@ class PopUp(QtWidgets.QWidget):
     def toggle_gravar(self):
         if self._trava > 0:
             return
-        self.voz.calar()  # se o Grimoire está falando, para para te ouvir (barge-in)
+        self.voz.calar()  # se o DERVS está falando, para para te ouvir (barge-in)
         self._trava = 4
         self.b_grav.setEnabled(False)
         if gravando():
@@ -655,8 +655,8 @@ class PopUp(QtWidgets.QWidget):
     def _diz(self, papel, texto, cor=None):
         """Escreve uma linha na conversa (e fala, se a voz estiver ligada)."""
         self.chat.show()
-        nome = {"dono": "você", "grimoire": "Grimoire", "resultado": "resultado", "erro": "erro"}.get(papel, papel)
-        cor = cor or {"dono": PARCH, "grimoire": ARCANE_LT, "resultado": PARCH_DIM, "erro": REC}.get(papel, PARCH)
+        nome = {"dono": "você", "dervs": "DERVS", "resultado": "resultado", "erro": "erro"}.get(papel, papel)
+        cor = cor or {"dono": PARCH, "dervs": ARCANE_LT, "resultado": PARCH_DIM, "erro": REC}.get(papel, PARCH)
         txt = (texto or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
         self.chat.append(f'<div style="margin:4px 0;"><b style="color:{cor}">{nome}:</b> '
                          f'<span style="color:{PARCH}">{txt}</span></div>')
@@ -734,11 +734,11 @@ class PopUp(QtWidgets.QWidget):
 
     def _cerebro_respondeu(self, ficha):
         fala = ficha.get("fala", "")
-        self.conversa.append({"papel": "grimoire", "texto": fala})
-        self._diz("grimoire", fala)
+        self.conversa.append({"papel": "dervs", "texto": fala})
+        self._diz("dervs", fala)
         if fala:
             self.voz.falar(fala)
-        # segue desperto após responder: você emenda sem repetir "Grimoire"
+        # segue desperto após responder: você emenda sem repetir "DERVS"
         if self.escuta is not None:
             self._desperto_ate = time.time() + self.JANELA_DESPERTO
         modo = ficha.get("modo")
@@ -805,7 +805,7 @@ class PopUp(QtWidgets.QWidget):
         if passo.get("tipo") == "navegador":
             self._auto_seguidos += 1
             objetivo = passo.get("objetivo", "") or passo.get("descricao", "")
-            self._diz("grimoire", f"abrindo o navegador e cuidando disso: {objetivo}", cor=GOLD)
+            self._diz("dervs", f"abrindo o navegador e cuidando disso: {objetivo}", cor=GOLD)
             if self.voz.ligada:
                 self.voz.falar("Beleza, tô no navegador cuidando disso. Deixa seu "
                                "Chrome fechado que eu abro ele.")
@@ -816,7 +816,7 @@ class PopUp(QtWidgets.QWidget):
         if passo.get("tipo") == "enriquecer":
             self._auto_seguidos += 1
             dominio = passo.get("dominio", "") or passo.get("descricao", "")
-            self._diz("grimoire", f"levantando o que dá de público sobre {dominio}", cor=GOLD)
+            self._diz("dervs", f"levantando o que dá de público sobre {dominio}", cor=GOLD)
             if self.voz.ligada:
                 self.voz.falar(f"Beleza, tô levantando o que dá de público sobre {dominio}.")
             self._rodar_enriquecimento(dominio)
@@ -832,11 +832,11 @@ class PopUp(QtWidgets.QWidget):
             self._auto_seguidos += 1
             if self._auto_seguidos > 8:
                 self.plano = []; self.barra.hide()
-                self._diz("grimoire", "fiz vários passos seguidos — parei aqui pra você "
+                self._diz("dervs", "fiz vários passos seguidos — parei aqui pra você "
                           "conferir. Me diga se continuo.", cor=GOLD)
                 return
             # seguro e reversível/muda-estado: FAZ, sem pedir licença.
-            self._diz("grimoire", f"fazendo: {passo.get('comando','')}", cor=GOLD)
+            self._diz("dervs", f"fazendo: {passo.get('comando','')}", cor=GOLD)
             self._rodar_comando(passo.get("comando", ""), passo.get("terminal", False))
 
     def _mostrar_cartao(self, passo, d):
@@ -888,7 +888,7 @@ class PopUp(QtWidgets.QWidget):
         # ferramenta longa/interativa ou que toca alvo → terminal visível
         terminal = d["toca_alvo"] or self.plano[self.passo_i].get("terminal", False)
         self.barra.hide()
-        self._diz("grimoire", f"rodando: {comando}", cor=GOLD)
+        self._diz("dervs", f"rodando: {comando}", cor=GOLD)
         self._rodar_comando(comando, terminal)
 
     def _rodar_comando(self, comando, terminal=False):
@@ -903,7 +903,7 @@ class PopUp(QtWidgets.QWidget):
 
     def _rodar_navegador(self, objetivo):
         """Despacha a tarefa de navegador autônomo numa thread. O laço do
-        grimoire_browser gerencia o próprio tempo (tem teto de passos), então
+        dervs_browser gerencia o próprio tempo (tem teto de passos), então
         NÃO passa pelo timeout curto do executor de comando."""
         self._ocupado(True, "no navegador…")
         self._cmd_atual = f"navegador: {objetivo}"
@@ -944,7 +944,7 @@ class PopUp(QtWidgets.QWidget):
         self.plano = []; self.barra.hide()
         self._aguardando_ok = False
         self._plano_local = False
-        self._diz("grimoire", "cancelado — nada foi executado.", cor=PARCH_DIM)
+        self._diz("dervs", "cancelado — nada foi executado.", cor=PARCH_DIM)
         if self.voz.ligada:
             self.voz.falar("Beleza, cancelei.")
         self.conversa.append({"papel": "dono", "texto": "(cancelei o plano)"})
@@ -967,13 +967,13 @@ class Launcher(QtWidgets.QWidget):
     """Selo pequeno sempre-no-topo, embaixo da tela. Clique abre o pop-up."""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Grimoire")
+        self.setWindowTitle("DERVS")
         self.setWindowFlags(QtCore.Qt.WindowType.FramelessWindowHint
                             | QtCore.Qt.WindowType.WindowStaysOnTopHint
                             | QtCore.Qt.WindowType.Tool)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(58, 58)
-        self.setToolTip("Grimoire — clique para gravar")
+        self.setToolTip("DERVS — clique para gravar")
         self._press = None
         self._arrastou = False
 
@@ -1022,14 +1022,14 @@ class Launcher(QtWidgets.QWidget):
 
 def _montar_bandeja(app, launcher):
     """Ícone permanente na bandeja do sistema (a 'barra de tarefas'). Garante que
-    o Grimoire está sempre ao alcance, mesmo que o selo flutuante saia da vista.
-    Não tem 'Sair' — o Grimoire é para ficar sempre disponível."""
+    o DERVS está sempre ao alcance, mesmo que o selo flutuante saia da vista.
+    Não tem 'Sair' — o DERVS é para ficar sempre disponível."""
     if not QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
         return None
     tray = QtWidgets.QSystemTrayIcon(QtGui.QIcon(_selo(64)), app)
-    tray.setToolTip("Grimoire — sempre aqui. Clique para abrir.")
+    tray.setToolTip("DERVS — sempre aqui. Clique para abrir.")
     menu = QtWidgets.QMenu()
-    menu.addAction("Abrir Grimoire", launcher.pop.abrir)
+    menu.addAction("Abrir DERVS", launcher.pop.abrir)
     menu.addAction("Recolher janela", launcher.pop.hide)
     tray.setContextMenu(menu)
     def _clique(motivo):

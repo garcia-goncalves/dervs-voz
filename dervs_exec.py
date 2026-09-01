@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grimoire — o executor.
+"""DERVS — o executor.
 
 Roda UM comando já aprovado e devolve a PROVA: o código de saída e o que
 apareceu. É o que fecha o loop com evidência, em vez de dizer "feito".

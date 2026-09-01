@@ -1,6 +1,6 @@
-# Grimoire — o Executar
+# DERVS — o Executar
 
-O Grimoire é um selo flutuante que grava sua voz, transcreve offline (Whisper) e
+O DERVS é um selo flutuante que grava sua voz, transcreve offline (Whisper) e
 te dá três ações. Este documento é sobre a terceira, o **Executar** — a conversa
 que entende o que você quer e faz, sempre com confirmação.
 
@@ -14,7 +14,7 @@ que entende o que você quer e faz, sempre com confirmação.
 
 ## Como o Executar funciona
 
-O Grimoire **age sem pedir licença** para coisa segura. Você fala o objetivo; ele
+O DERVS **age sem pedir licença** para coisa segura. Você fala o objetivo; ele
 faz. Só para nos casos perigosos é que ele para e pede confirmação.
 
 1. **Entender e agir.** Você fala. O cérebro age direto no que é claro (ver a hora,
@@ -33,7 +33,7 @@ O dono pediu para ser assertivo e organizado. **Nada roda antes do OK dele.** O
 laço é sempre:
 1. **Entender.** Se ficou dúvida que muda o que fazer, o cérebro **pergunta** (uma
    coisa de cada vez); o dono responde.
-2. **Confirmar.** Sem mais dúvida, o Grimoire **resume o que entendeu e o que vai
+2. **Confirmar.** Sem mais dúvida, o DERVS **resume o que entendeu e o que vai
    fazer** e pede o OK — por voz ("...Posso?") e mostrando o plano na barra.
 3. **OK e executa.** O dono dá o OK **por voz** ("ok", "pode", "faz", "isso") ou
    pelo botão. Aí — e só aí — os passos rodam. "não/cancela" cancela; uma frase
@@ -49,7 +49,7 @@ Depois do OK do plano, cada passo ainda passa pela rede de segurança local:
   EXTRA**, com dupla confirmação; e, se toca alvo, uma caixa de **autorização**
   trava o botão até você marcar que é seu/laboratório/autorizado.
 
-O cérebro sugere o risco, mas `grimoire_safety.py` — uma lista local aqui na
+O cérebro sugere o risco, mas `dervs_safety.py` — uma lista local aqui na
 máquina — pode **subir** o trilho e nunca descer. Se o Claude disser "tranquilo"
 e a lista reconhecer `rm -rf`, vence a lista. Comando desconhecido nunca fica em
 "reversível": no mínimo pede uma confirmação. É isso que garante que **nada roda
@@ -68,8 +68,8 @@ Um turno seu passa por três etapas, em sequência. Medido nesta máquina:
 \* medição limpa. Fazendo muitas chamadas seguidas o modelo começa a segurar
 (throttle) e o número sobe bastante — não confunda throttle com regressão.
 
-**Três daemons ficam vivos** enquanto o Grimoire roda, todos filhos dele:
-`grimoire_piper_daemon.py` (voz), `grimoire_stt_daemon.py` (ouvido) e um
+**Três daemons ficam vivos** enquanto o DERVS roda, todos filhos dele:
+`dervs_piper_daemon.py` (voz), `dervs_stt_daemon.py` (ouvido) e um
 processo `claude` em sessão persistente (cérebro). Juntos ocupam ~1,3 GB — antes
 eram ~3,9 GB, porque o XTTS sozinho comia 2,5 GB.
 
@@ -84,23 +84,23 @@ rápidos mas erram palavra de verdade (`medium` e `small` trocam "pelo" por
 Perguntas simples não precisam do Claude. **Que horas são**, **que dia é hoje** e
 **abrir um app** (firefox, navegador, chrome, chromium, terminal, arquivos,
 calculadora, editor) são respondidas **na hora**, sem os ~2,7 s do cérebro nem
-custo de API. Fica em `grimoire_atalhos.py`, interceptado no `executar()` antes
+custo de API. Fica em `dervs_atalhos.py`, interceptado no `executar()` antes
 do cérebro.
 
 Regra de ouro do atalho: **na dúvida, deixa o cérebro decidir**. O casamento é
 conservador e a lista de apps é curada (só o que existe na máquina). "Abre o
 relatório", "abre o site do banco", "marca reunião às três horas" NÃO viram
 atalho — vão para o cérebro, como antes. É otimização, nunca fonte de erro.
-Coberto por 26 testes (`test_grimoire_atalhos.py`), metade deles de negativa.
+Coberto por 26 testes (`test_dervs_atalhos.py`), metade deles de negativa.
 
-### Configuração editável — `~/.config/grimoire/config.json`
+### Configuração editável — `~/.config/dervs/config.json`
 
 O que o dono pode mudar sem tocar no código, num arquivo JSON criado sozinho no
-primeiro boot (`grimoire_config.py`):
+primeiro boot (`dervs_config.py`):
 
 | Chave | Padrão | O que faz |
 |---|---|---|
-| `janela_desperto_seg` | 20 | segundos que segue ouvindo depois de te atender, sem repetir "Grimoire"; passado isso, dorme |
+| `janela_desperto_seg` | 20 | segundos que segue ouvindo depois de te atender, sem repetir "DERVS"; passado isso, dorme |
 | `atalhos_ligados` | true | liga/desliga os atalhos locais acima |
 | `stt` | openai | ouvido: `openai` (gpt-4o-mini-transcribe, rápido/preciso, ~US$0,003/min) ou `local` (Whisper, grátis/offline) |
 | `stt_openai_modelo` | gpt-4o-mini-transcribe | modelo de transcrição da OpenAI |
@@ -111,7 +111,7 @@ primeiro boot (`grimoire_config.py`):
 | `voz` | jeff | voz do Piper (só se `motor` = piper): `jeff`, `cadu` ou `faber` |
 
 Config faltando ou torta **cai no padrão** em silêncio — nunca derruba a voz.
-Mudou o arquivo? Reinicie: `systemctl --user restart grimoire`.
+Mudou o arquivo? Reinicie: `systemctl --user restart dervs`.
 
 ## Voz e conversa contínua
 
@@ -121,8 +121,8 @@ Dois interruptores no topo. Eles **acendem em dourado quando ligados**.
   natural que a sintética, mas gerada no processador: cada resposta leva **~5-7s**
   para começar a falar (frase curta é mais rápida; "Oi!" sai em ~2s). Por isso o
   cérebro é instruído a **falar curto** (o detalhe vai para o texto).
-- **🎙️ Ei Grimoire**: escuta o tempo todo, mas fica **dormindo** — só reage quando
-  você diz **"Grimoire"** (como "Ok Google"). Ao ser chamado, atende e fica
+- **🎙️ Ei DERVS**: escuta o tempo todo, mas fica **dormindo** — só reage quando
+  você diz **"DERVS"** (como "Ok Google"). Ao ser chamado, atende e fica
   **desperto ~20s** para você emendar sem repetir o nome. A detecção do nome usa a
   própria transcrição (offline), então tem 1–2s de atraso — não é instantâneo como
   um Porcupine, mas não precisa de modelo novo. Ele só fica surdo **enquanto fala**
@@ -155,11 +155,11 @@ Alto demais estoura, baixo demais afunda no chiado — as duas pontas dão o mes
 sintoma ("ele me ouve errado"). O alvo é voz com RMS perto de 1800 **e** pico
 abaixo de ~70% da escala; vale a restrição mais apertada das duas.
 
-O `grimoire.service` **ajusta o ganho sozinho** ao subir (duas linhas
+O `dervs.service` **ajusta o ganho sozinho** ao subir (duas linhas
 `ExecStartPre` com `amixer`), porque o mixer volta ao padrão a cada reinício da
 máquina — não adianta ajustar só uma vez na mão.
 
-Como ele decide onde a frase começa e acaba (`grimoire_listen.py`):
+Como ele decide onde a frase começa e acaba (`dervs_listen.py`):
 
 | Ajuste | Vale | Para quê |
 |---|---|---|
@@ -171,25 +171,25 @@ Como ele decide onde a frase começa e acaba (`grimoire_listen.py`):
 
 ## Sempre disponível (serviço que não some)
 
-O Grimoire roda como **serviço do systemd de usuário** (`~/.config/systemd/user/
-grimoire.service`), com `Restart=always`: se cair, for morto, ou você mandar
+O DERVS roda como **serviço do systemd de usuário** (`~/.config/systemd/user/
+dervs.service`), com `Restart=always`: se cair, for morto, ou você mandar
 Fechar, ele **volta sozinho em 2s**. Sobe junto com a sessão gráfica ao ligar o
 PC, e também fica na **bandeja do sistema**.
 
-- Ver estado: `systemctl --user status grimoire`
-- Reiniciar após mudar o código: `systemctl --user restart grimoire`
-- Parar de vez (raro): `systemctl --user disable --now grimoire`
+- Ver estado: `systemctl --user status dervs`
+- Reiniciar após mudar o código: `systemctl --user restart dervs`
+- Parar de vez (raro): `systemctl --user disable --now dervs`
 
 **Limpar** recomeça do zero: apaga o campo de baixo, a conversa de cima **e a
 memória do cérebro**.
 
 ## A voz: Kokoro (humana E rápida), Piper (reserva), XTTS (opcional)
 
-Três motores. O padrão vem da config (`motor` em `~/.config/grimoire/config.json`);
-`MOTOR_PADRAO` em `grimoire_tts.py` é o fallback do código.
+Três motores. O padrão vem da config (`motor` em `~/.config/dervs/config.json`);
+`MOTOR_PADRAO` em `dervs_tts.py` é o fallback do código.
 
 - **kokoro** (PADRÃO) — modelo aberto (82M, Apache-2.0), voz **humana E rápida**.
-  Daemon `grimoire_kokoro_daemon.py` (venv `kokoro-venv`) carrega o modelo (~325 MB)
+  Daemon `dervs_kokoro_daemon.py` (venv `kokoro-venv`) carrega o modelo (~325 MB)
   uma vez e fala frase a frase. MEDIDO nesta máquina: **~0,6 s até o primeiro som**
   com o daemon quente, 3–4× o tempo real. Vozes pt-BR: `pm_santa` (masculina grave,
   feiticeiro — padrão), `pm_alex` (masculina), `pf_dora` (feminina); troca em
@@ -211,15 +211,15 @@ E instantânea é uma placa de vídeo (GPU) — que esta máquina não tem.
 
 | Arquivo | Função |
 |---|---|
-| `grimoire.py` | A tela: selo, conversa, cartões de confirmação, as três ações. |
-| `grimoire_brain.py` | O cérebro: conversa com o `claude` e devolve uma ficha estruturada (pergunta/plano). |
-| `grimoire_safety.py` | A rede de segurança: a palavra final sobre o risco de cada comando. |
-| `grimoire_exec.py` | O executor: roda o comando e traz a prova (código + saída). |
-| `grimoire_browser.py` | O navegador autônomo: cumpre um objetivo clicando/digitando sozinho no seu Chrome. |
-| `grimoire_enrich.py` | Enriquecimento de lead: puxa dado público de um domínio (bbot) e resume. |
-| `grimoire_tts.py` | A voz: fala em português com o Piper, offline. |
-| `grimoire_listen.py` | A escuta contínua: detecta início/fim da fala pela energia do áudio. |
-| `grimoire_stt_daemon.py` | Os ouvidos: transcreve sua fala offline com o Whisper. |
+| `dervs.py` | A tela: selo, conversa, cartões de confirmação, as três ações. |
+| `dervs_brain.py` | O cérebro: conversa com o `claude` e devolve uma ficha estruturada (pergunta/plano). |
+| `dervs_safety.py` | A rede de segurança: a palavra final sobre o risco de cada comando. |
+| `dervs_exec.py` | O executor: roda o comando e traz a prova (código + saída). |
+| `dervs_browser.py` | O navegador autônomo: cumpre um objetivo clicando/digitando sozinho no seu Chrome. |
+| `dervs_enrich.py` | Enriquecimento de lead: puxa dado público de um domínio (bbot) e resume. |
+| `dervs_tts.py` | A voz: fala em português com o Piper, offline. |
+| `dervs_listen.py` | A escuta contínua: detecta início/fim da fala pela energia do áudio. |
+| `dervs_stt_daemon.py` | Os ouvidos: transcreve sua fala offline com o Whisper. |
 
 ## Testes
 
@@ -235,7 +235,7 @@ o Chrome travado, executar uma ação com página falsa) e o enriquecimento de l
 Quando você pede algo DENTRO de uma página ("entra no meu Gmail e me diz quantos
 não lidos", "pesquisa X e abre o primeiro", "toca lo-fi no YouTube"), o cérebro
 propõe um passo do tipo **navegador** com um objetivo. Depois do seu OK, o
-`grimoire_browser.py` cumpre sozinho, num laço fechado:
+`dervs_browser.py` cumpre sozinho, num laço fechado:
 
 > olhar a página → decidir a próxima ação → clicar/digitar/navegar → repetir,
 > até terminar (ou até bater o teto de passos).
@@ -248,13 +248,13 @@ da OpenAI, que devolve UMA ação por vez (técnica *set-of-marks* — barata e 
 moderno bloqueia "espiar" uma janela já aberta, então o Playwright abre o Chrome
 usando o **seu próprio perfil**. Por isso, enquanto o autônomo trabalha, **seu
 Chrome do dia a dia precisa estar fechado** (o perfil só abre num lugar por vez);
-se estiver aberto, o Grimoire avisa e pede para fechar. Ao terminar, reabra normal.
+se estiver aberto, o DERVS avisa e pede para fechar. Ao terminar, reabra normal.
 
 **Freios:** teto de passos (config `navegador_max_passos`, padrão 15); para e
 avisa se empacar; **recusa digitar em campo de senha** (login continua sendo seu);
 o prompt proíbe comprar/pagar/apagar/postar fora do objetivo. A autorização é a
 mesma do resto: você aprova o plano UMA vez na tela; daí ele age (esta é a máquina
-de laboratório do dono, que autorizou o Grimoire a agir no Chrome dele).
+de laboratório do dono, que autorizou o DERVS a agir no Chrome dele).
 
 **Isolamento:** o Playwright é pesado e mora na venv `playwright-venv/`. O app
 (python do sistema) chama o laço como processo à parte, igual ao Whisper e à voz.
@@ -265,7 +265,7 @@ Liga/desliga e ajustes na config: `navegador_ligado`, `navegador_max_passos`,
 
 Quando você pergunta sobre uma empresa/domínio ("levanta o que dá desse cliente",
 "faz um OSINT de fulano.com.br"), o cérebro propõe um passo do tipo **enriquecer**
-com o domínio. Depois do OK, o `grimoire_enrich.py` roda o **bbot** (o orquestrador
+com o domínio. Depois do OK, o `dervs_enrich.py` roda o **bbot** (o orquestrador
 de recon já instalado) e devolve um resumo: subdomínios, e-mails, tecnologias,
 buckets de nuvem, achados. Serve para qualificar um lead — e, na visão defensiva,
 para ver onde a superfície do próprio cliente está exposta.
@@ -291,8 +291,8 @@ voz fala só o resumo (contagens + exemplos), para não estourar o contexto.
 ## Instalar / rodar
 
 Normalmente **não precisa** — o serviço já o mantém no ar. Para rodar à mão
-(depuração): `python3 ~/voice/grimoire.py`. Para gerenciar o serviço:
-`systemctl --user restart|status|stop grimoire`.
+(depuração): `python3 ~/voice/dervs.py`. Para gerenciar o serviço:
+`systemctl --user restart|status|stop dervs`.
 
 Dependências já instaladas nesta máquina: `claude` (cérebro), Whisper em
 `whisper-venv` (ouvidos), Piper em `tts-venv` + voz em `piper-voices/` (voz),

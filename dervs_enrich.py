@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Grimoire — enriquecimento de lead (OSINT de domínio).
+"""DERVS — enriquecimento de lead (OSINT de domínio).
 
 Recebe um DOMÍNIO ("cliente.com.br") e devolve o que se descobre dele em fonte
 PÚBLICA: subdomínios, e-mails, tecnologias, buckets de nuvem, achados. Serve para
-qualificar um lead antes de falar com ele — e, na visão defensiva do Grimoire,
+qualificar um lead antes de falar com ele — e, na visão defensiva do DERVS,
 para mostrar onde a superfície do próprio cliente está exposta.
 
 Motor: o `bbot` (já instalado nesta máquina), o orquestrador de recon. Este
@@ -18,10 +18,10 @@ DUAS VELOCIDADES, e a diferença é de LEI, não de gosto:
 
 Contexto: a saída bruta do bbot é enorme. Este módulo GUARDA o bruto num arquivo
 e devolve só um RESUMO curto (contagens + alguns exemplos) — é o que a voz fala e
-o que não estoura o contexto do Grimoire.
+o que não estoura o contexto do DERVS.
 
 Contrato: rodar_para_app(dominio, ativo) devolve {"codigo","saida","tipo"}, o
-mesmo formato de grimoire_exec.rodar, para a tela e o cérebro tratarem igual.
+mesmo formato de dervs_exec.rodar, para a tela e o cérebro tratarem igual.
 """
 import os
 import re
@@ -147,7 +147,7 @@ def _comando(dominio: str, outdir: str, ativo: bool) -> list:
         cmd += ["-rf", "passive"]   # SÓ passivo: não conecta no alvo
     else:
         cmd += ["-rf", "safe"]      # ativo, mas só o que não é intrusivo/loud
-    cmd += ["--json", "--no-color", "-y", "-o", outdir, "-n", "grimoire_lead"]
+    cmd += ["--json", "--no-color", "-y", "-o", outdir, "-n", "dervs_lead"]
     return cmd
 
 
