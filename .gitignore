@@ -28,3 +28,6 @@ __pycache__/
 # Modelo Kokoro (baixado, ~350MB)
 kokoro-model/
 kokoro-venv/
+
+# Ambiente Python do Windows (recriavel)
+dervs-venv/
