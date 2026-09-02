@@ -1210,15 +1210,30 @@ class PopUp(QtWidgets.QWidget):
         self.b_cmd.setText(passo.get("comando", ""))
         if d["motivos"]:
             self.b_desc.setText(self.b_desc.text() + "\n(" + "; ".join(d["motivos"]) + ")")
+        # A caixa de autorização passou a aparecer por DOIS motivos diferentes:
+        # tocar uma rede de fora, ou ler um arquivo de segredo (chave, senha,
+        # credencial). O texto tem de dizer qual dos dois é — perguntar "tem
+        # autorização?" falando de rede, quando na verdade ele vai ler a sua
+        # chave privada, é pedir um sim sobre a coisa errada.
+        le_segredo = d.get("le_segredo", False)
         self.b_auth.setVisible(d["precisa_autorizacao"])
+        self.b_auth.setText(
+            "Confirmo: pode ler esse arquivo de segredo" if le_segredo
+            else "Tenho autorização (é meu, laboratório, ou por escrito)")
         self.b_auth.setChecked(False)
         self.b_confirmar.setText("Confirmar e rodar")
         self.barra.show()
         self._reavaliar_confirmar()
         if self.voz.ligada:
-            aviso = ("Esse passo toca uma rede de fora. Confirma se você tem "
-                     "autorização, aí eu sigo." if d["precisa_autorizacao"]
-                     else "Esse passo é mais delicado. Dá uma olhada e confirma.")
+            if le_segredo:
+                aviso = ("Atenção: esse passo lê um arquivo de segredo, e o que "
+                         "sair dele pode ir junto na conversa. Confirma na tela "
+                         "se você quer mesmo.")
+            elif d["precisa_autorizacao"]:
+                aviso = ("Esse passo toca uma rede de fora. Confirma se você tem "
+                         "autorização, aí eu sigo.")
+            else:
+                aviso = "Esse passo é mais delicado. Dá uma olhada e confirma."
             self.voz.falar(aviso)
 
     def _reavaliar_confirmar(self):
