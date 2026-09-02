@@ -94,6 +94,34 @@ PADRAO = {
     # 01/09/2026 em developers.openai.com/api/docs/pricing.
     "stt_openai_modelo": "gpt-transcribe",
 
+    # A COLA que vai junto do áudio, para o modelo saber o que esperar ANTES
+    # de ouvir. Existe porque em 02/09/2026 o dono disse "não está me
+    # entendendo direito". Medido no código: `dervs_transcrever.py` já lia esta
+    # chave para mandar como `prompt` à OpenAI — mas ela não existia aqui, e
+    # `carregar()` só copia do disco o que existe no PADRÃO. A dica era sempre
+    # vazia e o campo NUNCA era enviado: o áudio ia para a nuvem sem uma pista
+    # sequer de que é português do Brasil falado com um assistente chamado
+    # DERVS. É a mesma cola usada pelo caminho local (dervs_stt_daemon.py):
+    # uma fonte só, senão os dois ouvidos do DERVS entendem coisas diferentes.
+    #
+    # ESTE É O LUGAR de acrescentar os nomes próprios do dono — clientes,
+    # empresas, pessoas, termos do ramo dele. Nome próprio que o modelo nunca
+    # viu é o que ele mais erra, e a dica é o único jeito de ensiná-lo sem
+    # treinar modelo nenhum. Vale tanto na nuvem quanto no local.
+    "stt_dica_vocabulario": (
+        "Transcrição em português do Brasil, com acentuação e pontuação "
+        "corretas. É uma pessoa falando com um assistente de voz chamado "
+        "DERVS — escrito sempre assim, em maiúsculas, e nunca 'Dervis', "
+        "'Ders', 'Derbs' ou 'the RVS'. Frases típicas: 'DERVS, que horas "
+        "são?', 'DERVS, que dia é hoje?', 'abre o Firefox', 'lista os "
+        "arquivos', 'abre o ChatGPT', 'manda no WhatsApp', 'roda o nmap no "
+        "alvo'. Vocabulário comum: e-mail, WhatsApp, site, aplicativo, "
+        "ChatGPT, navegador, OSINT, subdomínio, domínio, DNS, certificado, "
+        "vulnerabilidade, servidor, repositório, GitHub, Docker, Postgres, "
+        "planilha, orçamento, cliente, reunião, proposta, contrato, DERVS, "
+        "Parrot, Windows. Números como 2026, R$ 1.500,00 e 10%."
+    ),
+
     # O PORTEIRO: quem decide, NA MÁQUINA, se a fala foi com o DERVS. É ele que
     # permite deixar ligado o dia inteiro sem mandar o áudio do dia inteiro para
     # a nuvem. "local" = Whisper pequeno com aviso de vocabulário (medido: 14/14
@@ -170,6 +198,11 @@ def _validar(conf: dict) -> dict:
         conf["stt"] = PADRAO["stt"]
     if not isinstance(conf.get("stt_openai_modelo"), str) or not conf["stt_openai_modelo"]:
         conf["stt_openai_modelo"] = PADRAO["stt_openai_modelo"]
+    # Dica só de espaço em branco é pior que dica nenhuma: vira um campo
+    # `prompt` vazio na requisição, e o modelo perde a pista em vez de ganhar.
+    if not isinstance(conf.get("stt_dica_vocabulario"), str) \
+            or not conf["stt_dica_vocabulario"].strip():
+        conf["stt_dica_vocabulario"] = PADRAO["stt_dica_vocabulario"]
     # Só "local" está implementado. Quando o Porcupine existir de verdade, ele
     # entra nesta lista — enquanto não existir, aceitá-lo aqui seria dizer ao
     # dono que ligou uma coisa que não liga.

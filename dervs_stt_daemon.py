@@ -36,15 +36,25 @@ import uuid
 import urllib.request
 import urllib.error
 
-COLA = (
-    "Transcrição em português do Brasil, com acentuação e pontuação corretas. "
-    "É uma pessoa falando com um assistente de voz chamado DERVS. Frases "
-    "típicas: 'DERVS, que horas são?', 'DERVS, que dia é hoje?', 'abre o "
-    "Firefox', 'lista os arquivos', 'abre o ChatGPT', 'roda o nmap no alvo'. "
-    "Vocabulário comum: e-mail, WhatsApp, site, aplicativo, ChatGPT, navegador, "
-    "OSINT, subdomínio, domínio, DNS, certificado, vulnerabilidade, DERVS, "
-    "Parrot. Números como 2026, R$ 1.500,00 e 10%."
-)
+def _cola_padrao() -> str:
+    """A dica de vocabulário — a MESMA que vai para a nuvem.
+
+    Ficava escrita aqui, boa, e valia só para o caminho local; o caminho da
+    nuvem não tinha nenhuma. Dois ouvidos com colas diferentes entendem coisas
+    diferentes, e o dono não tem como saber qual dos dois respondeu. Agora a
+    fonte é uma só: `dervs_config.PADRAO["stt_dica_vocabulario"]`, que é
+    também onde ele acrescenta os nomes próprios dele.
+    """
+    try:
+        import dervs_config
+        return dervs_config.PADRAO["stt_dica_vocabulario"]
+    except Exception:
+        # O daemon roda como processo separado; se a configuração não subir,
+        # transcrever sem cola é muito melhor que não transcrever.
+        return ""
+
+
+COLA = _cola_padrao()
 
 
 def _ler_config():
