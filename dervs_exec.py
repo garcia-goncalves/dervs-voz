@@ -10,12 +10,16 @@ Três jeitos de rodar, escolhidos pelo tipo de comando:
     ferramenta longa/interativa, tipo captura de Wi-Fi).
   - captura (padrão) → roda e recolhe a saída para mostrar no bloco.
 
-Roda com shell=True de propósito: os comandos que o cérebro monta usam cano (|),
-redirecionamento (>) e coringas. Isso NÃO é uma brecha — todo comando aqui já
-passou pela confirmação do dono e pela rede de segurança.
+O caminho de captura usa shell (PowerShell no Windows) de propósito: os comandos
+que o cérebro monta usam cano (|), redirecionamento (>) e coringas, e todos eles
+já passaram pela confirmação do dono e pela rede de segurança. O caminho de app
+de tela é o oposto: roda SEM shell, com lista de argumentos, porque abrir uma
+janela não precisa de shell — e com shell o cmd.exe emendaria o que viesse
+depois de um & ou &&.
 """
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -39,9 +43,31 @@ _APPS_TELA = [
 LIMITE_SAIDA = 4000  # não despeja log gigante no bloco/contexto
 
 
+# Encadeamento: se a linha emenda outro comando, ela NÃO é "só abrir um app".
+# "notepad && net user invasor 123 /add" começa com notepad e termina criando
+# usuário — o atalho de app de tela (que rodava no cmd.exe, e o cmd.exe honra
+# & e &&) executaria os dois.
+_ENCADEIA = re.compile(r"[&|;^`]")
+
+
 def eh_app_de_tela(comando: str) -> bool:
     c = comando.strip()
+    if _ENCADEIA.search(c):
+        return False
     return any(re.search(p, c, re.IGNORECASE) for p in _APPS_TELA)
+
+
+def _argumentos(comando: str) -> list:
+    """Quebra a linha em lista de argumentos, para rodar SEM shell.
+
+    No Windows a quebra preserva a contrabarra dos caminhos (posix=False) e as
+    aspas de cada pedaço são tiradas na mão, porque quem monta a linha final
+    para o Windows é o próprio subprocess.
+    """
+    partes = shlex.split(comando, posix=not _WINDOWS)
+    if _WINDOWS:
+        partes = [p[1:-1] if len(p) > 1 and p[0] == p[-1] == '"' else p for p in partes]
+    return partes
 
 
 def _cortar(texto: str) -> str:
@@ -51,11 +77,19 @@ def _cortar(texto: str) -> str:
     return "…(saída cortada)…\n" + texto[-LIMITE_SAIDA:]
 
 
-def rodar(comando: str, timeout: int = 60, terminal: bool = False, cwd: str = None) -> dict:
+def rodar(comando: str, timeout: int = 60, terminal: bool = False, cwd: str = None,
+          manter_aberto: bool = False) -> dict:
     """Executa o comando e devolve {codigo, saida, tipo}.
 
     tipo: 'app' (abriu janela), 'terminal' (abriu konsole à vista),
           'captura' (rodou e trouxe a saída), 'timeout' ou 'erro'.
+
+    manter_aberto: só para quando o CHAMADOR pede um terminal de verdade
+    (ferramenta longa/interativa, saída para ler com calma). Aí a janela fica
+    aberta depois que o comando acaba (-NoExit no Windows, 'read' no Linux).
+    Fora disso a janela fecha sozinha: antes ela ficava aberta sempre que o
+    comando "tocava alvo" — inclusive nos falsos positivos —, e sobrava na
+    sessão do dono um PowerShell interativo com o ambiente do DERVS.
     """
     comando = (comando or "").strip()
     cwd = cwd or HOME
@@ -63,9 +97,11 @@ def rodar(comando: str, timeout: int = 60, terminal: bool = False, cwd: str = No
         return {"codigo": 1, "saida": "comando vazio", "tipo": "erro"}
 
     # 1) App de tela: abre solto, sem prender a interface.
+    #    SEM shell=True: abrir uma janela não precisa de shell, e com shell o
+    #    cmd.exe interpretaria &, && e | — emendando comando na carona do app.
     if eh_app_de_tela(comando) and not terminal:
         try:
-            subprocess.Popen(comando, shell=True, cwd=cwd,
+            subprocess.Popen(_argumentos(comando), cwd=cwd,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True)
             return {"codigo": 0, "saida": "aplicativo aberto", "tipo": "app"}
@@ -79,15 +115,17 @@ def rodar(comando: str, timeout: int = 60, terminal: bool = False, cwd: str = No
                 # No Linux abríamos um konsole com 'read' segurando a janela.
                 # No Windows o equivalente é abrir o PowerShell numa CONSOLE
                 # NOVA (senão o processo herda a janela do DERVS e não some
-                # nada visível) e usar -NoExit para a janela ficar aberta
-                # depois que o comando termina — o dono fecha quando quiser.
-                ps = ["powershell", "-NoExit", "-Command", comando]
+                # nada visível). O -NoExit (janela fica aberta no fim) só entra
+                # quando o chamador pediu — ver o docstring.
+                ps = ["powershell"] + (["-NoExit"] if manter_aberto else []) + \
+                     ["-Command", comando]
                 subprocess.Popen(ps, cwd=cwd,
                                  creationflags=subprocess.CREATE_NEW_CONSOLE)
             else:
-                # konsole abre e roda o comando; 'read' segura a janela aberta no fim.
-                konsole = ["konsole", "-e", "bash", "-c",
-                           f"{comando}; echo; read -p 'Enter para fechar…'"]
+                # konsole abre e roda o comando; 'read' segura a janela aberta
+                # no fim — de novo, só quando o chamador pediu.
+                segura = "; echo; read -p 'Enter para fechar…'" if manter_aberto else ""
+                konsole = ["konsole", "-e", "bash", "-c", f"{comando}{segura}"]
                 subprocess.Popen(konsole, cwd=cwd, start_new_session=True,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return {"codigo": 0, "saida": "rodando num terminal à parte (veja a janela)",

@@ -193,3 +193,175 @@ def test_windows_notepad_e_reversivel():
 def test_windows_comando_desconhecido_nao_e_reversivel():
     d = decidir_risco("Invoke-MinhaFerramentaCustom -Foo bar", risco_do_claude="reversivel")
     assert d["nivel"] == "muda_estado"
+
+
+# =============================================================================
+# Segunda rodada: buracos achados RODANDO o classificador, não lendo o regex.
+# Cada tabela abaixo é literalmente a tabela do laudo de segurança. Os testes de
+# antes cobriam só a forma canônica de cada regex — por isso passavam 100% com
+# todos estes buracos abertos.
+# =============================================================================
+import pytest
+
+
+# --- A1: a whitelist casava em QUALQUER posição da linha ----------------------
+# "notepad && net user ... /add" casava \bnotepad\b e virava reversível.
+# Regra nova: a whitelist só vale ancorada no começo da linha E sem encadeamento.
+
+@pytest.mark.parametrize("comando", [
+    r"notepad && net user invasor 123 /add",
+    r"chrome https://google.com & schtasks /create /tn B /tr p.exe /sc onlogon",
+    r"echo oi; Remove-Item C:\Users\Dono\x -Rec",
+    r"Get-ChildItem C:\Users\Dono -Recurse | Remove-Item",
+    r"Get-Content lista.txt | ForEach-Object { Remove-Item $_ }",
+    r"Start-Process C:\Users\Dono\payload.exe -Verb RunAs",
+    r"Stop-Process -Name explorer -Force",
+    r'Add-Type -TypeDefinition "<C# arbitrario>"',
+    r"Out-File -FilePath importante.txt",
+    r"powershell -enc SQBFAFgA",
+])
+def test_a1_whitelist_nao_casa_no_meio_da_linha(comando):
+    d = decidir_risco(comando, risco_do_claude="reversivel")
+    assert d["nivel"] != "reversivel", f"{comando!r} não pode ser reversível"
+
+
+# --- A3: buracos de cobertura do Windows --------------------------------------
+# A raiz de vários: o regex exigia -Recurse/-Force por extenso (o PowerShell
+# aceita qualquer prefixo: -Rec, -Fo) e exigia a flag DEPOIS do verbo (num
+# pipeline ela vem antes).
+
+@pytest.mark.parametrize("comando", [
+    r"Remove-Item C:\Users\Dono\Documentos -Rec -Fo",
+    r"Remove-Item -Path 'C:/Users/Dono/Documentos' -Rec",
+    r"del C:\Users\Dono\Documentos\*.*",
+    r"gci C:\Users -Recurse | ri",
+    r"Get-ChildItem C:\Users\Dono -Recurse | Remove-Item",
+    r"powershell -EncodedCommand SQBFAFgAKAAnAHgAJwApAA==",
+    r"powershell -enc SQBFAFgAKAAnAHgAJwApAA==",
+    r"& 'C:\Users\Dono\payload.exe'",
+    r"Start-Process C:\Users\Dono\payload.exe -Verb RunAs",
+    r"Add-MpPreference -ExclusionPath C:\Users\Dono",
+    r"Set-MpPreference -DisableRealtimeMonitoring $true",
+    r"wevtutil cl Security",
+    r"Clear-EventLog -LogName Security",
+    r"net user invasor Senha123 /add",
+    r"net localgroup administrators invasor /add",
+    r"New-LocalUser -Name invasor -NoPassword",
+    r"schtasks /create /tn B /tr p.exe /sc onlogon",
+    r"Register-ScheduledTask -TaskName B -Action $a",
+    r"robocopy vazio Documentos /MIR",
+    r"Invoke-CimMethod -ClassName Win32_Process -MethodName Create",
+    r"wmic process call create calc.exe",
+    r"Copy-Item vazio.txt importante.txt -Force",
+])
+def test_a3_windows_agora_e_destrutivo(comando):
+    assert decidir_risco(comando)["nivel"] == "destrutivo", comando
+
+
+# --- A3 (não-regressão): o que já funcionava tem de continuar funcionando -----
+
+@pytest.mark.parametrize("comando", [
+    r"rd /s /q C:\pasta",
+    r'cmd /c "del /f /s /q C:\temp"',
+    r"format d:",
+    r"Remove-Item $env:SystemRoot -Recurse -Force",
+    r"Remove-Item \\servidor\share\x -Recurse",
+    r"Remove-Item D:\dados -Recurse -Force",
+    r"Remove-Item C:/Windows/System32 -Recurse -Force",
+    r"Remove-Item -LiteralPath C:\x -Recurse -Force",
+    r"dir; rd /s /q C:\pasta",
+])
+def test_a3_nao_regressao_continua_destrutivo(comando):
+    assert decidir_risco(comando)["nivel"] == "destrutivo", comando
+
+
+# --- A6: ler segredo era "reversível", e a saída vai para a nuvem -------------
+# A saída do comando (até 4.000 caracteres) entra na conversa e é mandada ao
+# modelo no turno seguinte. Ler continua permitido, mas no trilho de cima.
+
+@pytest.mark.parametrize("comando", [
+    r"Get-Content C:\projeto\.env",
+    "type C:\\Users\\Dono\\.ssh\\id_" + "rsa",
+    "cat ~/.ssh/id_ed25519",
+    r"cat C:\Users\Dono\.aws\credentials",
+    r"type C:\certificados\servidor.pem",
+    r"Get-Content C:\certificados\chave.key",
+    r"Get-Content C:\certificados\cert.pfx",
+    r"type C:\Windows\Panther\unattend.xml",
+    r"Get-Content C:\Windows\NTDS\NTDS.dit",
+    r"reg save HKLM\SAM sam.hiv",
+    r"cat /etc/shadow",
+    r"Get-Content ~\.npmrc",
+    r"Get-Content ~\.pypirc",
+    r"Get-Content ~\.git-credentials",
+    r"Get-Content 'C:\Users\Dono\AppData\Local\Google\Chrome\User Data\Default\Login Data'",
+    r"Copy-Item 'C:\Users\Dono\AppData\Local\Google\Chrome\User Data\Default\Cookies' D:\backup",
+    r"Get-Content ~\.gnupg\secring.gpg",
+])
+def test_a6_ler_segredo_e_destrutivo_e_pede_autorizacao(comando):
+    d = decidir_risco(comando, risco_do_claude="reversivel")
+    assert d["nivel"] == "destrutivo", comando
+    assert d["precisa_autorizacao"] is True, comando
+
+
+def test_a6_ler_arquivo_comum_continua_leve():
+    d = decidir_risco(r"Get-Content C:\Users\Dono\nota.txt", risco_do_claude="reversivel")
+    assert d["nivel"] == "reversivel"
+    assert d["precisa_autorizacao"] is False
+
+
+# --- M1: falso positivo de IP treinava o dono a clicar sem ler ----------------
+# Cartão vermelho por causa de "abre o roteador" ou de um número de versão faz o
+# dono confirmar no automático — e aí o "sim" que importa também vem no automático.
+
+@pytest.mark.parametrize("comando", [
+    r"chrome http://192.168.0.1",
+    r"chrome https://www.google.com/search?q=windows+11+24.2.1.0",
+    r"Get-Content C:\log.txt | Select-String 10.0.0.5",
+    r"msedge http://10.0.0.5",
+    r"notepad versao-24.2.1.0.txt",
+])
+def test_m1_ip_solto_nao_pede_autorizacao(comando):
+    d = decidir_risco(comando, risco_do_claude="reversivel")
+    assert d["toca_alvo"] is False, comando
+    assert d["precisa_autorizacao"] is False, comando
+    assert d["nivel"] != "destrutivo", comando
+
+
+@pytest.mark.parametrize("comando", [
+    r"ping -c 1 8.8.8.8",
+    r"ssh dono@203.0.113.10",
+    r"curl http://203.0.113.10/api",
+    r"Test-NetConnection 8.8.4.4 -Port 443",
+    r"nmap -sV 192.168.0.10",
+])
+def test_m1_ip_em_ferramenta_de_rede_continua_pedindo_autorizacao(comando):
+    d = decidir_risco(comando)
+    assert d["toca_alvo"] is True, comando
+    assert d["precisa_autorizacao"] is True, comando
+
+
+# --- inofensivos: nada disso pode ter virado destrutivo -----------------------
+
+@pytest.mark.parametrize("comando", [
+    "dir", "Get-Date", "notepad", "chrome https://google.com",
+    "ls -la", "echo oi", "pwd", "git status", "cat nota.txt", "firefox",
+    "Get-ChildItem C:\\Users\\Dono", "Test-Path C:\\x.txt", "ipconfig",
+])
+def test_inofensivos_continuam_reversiveis(comando):
+    d = decidir_risco(comando, risco_do_claude="reversivel")
+    assert d["nivel"] == "reversivel", comando
+    assert d["precisa_autorizacao"] is False, comando
+
+
+# --- a regra de ouro, de novo: desconhecido nunca é reversível ----------------
+
+@pytest.mark.parametrize("comando", [
+    "foobar-cli --faz-algo",
+    "Invoke-MinhaFerramentaCustom -Foo bar",
+    "pip install requests",
+    "Stop-Process -Name explorer -Force",
+])
+def test_desconhecido_cai_em_muda_estado_nunca_em_reversivel(comando):
+    d = decidir_risco(comando, risco_do_claude="reversivel")
+    assert d["nivel"] != "reversivel", comando

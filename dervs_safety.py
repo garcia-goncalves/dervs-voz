@@ -88,6 +88,54 @@ _DESTRUTIVOS = [
      "apaga uma pasta de sistema do Windows"),
     (r"\btakeown\s+/f\s+C:\\?\s+/r", "toma posse da raiz do disco C:"),
     (r"\bicacls\s+C:\\?\s+.*\bgrant\b.*\s/t\b", "reescreve permissões da raiz do disco C:"),
+
+    # --- Windows, segunda rodada: buracos achados rodando o classificador ----
+    # O PowerShell aceita QUALQUER prefixo não-ambíguo de parâmetro (-Rec, -Fo),
+    # então nada aqui pode exigir a flag por extenso.
+    (r"\b(del|erase|Remove-Item|ri)\b[^|;]*\*", "apaga vários arquivos por coringa"),
+    (r"\|[^|]*\b(Remove-Item|ri|del|erase)\b",
+     "apaga o que vier pelo cano — a quantidade é imprevisível"),
+    (r"(?<![\w-])-e(?:nc\w*)?\s+\S", "roda comando codificado em base64 (esconde o que faz)"),
+    (r"(?:^|[;|(&]|\|\|)\s*&\s*['\"]?[A-Za-z]:[\\/]",
+     "executa um programa direto pelo caminho (operador de chamada)"),
+    (r"-Verb\s+RunAs\b", "roda como administrador (eleva privilégio)"),
+    (r"\b(Add|Set|Remove)-MpPreference\b", "mexe na proteção do Windows Defender"),
+    (r"\bwevtutil\s+cl\b", "apaga o registro de eventos do Windows"),
+    (r"\bClear-EventLog\b", "apaga o registro de eventos do Windows"),
+    (r"\bnet\s+(user|localgroup)\b\s+\S", "mexe em contas ou grupos de usuário"),
+    (r"\b(New-LocalUser|Add-LocalGroupMember|Set-LocalUser)\b",
+     "mexe em contas ou grupos de usuário (PowerShell)"),
+    (r"\bschtasks\b[^|;]*/(create|change|delete)\b", "cria ou altera tarefa agendada (persistência)"),
+    (r"\b(Register-ScheduledTask|New-ScheduledTask\w*)\b",
+     "cria tarefa agendada (persistência)"),
+    (r"\brobocopy\b[^|;]*\s/(mir|purge)\b", "espelha pastas — apaga o que sobra no destino"),
+    (r"\bWin32_Process\b", "cria processo por WMI/CIM (contorna o caminho normal)"),
+    (r"\b(wmic|Invoke-WmiMethod)\b[^|;]*\bprocess\b[^|;]*\bcall\b[^|;]*\bcreate\b",
+     "cria processo por WMI (contorna o caminho normal)"),
+]
+
+# Prefixo não-ambíguo de -Recurse e -Force: o PowerShell aceita -Rec, -Recu, -Fo…
+_FLAG_RECURSE_FORCE = r"(?<![\w-])-(?:r(?:e(?:c(?:u(?:r(?:s(?:e)?)?)?)?)?)?|f(?:o(?:r(?:c(?:e)?)?)?)?)\b"
+
+# Pares "as duas coisas na mesma linha, em qualquer ordem". Serve para os casos
+# em que a flag vem ANTES do verbo (pipeline: gci -Recurse | Remove-Item).
+_DESTRUTIVOS_COMBO = [
+    (r"\b(Remove-Item|ri|rm|del|erase)\b", _FLAG_RECURSE_FORCE,
+     "apaga arquivos ou pastas (PowerShell/cmd)"),
+    (r"\b(Copy-Item|copy|cp|Move-Item|move|mv)\b", _FLAG_RECURSE_FORCE,
+     "copia/move por cima de arquivo existente (perde o conteúdo antigo)"),
+]
+
+# --- arquivos de segredo: ler já é grave, porque a saída vai para a nuvem ------
+# A saída do comando entra na conversa e é mandada ao modelo no turno seguinte.
+# Ler continua sendo permitido, mas no trilho de cima e pedindo autorização.
+_SEGREDOS = [
+    r"\.env\b", r"\.ssh\b", r"\bid_(rsa|dsa|ecdsa|ed25519)\b", r"\bid_\w+\.pub\b",
+    r"\bcredentials\b", r"\.pem\b", r"\.key\b", r"\.pfx\b", r"\.p12\b",
+    r"\.aws\b", r"\.gnupg\b", r"\bunattend\.xml\b", r"\bNTDS\.dit\b",
+    r"\bSAM\b", r"\bSYSTEM\.sav\b", r"/etc/shadow\b", r"\bshadow\b",
+    r"\.npmrc\b", r"\.pypirc\b", r"\.git-credentials\b",
+    r"\bLogin Data\b", r"\bCookies\b", r"\.kdbx\b",
 ]
 
 # --- ferramentas/ações que TOCAM UM ALVO DE REDE: pedem autorização ------------
@@ -112,33 +160,82 @@ _REDE_GENERICA = [
     (r"\bssh\s+\w+@", "conecta numa máquina remota"),
     (r"\bscp\b.+@", "copia arquivo de/para máquina remota"),
     (r"\b(curl|wget)\b.+https?://(?!localhost|127\.0\.0\.1)", "acessa um endereço na internet"),
-    (r"\b\d{1,3}(\.\d{1,3}){3}\b", "aponta para um endereço de rede (IP)"),
 ]
+
+# --- IP: só conta como "alvo" quando é argumento de ferramenta de rede --------
+# Antes, qualquer coisa parecida com IPv4 virava cartão vermelho: "abre o
+# roteador" (192.168.0.1) e uma busca com número de versão (24.2.1.0) pediam
+# autorização. Cartão vermelho à toa treina o dono a confirmar no automático —
+# e aí o "sim" que importa também vem no automático.
+_FERRAMENTAS_DE_REDE = re.compile(
+    r"\b(ssh|scp|sftp|ftp|telnet|ping|tracert|traceroute|pathping|"
+    r"curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm|"
+    r"nc|ncat|netcat|socat|mstsc|rdesktop|"
+    r"Test-NetConnection|tnc|Test-Connection|New-PSSession|Enter-PSSession)\b",
+    re.IGNORECASE,
+)
+
+# IPv4 solto: nem colado em palavra maior, nem com um quinto grupo (versão).
+_IPV4 = re.compile(r"(?<![\w.+-])(\d{1,3}(?:\.\d{1,3}){3})(?![\w.+-])")
+
+# Faixas de casa: rede privada e loopback não são "alvo lá fora".
+_IP_PRIVADO = re.compile(
+    r"^(?:10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)"
+)
+
+
+def _tem_ip_publico(comando: str) -> bool:
+    for ip in _IPV4.findall(comando):
+        if not _IP_PRIVADO.match(ip):
+            return True
+    return False
 
 # --- comandos claramente inofensivos: podem ficar no trilho reversível ---------
 # Só o que está aqui pode ser "reversível". Qualquer coisa fora desta lista e
 # fora da lista de destrutivos cai em "muda_estado" — ou seja, no MÍNIMO pede
 # uma confirmação. Assim um comando novo/desconhecido nunca roda sozinho.
+#
+# ATENÇÃO: os padrões abaixo são ancorados no INÍCIO da linha (ver _casa_seguro).
+# Sem âncora, "notepad && net user invasor 123 /add" casava \bnotepad\b e virava
+# reversível; e \btype\b casava Add-Type, \bstart\b casava Start-Process,
+# \bfile\b casava Out-File, \bwhere\b casava Where-Object.
 _SEGUROS = [
-    r"\bls\b", r"\bcat\b", r"\bless\b", r"\bhead\b", r"\btail\b", r"\becho\b",
-    r"\bpwd\b", r"\bcd\b", r"\bwhoami\b", r"\bid\b", r"\bdate\b", r"\buname\b",
-    r"\bwhich\b", r"\btype\b", r"\bps\b", r"\btop\b", r"\bhtop\b", r"\bdf\b",
-    r"\bdu\b", r"\bfree\b", r"\bgrep\b", r"\bfind\b", r"\bfile\b", r"\bstat\b",
-    r"\bhistory\b", r"\benv\b", r"\bprintenv\b", r"\bwc\b", r"\bsort\b",
-    r"\buniq\b", r"\bgit\s+(status|log|diff|branch|show)\b",
-    r"\bxdg-open\b", r"\bkonsole\b", r"\bfirefox\b", r"\bchromium\b",
-    r"\bcode\b", r"\bnautilus\b", r"\bdolphin\b",
+    r"ls\b", r"cat\b", r"less\b", r"head\b", r"tail\b", r"echo\b",
+    r"pwd\b", r"cd\b", r"whoami\b", r"id\b", r"date\b", r"uname\b",
+    r"which\b", r"type\b", r"ps\b", r"top\b", r"htop\b", r"df\b",
+    r"du\b", r"free\b", r"grep\b", r"find\b", r"file\b", r"stat\b",
+    r"history\b", r"env\b", r"printenv\b", r"wc\b", r"sort\b",
+    r"uniq\b", r"git\s+(status|log|diff|branch|show)\b",
+    r"xdg-open\b", r"konsole\b", r"firefox\b", r"chromium\b",
+    r"code\b", r"nautilus\b", r"dolphin\b",
     # Windows (PowerShell/cmd) — só leitura ou abrir app de tela.
-    r"\bdir\b", r"\btype\b", r"\bGet-ChildItem\b", r"\bGet-Content\b",
-    r"\bGet-Location\b", r"\bGet-Date\b", r"\bGet-Process\b", r"\bTest-Path\b",
-    r"\bwhere\b", r"\bwhoami\b", r"\bhostname\b", r"\bsysteminfo\b",
-    r"\bipconfig\b", r"\bexplorer\b", r"\bnotepad\b", r"\bcalc\b", r"\bwt\b",
-    r"\bchrome\b", r"\bmsedge\b", r"\bcode\b", r"\bstart\b",
+    r"dir\b", r"Get-ChildItem\b", r"gci\b", r"Get-Content\b", r"gc\b",
+    r"Get-Location\b", r"Get-Date\b", r"Get-Process\b", r"Test-Path\b",
+    r"where\b", r"hostname\b", r"systeminfo\b",
+    r"ipconfig\b", r"explorer\b", r"notepad\b", r"calc\b", r"wt\b",
+    r"chrome\b", r"msedge\b", r"start\b",
 ]
+
+# Encadeamento e invocação: qualquer um destes DERRUBA a whitelist inteira.
+# Um comando "seguro" que emenda outro não é seguro — o segundo é que manda.
+_ENCADEIA = re.compile(
+    r"[;&|`^\n]"          # ; & && | || ` ^ e quebra de linha
+    r"|\$\("               # $(...)  subexpressão
+    r"|(?<![\w-])-e(?:nc\w*)?\b",  # -enc / -EncodedCommand
+    re.IGNORECASE,
+)
 
 
 def _casa(comando: str, padroes) -> bool:
     return any(re.search(p, comando, re.IGNORECASE) for p in padroes)
+
+
+def _casa_seguro(comando: str) -> bool:
+    """A whitelist só vale para a linha INTEIRA: o comando tem de COMEÇAR com
+    um dos nomes seguros e não pode encadear nem invocar mais nada."""
+    if _ENCADEIA.search(comando):
+        return False
+    return any(re.match(r"\s*(?:" + p + r")", comando, re.IGNORECASE) for p in _SEGUROS)
 
 
 def classificar_local(comando: str) -> dict:
@@ -147,6 +244,7 @@ def classificar_local(comando: str) -> dict:
     Devolve:
       piso        — o trilho MÍNIMO que a máquina exige (o Claude pode subir).
       toca_alvo   — True se o comando fala com uma rede/alvo real.
+      le_segredo  — True se o comando mexe em arquivo de segredo (chave, .env…).
       motivos     — lista de frases em português explicando o porquê.
     """
     comando = (comando or "").strip()
@@ -160,6 +258,21 @@ def classificar_local(comando: str) -> dict:
             piso = "destrutivo"
             motivos.append(motivo)
 
+    # 1b) Verbo e flag na mesma linha, em qualquer ordem (o pipeline do
+    #     PowerShell separa os dois: "gci -Recurse | Remove-Item").
+    for verbo, flag, motivo in _DESTRUTIVOS_COMBO:
+        if re.search(verbo, comando, re.IGNORECASE) and re.search(flag, comando, re.IGNORECASE):
+            piso = "destrutivo"
+            motivos.append(motivo)
+
+    # 1c) Mexe em arquivo de segredo? Ler já basta: a saída entra na conversa e
+    #     vai para o modelo na nuvem no turno seguinte.
+    le_segredo = _casa(comando, _SEGREDOS)
+    if le_segredo:
+        piso = "destrutivo"
+        motivos.append("mexe em arquivo de segredo (chave, senha, credencial) — "
+                       "a saída pode vazar para fora da máquina")
+
     # 2) Toca um alvo de rede? — topo também, e marca para pedir autorização.
     if _casa(comando, _FERRAMENTAS_ALVO):
         toca_alvo = True
@@ -168,17 +281,22 @@ def classificar_local(comando: str) -> dict:
         if re.search(padrao, comando, re.IGNORECASE):
             toca_alvo = True
             motivos.append(motivo)
+    # IP só é alvo quando é argumento de ferramenta de rede E não é faixa de casa.
+    if _FERRAMENTAS_DE_REDE.search(comando) and _tem_ip_publico(comando):
+        toca_alvo = True
+        motivos.append("aponta para um endereço de rede (IP)")
     if toca_alvo:
         piso = _nivel_max(piso, "destrutivo")
 
     # 3) Não é perigoso nem toca alvo: é reconhecidamente inofensivo?
     #    Se não for da lista de seguros, exige no mínimo uma confirmação.
     if piso == "reversivel" and not toca_alvo:
-        if not _casa(comando, _SEGUROS):
+        if not _casa_seguro(comando):
             piso = "muda_estado"
             motivos.append("comando não reconhecido como inofensivo — confirmar por garantia")
 
-    return {"piso": piso, "toca_alvo": toca_alvo, "motivos": motivos}
+    return {"piso": piso, "toca_alvo": toca_alvo, "le_segredo": le_segredo,
+            "motivos": motivos}
 
 
 def decidir_risco(comando: str, risco_do_claude: str = "reversivel") -> dict:
@@ -193,7 +311,9 @@ def decidir_risco(comando: str, risco_do_claude: str = "reversivel") -> dict:
     return {
         "nivel": final,
         "toca_alvo": local["toca_alvo"],
-        "precisa_autorizacao": local["toca_alvo"],
+        "le_segredo": local["le_segredo"],
+        # Segredo também pede o "tenho autorização": é dado que pode vazar.
+        "precisa_autorizacao": local["toca_alvo"] or local["le_segredo"],
         "dupla_confirmacao": final == "destrutivo",
         "motivos": local["motivos"],
         "risco_claude": risco_do_claude,
