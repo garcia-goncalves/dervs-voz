@@ -1,8 +1,5 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(python3 *)",
-      "Read(//home/shadownull/.cache/huggingface/hub/**)"
-    ]
+    "allow": []
   }
 }
