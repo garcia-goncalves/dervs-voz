@@ -58,6 +58,36 @@ _DESTRUTIVOS = [
     (r"\b(iptables|nft)\b.+\s-F\b", "zera as regras de firewall"),
     (r"\bcurl\b.+\|\s*(sudo\s+)?(sh|bash)\b", "baixa e executa código da internet às cegas"),
     (r"\bwget\b.+\|\s*(sudo\s+)?(sh|bash)\b", "baixa e executa código da internet às cegas"),
+
+    # --- Windows (PowerShell/cmd): a máquina do dono agora é Windows, e a
+    # rede não pode ficar cega fora do vocabulário Linux. -------------------
+    (r"\b(Remove-Item|ri|rm|del|erase)\b.*(-Recurse|-Force|/f\b|/s\b|/q\b)",
+     "apaga arquivos ou pastas (PowerShell/cmd)"),
+    (r"\bdel\s+/f\b|\bdel\s+/s\b|\bdel\s+/q\b|\berase\s+/s\b",
+     "apaga arquivos em lote (cmd)"),
+    (r"\b(rd|rmdir)\s+/s\b", "remove diretório e conteúdo (cmd)"),
+    (r"\bformat\s+\w:", "formata um disco (apaga tudo dele)"),
+    (r"\bdiskpart\b", "abre a ferramenta de partições do Windows"),
+    (r"\bclean\s+all\b", "limpa a tabela de partições (diskpart)"),
+    (r"\bcipher\s+/w", "sobrescreve o espaço livre do disco"),
+    (r"\bvssadmin\b.+\bdelete\b.+\bshadows\b", "apaga os pontos de restauração (clássico de ransomware)"),
+    (r"\bbcdedit\b", "altera a configuração de boot"),
+    (r"\bbootrec\b", "reescreve o setor de boot"),
+    (r"\breg\s+delete\s+HK(LM|CU)\b", "apaga uma chave do registro do Windows"),
+    (r"\b(Stop-Computer|Restart-Computer)\b", "desliga ou reinicia a máquina (PowerShell)"),
+    (r"\bshutdown\s+/(s|r|f)\b", "desliga ou reinicia a máquina (cmd)"),
+    (r"\bStop-Service\b", "derruba um serviço do Windows"),
+    (r"\bsc\s+(delete|stop)\b", "apaga ou para um serviço do Windows"),
+    (r"\btaskkill\s+/f\b", "mata processo à força (Windows)"),
+    (r"\bSet-ExecutionPolicy\s+(Bypass|Unrestricted)\b", "afrouxa a política de execução de scripts"),
+    (r"\b(Invoke-WebRequest|iwr|curl|wget)\b.*\|\s*(Invoke-Expression|iex)\b",
+     "baixa e executa código da internet às cegas (PowerShell)"),
+    (r"\biex\s*\(", "executa código dinamicamente (PowerShell)"),
+    (r"\bInvoke-Expression\b", "executa código dinamicamente (PowerShell)"),
+    (r"\bRemove-Item\b.+(C:\\\\?Windows|C:\\\\?Program Files|\$env:SystemRoot)",
+     "apaga uma pasta de sistema do Windows"),
+    (r"\btakeown\s+/f\s+C:\\?\s+/r", "toma posse da raiz do disco C:"),
+    (r"\bicacls\s+C:\\?\s+.*\bgrant\b.*\s/t\b", "reescreve permissões da raiz do disco C:"),
 ]
 
 # --- ferramentas/ações que TOCAM UM ALVO DE REDE: pedem autorização ------------
@@ -98,6 +128,12 @@ _SEGUROS = [
     r"\buniq\b", r"\bgit\s+(status|log|diff|branch|show)\b",
     r"\bxdg-open\b", r"\bkonsole\b", r"\bfirefox\b", r"\bchromium\b",
     r"\bcode\b", r"\bnautilus\b", r"\bdolphin\b",
+    # Windows (PowerShell/cmd) — só leitura ou abrir app de tela.
+    r"\bdir\b", r"\btype\b", r"\bGet-ChildItem\b", r"\bGet-Content\b",
+    r"\bGet-Location\b", r"\bGet-Date\b", r"\bGet-Process\b", r"\bTest-Path\b",
+    r"\bwhere\b", r"\bwhoami\b", r"\bhostname\b", r"\bsysteminfo\b",
+    r"\bipconfig\b", r"\bexplorer\b", r"\bnotepad\b", r"\bcalc\b", r"\bwt\b",
+    r"\bchrome\b", r"\bmsedge\b", r"\bcode\b", r"\bstart\b",
 ]
 
 

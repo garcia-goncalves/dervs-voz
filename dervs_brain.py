@@ -26,6 +26,7 @@ no modo antigo (um `claude -p` de uma tacada só) para aquele turno, e reinicia
 a sessão no turno seguinte.
 """
 import os
+import sys
 import json
 import time
 import shutil
@@ -83,6 +84,30 @@ OPENAI_KEY = _carregar_chave_openai()
 # Pôr DERVS_BRAIN_STREAM=0 no ambiente força o modo antigo (um processo por
 # turno) — útil para depurar se o streaming der problema numa máquina.
 USAR_STREAM = os.environ.get("DERVS_BRAIN_STREAM", "1") != "0"
+
+def _bloco_comandos_do_sistema() -> str:
+    """O trecho do prompt com os comandos pré-aprovados MUDA com o sistema
+    operacional em que o DERVS está rodando agora — no Linux ele sugeriria
+    'konsole'/'kcalc' num Windows, que não existem lá. Calculado em tempo de
+    execução (sys.platform) e injetado dentro de SISTEMA logo abaixo."""
+    if sys.platform == "win32":
+        return (
+            "COMANDOS QUE JÁ EXISTEM NESTA MÁQUINA (Windows 11 — use estes, não invente):\n"
+            "- Abrir o ChatGPT Desktop do dono: chrome --app=https://chatgpt.com/\n"
+            "- Abrir um site no navegador: chrome <url>   (o padrão dele é o Chrome)\n"
+            '- Abrir uma busca: chrome "https://www.google.com/search?q=<termo>"\n'
+            "- Apps de tela: firefox (Firefox), msedge (Edge), wt (terminal), "
+            "explorer (arquivos), calc (calculadora), notepad (editor)."
+        )
+    return (
+        "COMANDOS QUE JÁ EXISTEM NESTA MÁQUINA (Linux Parrot — use estes, não invente):\n"
+        "- Abrir o ChatGPT Desktop do dono: google-chrome --app=https://chatgpt.com/\n"
+        "- Abrir um site no navegador: google-chrome <url>   (o padrão dele é o Chrome)\n"
+        '- Abrir uma busca: google-chrome "https://www.google.com/search?q=<termo>"\n'
+        "- Apps de tela: firefox, chromium, konsole (terminal), dolphin (arquivos), "
+        "kcalc (calculadora), kate (editor)."
+    )
+
 
 SISTEMA = """Você é o CÉREBRO do DERVS, um parceiro de VOZ que roda na máquina \
 Linux (Parrot, de segurança ofensiva autorizada) do dono. Você e ele conversam \
@@ -182,12 +207,7 @@ humano, como quem não entendeu direito no meio de uma conversa, nunca robótico
 Mas NÃO exagere: se o pedido está claro, aja — desconfiança é só para o que chega \
 truncado ou sem sentido.
 
-COMANDOS QUE JÁ EXISTEM NESTA MÁQUINA (use estes, não invente):
-- Abrir o ChatGPT Desktop do dono: google-chrome --app=https://chatgpt.com/
-- Abrir um site no navegador: google-chrome <url>   (o padrão dele é o Chrome)
-- Abrir uma busca: google-chrome "https://www.google.com/search?q=<termo>"
-- Apps de tela: firefox, chromium, konsole (terminal), dolphin (arquivos), \
-  kcalc (calculadora), kate (editor).
+__BLOCO_COMANDOS_DO_SISTEMA__
 Para "conversar com o GPT", "abrir o ChatGPT", "pesquisar tal coisa", "abrir \
 tal site" quando basta ABRIR — monte o passo com o comando acima.
 Quando o dono quer AGIR DENTRO da página (clicar, digitar, ler algo de dentro, \
@@ -201,6 +221,8 @@ instala/edita/cria; 'destrutivo' apaga/formata. Marque 'toca_alvo' true para \
 qualquer coisa que fale com uma máquina/rede de fora. Prefira ferramentas já \
 instaladas. Um comando por passo. Se um passo depende do resultado do anterior, \
 pare ali e diga na 'fala' que continua depois de ver a saída."""
+
+SISTEMA = SISTEMA.replace("__BLOCO_COMANDOS_DO_SISTEMA__", _bloco_comandos_do_sistema())
 
 
 def montar_prompt(conversa: list) -> str:
