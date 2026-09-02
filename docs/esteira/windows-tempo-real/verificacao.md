@@ -240,6 +240,17 @@ são."* e ainda assim reconheceu o nome, que é exatamente o trabalho do casador
 O cérebro respondeu *"São três e meia."*, que é o exemplo literal do prompt, não a hora
 real. O modelo não tem relógio nenhum e repetia o exemplo com toda a convicção.
 
+**Ressalva importante, descoberta depois:** *pelo aplicativo* isto nunca chegava ao dono.
+"Que horas são" e "que dia é hoje" já eram atendidos por `dervs_atalhos.tentar()`, que
+responde localmente, na hora, sem chamar o cérebro — verificado: devolve *"É uma e seis
+da tarde."* com o relógio certo. A medição bateu no problema porque chamou
+`_pensar_openai` diretamente, contornando os atalhos.
+
+Então o defeito era real, mas **menor do que pareceu**: valia para tudo que os atalhos
+não cobrem, que é onde o cérebro precisa da data para raciocinar — *"quanto tempo falta
+pro Natal"*, *"marca pra amanhã"*, *"isso foi antes ou depois de agosto"*. Nenhuma dessas
+casa com os atalhos (verificado), e todas iam ao cérebro sem saber que dia era.
+
 Corrigido injetando data e hora em **cada** pergunta, como mensagem de **sistema** —
 nunca como fala do dono, onde viraria uma ordem a cumprir em vez de contexto. É a função
 `_agora()` em `dervs_brain.py`, presente nos dois caminhos (OpenAI e Claude reserva).

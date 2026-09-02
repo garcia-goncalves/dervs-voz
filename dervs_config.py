@@ -74,6 +74,13 @@ PADRAO = {
     # Ponha false para tudo passar pelo cérebro.
     "atalhos_ligados": True,
 
+    # O microfone nasce aberto quando o app abre? Isto guarda a ÚLTIMA escolha
+    # do dono no botão "Ei DERVS": desligou e fechou, abre desligado. Sem isto,
+    # o botão não é um liga/desliga — é um lembrete que se apaga sozinho.
+    # Padrão True porque nascer desligado já deixou o DERVS surdo uma vez
+    # (01/09/2026) e o dono achou que ele estava ignorando.
+    "escuta_ao_abrir": True,
+
     # Ouvido (transcrição PRECISA, do pedido — não confundir com o porteiro,
     # que é local e de graça): "openai" (precisa de chave e internet) ou
     # "local" (Whisper no processador, grátis e offline, ~4,7s). "openai" cai
@@ -147,6 +154,10 @@ def _validar(conf: dict) -> dict:
     except (TypeError, ValueError):
         conf["janela_desperto_seg"] = PADRAO["janela_desperto_seg"]
     conf["atalhos_ligados"] = bool(conf.get("atalhos_ligados", True))
+    # só True/False valem; qualquer outra coisa (texto, número) cai no padrão,
+    # senão um "false" entre aspas ligaria a escuta por ser string não-vazia.
+    if not isinstance(conf.get("escuta_ao_abrir"), bool):
+        conf["escuta_ao_abrir"] = PADRAO["escuta_ao_abrir"]
     if conf.get("stt") not in ("openai", "local"):
         conf["stt"] = PADRAO["stt"]
     if not isinstance(conf.get("stt_openai_modelo"), str) or not conf["stt_openai_modelo"]:
@@ -204,6 +215,36 @@ def carregar() -> dict:
     except (json.JSONDecodeError, OSError, ValueError):
         pass
     return _validar(conf)
+
+
+def gravar(chave: str, valor) -> bool:
+    """Grava UMA chave no config.json, preservando o resto do arquivo.
+
+    Serve para o app guardar escolha feita na tela (o botão da escuta), sem
+    obrigar o dono a editar arquivo nenhum. Lê o que está no disco, muda só a
+    chave pedida e regrava — assim uma opção que o dono editou na mão não é
+    apagada por um clique de botão.
+
+    Devolve False e segue em silêncio se não deu para gravar: disco cheio ou
+    pasta somindo não pode derrubar o DERVS por causa de um botão.
+    """
+    if chave not in PADRAO:
+        return False
+    try:
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                do_disco = json.load(f)
+            if not isinstance(do_disco, dict):
+                do_disco = {}
+        except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
+            do_disco = {}
+        do_disco[chave] = valor
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(do_disco, f, ensure_ascii=False, indent=2)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
 
 
 def garantir_arquivo() -> str | None:

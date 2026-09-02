@@ -77,6 +77,25 @@ minuto). Uma reunião de duas horas sai por menos de US$ 0,60.
 
 ---
 
+## Ligar e desligar a escuta
+
+O botão **🎙️ Ei DERVS** / **🔴 Ouvindo**, no alto da janela, é o interruptor do
+microfone.
+
+- **🔴 Ouvindo** (dourado aceso): o microfone está aberto. Diga "DERVS" e ele
+  atende. Só isso — o que você fala **não sai do seu computador** enquanto ele
+  não ouvir o nome.
+- **🎙️ Microfone desligado**: nada é ouvido, nem aqui dentro.
+
+**Ele lembra da sua escolha.** Se você desligar e fechar o app, na próxima vez
+ele abre desligado, e a barra de status diz *"escuta desligada — clique no botão
+para ligar"*. Assim o silêncio é escolha sua, não defeito.
+
+Se preferir que ele sempre abra ouvindo, mude `escuta_ao_abrir` para `true` no
+arquivo de configuração (`%APPDATA%\dervs\config.json`).
+
+---
+
 ## O que ele faz, em uma frase
 
 Fica ouvindo a sala. Quando você diz **"DERVS"** (ou "OK DERVS", ou "Ei DERVS"),

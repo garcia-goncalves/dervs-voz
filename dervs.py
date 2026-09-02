@@ -637,7 +637,22 @@ class PopUp(QtWidgets.QWidget):
         # 40 minutos de serviço no ar. Ele não ignorava; não estava ouvindo.
         # Vai por timer para rodar só depois que a janela terminou de montar
         # (alternar_conversa usa self.voz e a barra de status).
-        QtCore.QTimer.singleShot(800, lambda: self.b_conversa.setChecked(True))
+        # ...mas respeitando a ULTIMA escolha dele: se desligou a escuta e
+        # fechou o app, abre desligado. Sem isso o botao nao e um liga/desliga,
+        # e um lembrete que se apaga sozinho toda vez que o app reabre.
+        if cfg.carregar()["escuta_ao_abrir"]:
+            QtCore.QTimer.singleShot(800, lambda: self.b_conversa.setChecked(True))
+        else:
+            QtCore.QTimer.singleShot(800, self._mostrar_escuta_desligada)
+
+    def _mostrar_escuta_desligada(self):
+        """Deixa claro, ao abrir, que o silencio e escolha dele e nao defeito.
+
+        Sem esta linha o dono abre o app, fala o nome, nada acontece, e a
+        conclusao natural e "quebrou de novo" -- exatamente o susto de 01/09.
+        """
+        self.b_conversa.setText("🎙️  Microfone desligado")
+        self.status.setText("escuta desligada — clique no botao para ligar")
 
     # ---- posicionar no centro e focar ----
     def abrir(self):
@@ -661,13 +676,17 @@ class PopUp(QtWidgets.QWidget):
 
     def alternar_conversa(self, ligar):
         """O liga/desliga da escuta. LIGADO = o microfone está aberto o tempo
-        todo; DESLIGADO = nada é ouvido, nem localmente.
+        todo; DESLIGADO = nada é ouvido, nem localmente. A escolha fica gravada
+        e vale para a próxima vez que o app abrir.
 
         O estado precisa ser óbvio num relance, sem abrir menu: quem deixa um
         microfone ligado o dia inteiro tem de conseguir olhar para a tela e
         saber, na hora, se ele está aberto. Daí o botão dizer com todas as
         letras em qual dos dois estados está, em vez de só ficar 'apertado'.
         """
+        # grava ANTES de mexer no microfone: se a captura falhar, o que ele
+        # escolheu continua valendo na próxima abertura.
+        cfg.gravar("escuta_ao_abrir", bool(ligar))
         if ligar:
             self.escuta = Escuta()
             self._registrar(self.escuta)   # mantém referência até a thread morrer

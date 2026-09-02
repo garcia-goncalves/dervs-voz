@@ -112,3 +112,49 @@ def test_carregar_le_o_que_o_dono_mudou(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
     conf = cfg.carregar()
     assert conf["voz_velocidade"] == 0.9
+
+
+# ---- o liga/desliga da escuta tem de sobreviver a fechar o app ----
+def test_escuta_ao_abrir_nasce_ligada():
+    """Padrão continua ligado: em 01/09 nascer desligado deixou o DERVS surdo e
+    o dono achou que ele estava ignorando."""
+    assert cfg.PADRAO["escuta_ao_abrir"] is True
+
+
+def test_escuta_ao_abrir_aceita_desligado(tmp_path, monkeypatch):
+    """Se o dono desligou a escuta e fechou, tem de abrir desligado — senão o
+    botão não é um liga/desliga, é um lembrete que se apaga sozinho."""
+    caminho = tmp_path / "config.json"
+    caminho.write_text('{"escuta_ao_abrir": false}', encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    assert cfg.carregar()["escuta_ao_abrir"] is False
+
+
+def test_escuta_ao_abrir_ignora_valor_torto(tmp_path, monkeypatch):
+    caminho = tmp_path / "config.json"
+    caminho.write_text('{"escuta_ao_abrir": "talvez"}', encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    assert cfg.carregar()["escuta_ao_abrir"] is True
+
+
+def test_gravar_uma_chave_preserva_o_resto(tmp_path, monkeypatch):
+    """Gravar o estado do botão não pode apagar a voz que o dono escolheu."""
+    caminho = tmp_path / "config.json"
+    caminho.write_text('{"voz_kokoro": "pm_alex", "voz_velocidade": 1.3}',
+                       encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    monkeypatch.setattr(cfg, "CONFIG_DIR", str(tmp_path))
+    assert cfg.gravar("escuta_ao_abrir", False) is True
+    depois = cfg.carregar()
+    assert depois["escuta_ao_abrir"] is False
+    assert depois["voz_kokoro"] == "pm_alex"
+    assert depois["voz_velocidade"] == 1.3
+
+
+def test_gravar_nunca_derruba_o_app(tmp_path, monkeypatch):
+    """Disco cheio ou pasta somindo não pode matar o DERVS por causa de um
+    botão. Devolve False e segue."""
+    monkeypatch.setattr(cfg, "CONFIG_PATH",
+                        str(tmp_path / "nao" / "existe" / "c.json"))
+    monkeypatch.setattr(cfg, "CONFIG_DIR", "\x00caminho invalido\x00")
+    assert cfg.gravar("escuta_ao_abrir", False) is False
