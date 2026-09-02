@@ -31,6 +31,7 @@ import dervs_enrich as enriquecimento
 import dervs_atalhos as atalhos
 import dervs_config as cfg
 import dervs_instancia as instancia
+import dervs_registro as registro
 from dervs_tts import Voz
 from dervs_listen import (Endpointer, salvar_wav, separar_chamada,
                           FRAME_BYTES, FRAME_AMOSTRAS, TAXA)
@@ -503,6 +504,16 @@ class PopUp(QtWidgets.QWidget):
         self._rec_enviado = True       # nada gravado ainda para mandar
         self._stt_erro_texto = ""       # última reclamação do motor, para o aviso
         self._stt_recado = None         # o que a tela diz sobre o ouvido, e a cor
+        # Fechou sozinho da última vez? A tela CONTA, e o motivo real fica no
+        # tooltip. Sem isto o app morria sem deixar uma linha em lugar nenhum
+        # (`pythonw` não tem terminal) e o dono só via a janela sumir.
+        self._recado_queda = None
+        if registro.QUEDA_ANTERIOR:
+            self._recado_queda = (
+                "fechei sozinho da última vez — passe o mouse aqui",
+                registro.resumo(registro.QUEDA_ANTERIOR) or "motivo não registrado")
+            # some sozinho depois de 2 min: aviso de ontem não pode morar na tela
+            QtCore.QTimer.singleShot(120000, self._esquecer_a_queda)
         self._stt_tentativas = 0
         self._stt_religando = False     # já há uma religada marcada
         self._stt_encerrando = False    # True quando o app está fechando de propósito
@@ -924,7 +935,12 @@ class PopUp(QtWidgets.QWidget):
         com o ouvido morto. O DERVS afirmava estar pronto estando SURDO, e o
         dono só descobria apertando Gravar e nada acontecendo. Achado na
         investigação do 'o DERVS sumiu', 02/09/2026."""
-        if self._stt_recado is not None:
+        if self._recado_queda is not None:
+            texto, motivo = self._recado_queda
+            cor = REC
+            if self.status.toolTip() != motivo:
+                self.status.setToolTip(motivo)
+        elif self._stt_recado is not None:
             texto, cor = self._stt_recado
         elif not self._stt_pronto:
             texto, cor = "preparando o ouvido…", PARCH_DIM
@@ -933,6 +949,10 @@ class PopUp(QtWidgets.QWidget):
         if self.status.text() != texto:
             self.status.setText(texto)
             self.status.setStyleSheet(f"color:{cor};")
+
+    def _esquecer_a_queda(self):
+        self._recado_queda = None
+        self.status.setToolTip("")
 
     def _stt_reclamou(self):
         """Guarda o que o motor de voz reclamou. Antes ninguém lia esse canal:
@@ -1591,6 +1611,11 @@ def _montar_bandeja(app, launcher):
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    # Primeiro colher o que sobrou da vez passada, DEPOIS armar o registro:
+    # `instalar` zera o arquivo da pane dura para poder escrever nele agora.
+    registro.colher_anterior()
+    registro.instalar()
 
     # UM DERVS só. Até 02/09/2026 cada clique no ícone abria mais um, empilhado
     # exatamente no mesmo ponto da tela e disputando o microfone — o de cima
