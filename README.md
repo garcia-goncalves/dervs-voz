@@ -207,4 +207,70 @@ contra mini **2,04**/1,51/1,42 s. Mais preciso e **não ficou mais lento**.
 | `falar.sh`, `ligar-voz-com-senha.sh` | scripts do Linux, ainda não traduzidos |
 | Navegador autônomo ponta a ponta | caminho do perfil do Chrome corrigido, mas não validado |
 
+## "Sumiu definitivamente" — 02/09/2026, noite. O registro de queda pagou.
+
+O dono voltou dizendo que o DERVS **não aparecia mais**. Desta vez não houve
+adivinhação: o `dervs_registro.py` instalado de tarde tinha gravado a morte, em
+`%APPDATA%\dervs\ultimo_erro.txt.duro`, com o rastro exato.
+
+```
+Windows fatal exception: code 0xc0000374     <- corrupção de memória
+  sounddevice.py:1168 in close
+  dervs.py:313 in fechar
+  dervs.py:429 in run
+```
+
+**Causa raiz:** duas threads fechavam o MESMO stream do PortAudio no mesmo
+instante — a thread da tela, ao parar a escuta (`Escuta.parar()`), e a própria
+thread de captura, no `finally` do laço `run()`. O guarda
+`if self._stream is not None` não protegia nada: as duas passavam por ele antes
+de qualquer uma zerar o atributo, e não havia trava nenhuma. Liberar duas vezes
+a mesma memória — ou ler a já liberada, o outro lado da mesma corrida — faz o
+Windows matar o processo NA HORA, sem traceback nem mensagem.
+
+É por isso que os 14 apertos manuais da tarde **não reproduziram**: é corrida,
+e depende de o `fechar()` cair dentro da janela de tempo em que o outro lado
+está dentro do PortAudio. Era exatamente o "fecha sozinho quando aperto VOZ".
+
+| Defeito | Onde | Efeito para o dono |
+|---|---|---|
+| **Duas threads fechando o mesmo microfone** | `dervs.py`, `Microfone.fechar` | o app **morre na hora**, sem deixar rastro na tela. Corrigido com duas travas: `fechar()` TOMA a fonte para si (troca atômica por None — só uma thread sai com ela na mão), `abort()`, espera o `ler()` em voo sair, e só então `close()` |
+| **A dica de vocabulário era lida e nunca existia** | `dervs_config.PADRAO` | `dervs_transcrever.py` lia `stt_dica_vocabulario` para mandar como `prompt` à OpenAI, mas a chave não existia em lugar nenhum. O áudio ia para a nuvem **sem uma pista sequer** de que é português do Brasil falado com um assistente chamado DERVS |
+| **`kill()` num objeto que não tem `kill()`** | `dervs.py`, fechamento do app | `GravacaoManual` é uma `QThread`; `kill()` é de `QProcess`. Fechar com uma gravação em andamento levantava `AttributeError` na PRIMEIRA linha do bloco e abortava **todo o resto**: escuta, voz, espera das threads e motor de transcrição ficavam de pé, órfãos |
+| **Dois locks diferentes sobre o mesmo dado** | `dervs_tts.py`, `desligar` | os três daemons saíam sob `self._lock`, enquanto a thread da fala mexe neles sob `_lock_piper`/`_lock_kokoro`. Fechar no meio de uma fala matava o daemon com a thread ainda escrevendo nele — e o `except` genérico engolia |
+| **A escuta nascia desligada** | `config.json` da máquina | o valor foi gravado **às 15:22, o minuto do crash**: o app anotou "ouvido desligado" enquanto morria. Não foi escolha do dono. Restaurado para `True` |
+
+**Provado com o PortAudio de verdade**, não só com dublê: 60 rodadas de
+abrir / ler-em-duas-threads / fechar-em-três-mãos. No código anterior o processo
+morre na **mesma linha** do crash do dono; com a correção, sobrevive às 60.
+
+**Prova A/B da dica**, 5 frases faladas, mesmo áudio transcrito duas vezes:
+
+| | o nome "DERVS" | palavras não ensinadas |
+|---|---|---|
+| Sem dica | **0 de 5** — virava "Dervs", "Derves" | 84% |
+| Com dica | **5 de 5** | 86% (ruído, não ganho) |
+
+A leitura honesta: a dica acerta **o que está escrita nela, e só isso**. Por
+isso o próximo passo de maior valor é o dono passar 20–30 nomes próprios dele
+— clientes, empresas, pessoas, termos do ramo — para entrarem em
+`stt_dica_vocabulario`. Nome próprio que o modelo nunca viu é o que ele mais
+erra, e a dica é o único jeito de ensiná-lo sem treinar modelo nenhum.
+
+**Órfãos:** medido que matar o app sem fechamento limpo deixa 3 processos
+filhos vivos. Eles saem sozinhos por EOF do `stdin` em ~19 s — mas nesse
+intervalo seguram o microfone, e um DERVS aberto aí parece "não funcionar".
+Com o fechamento corrigido, saem na hora.
+
+> **Precisão da armadilha do `PADRAO`** (a seção acima dizia menos do que
+> devia): chave **nova**, que ainda não existe no `config.json`, chega sozinha
+> — `carregar()` faz `dict(PADRAO)` e completa o que falta; foi assim que a
+> dica de vocabulário alcançou a máquina do dono sem reescrever nada. Chave que
+> **já existe** no arquivo com valor antigo é que não muda: aí é `cfg.gravar()`.
+
+> **Cada passo do fechamento é independente** agora, e o que falha é dito no
+> `stderr` em vez de engolido. Foi o `except Exception: pass` de bloco inteiro
+> que manteve o `kill()` escondido. O próximo defeito nessa lista custa um
+> passo, não o fechamento todo.
+
 Detalhe e medições: `docs/esteira/windows-tempo-real/`.
