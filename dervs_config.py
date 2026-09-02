@@ -39,11 +39,26 @@ PADRAO = {
     # Ponha false para tudo passar pelo cérebro.
     "atalhos_ligados": True,
 
-    # Ouvido (transcrição): "openai" (gpt-4o-mini-transcribe — mais rápido e
-    # preciso, ~US$ 0,003/min, precisa de chave e internet) ou "local" (Whisper
-    # no processador, grátis e offline, ~4,7s). "openai" cai no local se falhar.
+    # Ouvido (transcrição PRECISA, do pedido — não confundir com o porteiro,
+    # que é local e de graça): "openai" (precisa de chave e internet) ou
+    # "local" (Whisper no processador, grátis e offline, ~4,7s). "openai" cai
+    # no local sozinho se falhar.
     "stt": "openai",
-    "stt_openai_modelo": "gpt-4o-mini-transcribe",
+    # gpt-transcribe (lançado 28/07/2026, US$ 0,0045/min) é ao mesmo tempo mais
+    # preciso e mais barato que o gpt-4o-transcribe (US$ 0,006/min), e a própria
+    # OpenAI passou a recomendá-lo à frente dele e do whisper-1. Custa ~US$ 1/mês
+    # a mais que o gpt-4o-mini-transcribe (US$ 0,003/min) no volume previsto —
+    # e o dono pediu precisão em letra maiúscula. Preços consultados em
+    # 01/09/2026 em developers.openai.com/api/docs/pricing.
+    "stt_openai_modelo": "gpt-transcribe",
+
+    # O PORTEIRO: quem decide, NA MÁQUINA, se a fala foi com o DERVS. É ele que
+    # permite deixar ligado o dia inteiro sem mandar o áudio do dia inteiro para
+    # a nuvem. "local" = Whisper pequeno com aviso de vocabulário (medido: 14/14
+    # em 0,49s). "porcupine" = detector dedicado, ainda não implementado — exige
+    # conta gratuita no picovoice.ai. Ver dervs_porteiro.py.
+    "porteiro": "local",
+    "porteiro_modelo": "tiny",
 
     # Cérebro: "openai" (gpt-4.1-nano — ultrarrápido e barato, precisa de chave
     # em ~/voice/.env e internet) ou "claude" (CLI local, grátis na assinatura).
@@ -101,6 +116,10 @@ def _validar(conf: dict) -> dict:
         conf["stt"] = PADRAO["stt"]
     if not isinstance(conf.get("stt_openai_modelo"), str) or not conf["stt_openai_modelo"]:
         conf["stt_openai_modelo"] = PADRAO["stt_openai_modelo"]
+    if conf.get("porteiro") not in ("local", "porcupine"):
+        conf["porteiro"] = PADRAO["porteiro"]
+    if not isinstance(conf.get("porteiro_modelo"), str) or not conf["porteiro_modelo"]:
+        conf["porteiro_modelo"] = PADRAO["porteiro_modelo"]
     if conf.get("cerebro") not in ("openai", "claude"):
         conf["cerebro"] = PADRAO["cerebro"]
     if not isinstance(conf.get("cerebro_openai_modelo"), str) or not conf["cerebro_openai_modelo"]:

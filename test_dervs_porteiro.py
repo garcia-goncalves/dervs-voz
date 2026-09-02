@@ -176,4 +176,16 @@ def test_modelo_de_transcricao_e_o_novo():
     `dervs_config.PADRAO["stt_openai_modelo"]`, que precisa dizer o mesmo — há
     um teste disso em `test_dervs_config.py`.
     """
+    import dervs_config
     assert daemon.STT_MODELO_PADRAO == "gpt-transcribe"
+    assert dervs_config.PADRAO["stt_openai_modelo"] == "gpt-transcribe"
+
+
+def test_porteiro_local_e_o_padrao_da_configuracao():
+    """O porteiro local é o padrão de fábrica: quem instala o DERVS não precisa
+    criar conta em lugar nenhum para ele já parar de mandar tudo para a nuvem."""
+    import dervs_config
+    assert dervs_config.PADRAO["porteiro"] == "local"
+    # valor inventado no arquivo do dono cai no padrão em vez de derrubar o app
+    conf = dict(dervs_config.PADRAO, porteiro="coisa inventada")
+    assert dervs_config._validar(conf)["porteiro"] == "local"
