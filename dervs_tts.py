@@ -319,10 +319,22 @@ class Voz:
             self._play = self._synth = None
 
     def desligar(self):
-        """Encerra tudo, inclusive os daemons (ao fechar o app)."""
+        """Encerra tudo, inclusive os daemons (ao fechar o app).
+
+        Cada daemon é encerrado sob O MESMO lock que serializa a conversa com
+        ele. Antes os três saíam sob `self._lock`, enquanto `_pedir_piper` e
+        `_pedir_kokoro` — que rodam na thread de fundo criada por `falar()` —
+        usavam `_lock_piper` e `_lock_kokoro`. Locks diferentes sobre o mesmo
+        dado não excluem nada: fechar o app no meio de uma fala derrubava o
+        processo do daemon com a thread ainda escrevendo no `stdin` dele. O
+        `except` genérico lá dentro engolia o erro, então a fala morria pelo
+        meio sem uma linha de aviso em lugar nenhum.
+        """
         self.calar()
-        with self._lock:
-            for nome in ("_daemon", "_piper_daemon", "_kokoro_daemon"):
+        for nome, trava in (("_daemon", self._lock),
+                            ("_piper_daemon", self._lock_piper),
+                            ("_kokoro_daemon", self._lock_kokoro)):
+            with trava:
                 proc = getattr(self, nome)
                 if proc and proc.poll() is None:
                     try:

@@ -1622,6 +1622,63 @@ class Launcher(QtWidgets.QWidget):
         self._press = None
 
 
+def encerrar_tudo(pop):
+    """Desliga tudo o que o DERVS deixou de pé, e não desiste no primeiro tropeço.
+
+    Devolve a lista do que falhou (vazia quando correu tudo bem).
+
+    Antes isto era um bloco só dentro de um único `try/except Exception: pass`,
+    e a primeira linha dele chamava `pop.rec.kill()` — um método que
+    `GravacaoManual` não tem, porque ela é uma `QThread` e `kill()` é de
+    `QProcess`; sobrou de quando a gravação era um processo externo do
+    `pw-record`. Fechar o app com uma gravação em andamento levantava
+    `AttributeError` ali e abortava TODO o resto: a escuta ficava ligada, a voz
+    ligada, ninguém esperava as threads vivas, e o motor de transcrição ficava
+    órfão vivo segurando memória e microfone.
+
+    Por isso cada passo agora é independente: o próximo defeito nesta lista
+    custa um passo, não o fechamento inteiro. E o que falha é DITO, não engolido
+    — engolir em silêncio foi o que deixou este defeito escondido.
+    """
+    # Primeira linha de todas: a partir daqui, o motor de voz morrer é
+    # ESPERADO. Sem isto o desligamento dispara o aviso de queda e uma
+    # tentativa de religar, no meio do fechamento.
+    pop._stt_encerrando = True
+
+    def _parar_gravacao():
+        if pop.rec is not None:
+            pop.rec.parar()      # `parar()`, que existe; `kill()` não existe
+
+    def _parar_escuta():
+        if pop.escuta is not None:
+            pop.escuta.parar()
+
+    def _esperar_threads():
+        # Espera TODA thread viva terminar antes de fechar, senão o Qt aborta
+        # ao destruir uma QThread que ainda está rodando.
+        for t in list(pop._threads):
+            t.wait(3000)
+
+    passos = (
+        ("parar a gravação", _parar_gravacao),
+        ("parar a escuta", _parar_escuta),
+        ("desligar a voz", pop.voz.desligar),
+        ("esperar as threads", _esperar_threads),
+        ("encerrar o motor de transcrição", pop.stt.kill),
+    )
+
+    falhas = []
+    for nome, passo in passos:
+        try:
+            passo()
+        except Exception as e:
+            falhas.append("%s: %s" % (nome, e))
+    if falhas:
+        sys.stderr.write("dervs: ao fechar — %s\n" % "; ".join(falhas))
+        sys.stderr.flush()
+    return falhas
+
+
 def _montar_bandeja(app, launcher):
     """Ícone permanente na bandeja do sistema (a 'barra de tarefas'). Garante que
     o DERVS está sempre ao alcance, mesmo que o selo flutuante saia da vista.
@@ -1683,25 +1740,7 @@ if __name__ == "__main__":
     bandeja = _montar_bandeja(app, l)  # ícone fixo na bandeja
 
     def _encerrar():
-        # Primeira linha de todas: a partir daqui, o motor de voz morrer é
-        # ESPERADO. Sem isto o desligamento disparava o aviso de queda e uma
-        # tentativa de religar, no meio do fechamento.
-        l.pop._stt_encerrando = True
-        try:
-            if l.pop.rec is not None:
-                l.pop.rec.kill()
-            if l.pop.escuta is not None:
-                l.pop.escuta.parar()
-            l.pop.voz.desligar()
-            # espera TODA thread viva terminar antes de fechar (senão o Qt aborta)
-            for t in list(l.pop._threads):
-                try:
-                    t.wait(3000)
-                except Exception:
-                    pass
-            l.pop.stt.kill()
-        except Exception:
-            pass
+        encerrar_tudo(l.pop)
         posse.soltar()       # libera a vez para o próximo DERVS
     app.aboutToQuit.connect(_encerrar)
 
