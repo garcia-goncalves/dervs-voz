@@ -31,10 +31,12 @@ import dervs_enrich as enriquecimento
 import dervs_atalhos as atalhos
 import dervs_config as cfg
 import dervs_instancia as instancia
+import dervs_processos as processos
 import dervs_registro as registro
 from dervs_tts import Voz
 from dervs_listen import (Endpointer, Microfone, salvar_wav,
-                          separar_chamada, FRAME_BYTES,
+                          separar_chamada, esta_mudo,
+                          motivo_do_silencio, FRAME_BYTES,
                           FRAME_AMOSTRAS, TAXA)
 
 HOME = os.path.expanduser("~")
@@ -59,8 +61,11 @@ def _python_do_ouvido() -> str:
                     os.path.join(AQUI, "dervs-venv", "Scripts", "python.exe"),
                     f"{VOICE_DIR}/whisper-venv/bin/python"):
         if caminho and os.path.exists(caminho):
-            return caminho
-    return sys.executable
+            # `pythonw` em vez de `python`: os dois são o mesmo Python, mas o
+            # primeiro não abre janela de terminal. Sem isto o ouvido deixava
+            # uma janela preta na tela do dono (02/09/2026).
+            return processos.python_sem_console(caminho)
+    return processos.python_sem_console(sys.executable)
 
 
 # --- motor de voz: porteiro local + transcrição precisa ---
@@ -266,6 +271,9 @@ class GravacaoManual(QtCore.QThread):
         # correndo para sempre, sem nunca emitir `pronta`.
         self._cancelado = False
         self._mic = None
+        # True quando NADA entrou pelo microfone. Só o `run()` tem
+        # como saber; antes dele, afirmar que está mudo seria mentira.
+        self.mudo = False
 
     def run(self):
         if self._cancelado:
@@ -286,10 +294,16 @@ class GravacaoManual(QtCore.QThread):
             sys.stderr.flush()
         finally:
             self._mic.fechar()
+        # Mede ANTES de salvar: é a única hora em que o áudio ainda está na
+        # mão. Em 02/09/2026 o dono gravou 4,71 s de silêncio digital (pico 1
+        # de 32.767, microfone desconectado) e ninguém percebeu — o arquivo
+        # foi para a nuvem e voltou vazio.
+        pcm = b"".join(pedacos)
+        self.mudo = esta_mudo(pcm)
         # Grava mesmo se vier vazio: quem espera o arquivo prefere um .wav de
         # silêncio a ficar esperando para sempre por um arquivo que não vem.
         try:
-            salvar_wav(b"".join(pedacos), self.caminho)
+            salvar_wav(pcm, self.caminho)
         except Exception as e:
             sys.stderr.write("dervs: não consegui salvar a gravação (%s)\n" % e)
             sys.stderr.flush()
@@ -831,12 +845,21 @@ class PopUp(QtWidgets.QWidget):
         if self._rec_enviado:
             return
         self._rec_enviado = True
+        mudo = False
         if self.rec is not None:
+            mudo = bool(getattr(self.rec, "mudo", False))
             try:
                 self.rec.parar()
             except Exception:
                 pass
             self.rec = None
+        # Não entrou som nenhum. Mandar isto para a nuvem custa dinheiro e
+        # devolve "" — que foi exatamente como o dono passou a noite achando
+        # que a transcrição estava quebrada, quando o problema era o cabo do
+        # microfone. Silêncio é falha de ENTRADA, e tem de ser dita.
+        if mudo:
+            self._recado_do_ouvido(motivo_do_silencio(), REC)
+            return
         if self._stt_pronto:
             self.stt.write((REC_WAV + "\n").encode())
         else:

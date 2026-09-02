@@ -31,6 +31,7 @@ import wave
 import json
 
 import dervs_config
+import dervs_processos as processos
 
 HOME = os.path.expanduser("~")
 VOICE_DIR = f"{HOME}/voice"
@@ -78,7 +79,10 @@ def _py_do_motor(venv_linux: str) -> str:
     if sys.platform != "win32":
         return _venv_python(f"{VOICE_DIR}/{venv_linux}")
     proprio = _venv_python(os.path.join(_dir_daemons(), "dervs-venv"))
-    return proprio if os.path.exists(proprio) else sys.executable
+    escolhido = proprio if os.path.exists(proprio) else sys.executable
+    # `pythonw` em vez de `python`: mesma linguagem, sem janela de terminal.
+    # A voz do DERVS deixava uma janela preta aberta (02/09/2026).
+    return processos.python_sem_console(escolhido)
 
 
 # --- Piper (rápido, padrão) ---
@@ -397,7 +401,8 @@ class Voz:
         try:
             self._piper_daemon = subprocess.Popen(
                 [PIPER_PY, PIPER_DAEMON, self.modelo],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, **processos.sem_janela())
             self._piper_pronto = False
         except Exception:
             self._piper_daemon = None
@@ -463,7 +468,8 @@ class Voz:
         try:
             self._kokoro_daemon = subprocess.Popen(
                 [KOKORO_PY, KOKORO_DAEMON],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, **processos.sem_janela())
             self._kokoro_pronto = False
         except Exception:
             self._kokoro_daemon = None
@@ -537,7 +543,8 @@ class Voz:
                 [PIPER_PY, "-m", "piper", "-m", self.modelo,
                  "--length-scale", str(LENGTH_SCALE), "--noise-w-scale", str(NOISE_W),
                  "--sentence-silence", SILENCIO_FRASE, "-f", wav],
-                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, **processos.sem_janela())
             synth = self._synth
         if synth is None:
             return None
@@ -551,7 +558,8 @@ class Voz:
         try:
             self._daemon = subprocess.Popen(
                 [XTTS_PY, XTTS_DAEMON],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, **processos.sem_janela())
             self._xtts_ready = False
         except Exception:
             self._daemon = None

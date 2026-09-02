@@ -280,6 +280,63 @@ def separar_chamada(texto: str, nomes=NOMES):
     return True, resto
 
 
+# Abaixo deste pico (numa escala de 0 a 32767) nao ha som nenhum: e silencio
+# digital, nao "falou baixinho". Um microfone LIGADO num quarto silencioso ja
+# entrega chiado com pico na casa das centenas; o do dono, com o cabo fora da
+# entrada rosa, entregava pico 1. 30 e folgado de proposito para nunca chamar
+# de mudo uma fala fraca de verdade.
+PICO_SILENCIO = 30
+
+
+def pico(pcm: bytes) -> int:
+    """A amostra mais alta do trecho, em modulo. 0 = silencio absoluto.
+
+    Aguenta um byte solto no fim (meia amostra), que acontece quando a fonte
+    cai no meio de um quadro."""
+    if not pcm:
+        return 0
+    a = array.array("h")
+    a.frombytes(pcm[: len(pcm) // 2 * 2])
+    if not a:
+        return 0
+    return max(abs(x) for x in a)
+
+
+def esta_mudo(pcm: bytes) -> bool:
+    """True quando NADA entrou pelo microfone.
+
+    Por que existe: em 02/09/2026 o dono apertou Gravar, falou 4,71 s, e
+    recebeu um campo de texto vazio. O .wav tinha pico 1 -- silencio digital
+    puro, porque nao havia microfone conectado. O DERVS mandou aquilo para a
+    nuvem, pagou pela chamada, recebeu "" e nao disse uma palavra. Silencio nao
+    e falha de transcricao: e falha de ENTRADA, e o dono precisa saber disso."""
+    return pico(pcm) <= PICO_SILENCIO
+
+
+def _entradas_do_sistema() -> list:
+    """Os microfones que o sistema enxerga, pelo nome. Isolada para o teste
+    poder trocar por uma lista fixa -- sem isto nao da para testar a mensagem
+    sem depender do hardware da maquina."""
+    import sounddevice as sd
+    return [d["name"] for d in sd.query_devices() if d["max_input_channels"] > 0]
+
+
+def motivo_do_silencio() -> str:
+    """Uma frase, em portugues, dizendo ao dono por que nao entrou som.
+
+    Nunca estoura: se nem der para perguntar ao sistema quais microfones
+    existem, devolve o recado generico -- que ja e melhor que campo vazio."""
+    try:
+        entradas = _entradas_do_sistema()
+    except Exception:
+        entradas = None
+    if entradas is not None and not entradas:
+        return ("nao entrou som: nenhum microfone foi encontrado neste "
+                "computador")
+    return ("nao entrou som: o microfone esta mudo no Windows ou "
+            "desconectado da entrada rosa")
+
+
 def salvar_wav(pcm: bytes, caminho: str):
     """Grava o trecho de fala num .wav 16 kHz mono — pronto para o Whisper."""
     with wave.open(caminho, "wb") as w:

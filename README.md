@@ -45,7 +45,7 @@ No Windows, do diretório do projeto:
 dervs-venv\Scripts\python.exe dervs.py                      # abre o DERVS
 dervs-venv\Scripts\python.exe dervs_transcrever.py [audio]  # audio -> texto
 dervs-venv\Scripts\python.exe scripts\instalar_atalho.py    # icone + atalhos
-dervs-venv\Scripts\python.exe -m pytest -q                  # testes (322 verdes)
+dervs-venv\Scripts\python.exe -m pytest -q                  # testes (416 verdes)
 dervs-venv\Scripts\python.exe amostras_de_voz.py            # amostras das 3 vozes
 ```
 
@@ -274,3 +274,107 @@ Com o fechamento corrigido, saem na hora.
 > passo, não o fechamento todo.
 
 Detalhe e medições: `docs/esteira/windows-tempo-real/`.
+
+## "Não está me ouvindo, e tem uma janela preta" — 02/09/2026, noite
+
+Dois sintomas, duas causas raiz **diferentes**, e uma delas não é do software.
+
+### 1. A surdez — e por que ela não era da transcrição
+
+O `dervs_rec.wav` da última tentativa do dono (19h59) ainda estava no disco.
+Medido, amostra por amostra:
+
+```
+duracao: 4.71 s
+pico:    1  (max possivel 32767)  ->  0.0% da escala
+rms:     0.5                      -> -96.7 dBFS
+```
+
+Isso é **silêncio digital puro**. O dono falou, e nada entrou. Passando esse
+mesmo arquivo pelo daemon de verdade, ele responde certo e rápido:
+
+```
+READY
+PORTEIRO {"acordou": false, "texto": ""}
+RESULT ""
+```
+
+A transcrição nunca esteve quebrada: ela recebeu silêncio e devolveu vazio,
+que é a resposta correta. O defeito estava **antes**, na entrada.
+
+Gravando 3 s de cada entrada de áudio da máquina, uma por uma, todas as que
+abrem devolvem pico 1. Não é o DERVS escolhendo o dispositivo errado. O
+registro do Windows fecha o caso:
+
+| Entrada | Estado |
+|---|---|
+| `Microfone` (Realtek) | ATIVO — mas alimentado por um conector vazio |
+| `Front Pink In` | **DESCONECTADO** |
+| `Rear Pink In` | **DESCONECTADO** |
+| USB / webcam / Bluetooth | não existem nesta máquina |
+
+**Causa raiz 1: não há microfone fisicamente ligado ao computador.** As duas
+entradas rosa do gabinete estão vazias, e não há nenhuma outra fonte de áudio.
+Isso precisa da mão do dono — nenhuma linha de código resolve.
+
+O microfone também estava **mudo** no Windows (volume 72%, mudo=Sim). Foi
+desmutado; o pico continuou 1, o que confirma que o mudo era um segundo
+problema empilhado, não a causa. O DERVS **não** mexe no mudo do sistema —
+`SetMute`, `amixer` e afins não aparecem em lugar nenhum do código.
+
+**Causa raiz 2, essa sim do DERVS: ele ficou calado sobre isso.** Gravou 4,71 s
+de silêncio, mandou para a OpenAI, pagou a chamada, recebeu `""` e mostrou um
+campo vazio. O dono concluiu, com toda a razão, que "a transcrição não
+funciona". Silêncio não é falha de transcrição — é falha de ENTRADA, e tem de
+ser dita com todas as letras.
+
+Corrigido em `dervs_listen.py` (`pico`, `esta_mudo`, `motivo_do_silencio`) e
+`dervs.py` (`GravacaoManual.mudo`, `_gravacao_fechada`). Agora uma gravação sem
+som **não vai para a nuvem** — economiza dinheiro — e a tela diz, em português:
+
+> não entrou som: o microfone está mudo no Windows ou desconectado da entrada rosa
+
+ou, quando o sistema não enxerga entrada nenhuma:
+
+> não entrou som: nenhum microfone foi encontrado neste computador
+
+O limiar é pico ≤ 30 numa escala de 32.767, folgado de propósito: um microfone
+ligado num quarto silencioso já entrega chiado na casa das centenas, então uma
+fala fraca de verdade nunca é confundida com cabo solto.
+
+### 2. A janela preta
+
+O rastro estava nos processos, não no código-fonte:
+
+```
+conhost.exe 22744  <- pai 19008  dervs_stt_daemon.py     (o ouvido)
+conhost.exe 41280  <- pai  3528  dervs_kokoro_daemon.py  (a voz)
+```
+
+`conhost.exe` é o programa que **desenha** a janela de terminal do Windows.
+Os dois ajudantes eram abertos com `python.exe` — a versão do Python que vem
+**com** terminal — e sem nenhuma bandeira mandando escondê-lo. O Windows fez
+exatamente o que foi pedido.
+
+O atalho do app já usava `pythonw` desde sempre (por isso o próprio DERVS não
+abria janela); o que ninguém tinha notado é que **os filhos dele** não usavam.
+
+Corrigido em `dervs_processos.py`, com duas camadas de propósito:
+
+| Camada | O que faz | Por que as duas |
+|---|---|---|
+| `python_sem_console()` | troca `python.exe` por `pythonw.exe` ao lado | resolve na raiz |
+| `sem_janela()` | acrescenta `CREATE_NO_WINDOW` ao `subprocess` | cobre o dia em que alguém apontar `DERVS_PY` para um `python.exe` na mão |
+
+Se o `pythonw.exe` não estiver ao lado, o caminho original é mantido sem
+reclamar: janela preta incomoda, caminho quebrado deixaria o DERVS sem voz e
+sem ouvido.
+
+**Provado depois de reiniciar o app** — todos os ajudantes em `pythonw.exe`, e:
+
+```
+NENHUMA janela de terminal pendurada no DERVS
+```
+
+Nenhum processo `WindowsTerminal` sobrou na máquina.
+
