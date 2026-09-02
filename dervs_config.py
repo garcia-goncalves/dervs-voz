@@ -151,7 +151,10 @@ def _validar(conf: dict) -> dict:
         conf["stt"] = PADRAO["stt"]
     if not isinstance(conf.get("stt_openai_modelo"), str) or not conf["stt_openai_modelo"]:
         conf["stt_openai_modelo"] = PADRAO["stt_openai_modelo"]
-    if conf.get("porteiro") not in ("local", "porcupine"):
+    # Só "local" está implementado. Quando o Porcupine existir de verdade, ele
+    # entra nesta lista — enquanto não existir, aceitá-lo aqui seria dizer ao
+    # dono que ligou uma coisa que não liga.
+    if conf.get("porteiro") not in ("local",):
         conf["porteiro"] = PADRAO["porteiro"]
     if not isinstance(conf.get("porteiro_modelo"), str) or not conf["porteiro_modelo"]:
         conf["porteiro_modelo"] = PADRAO["porteiro_modelo"]

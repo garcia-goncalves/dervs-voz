@@ -94,6 +94,28 @@ def _ydotoold():
         subprocess.Popen(["ydotoold"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def descartar_wav(caminho):
+    """Apaga o .wav de uma frase assim que ele não é mais necessário.
+
+    Isto NÃO é faxina de disco: é privacidade, e é parte inseparável do que o
+    porteiro promete. Cada frase captada vira um arquivo ANTES de o porteiro
+    decidir — inclusive as que ele descarta por não terem sido com o DERVS. Sem
+    apagar, um dia de trabalho deixaria centenas de gravações da sala do dono
+    paradas no disco, para sempre: a pasta temporária do Windows, ao contrário
+    da do Linux, não se limpa sozinha no desligamento. O áudio não sairia da
+    máquina — mas ficaria acumulado dentro dela, que é quase tão ruim.
+
+    A gravação manual (REC_WAV) é poupada: reusa sempre o mesmo caminho e o
+    dono pode querer reenviá-la.
+    """
+    if not caminho or caminho == REC_WAV:
+        return
+    try:
+        os.remove(caminho)
+    except OSError:
+        pass    # já sumiu, ou está em uso: não vale derrubar nada por isso
+
+
 def _colar_na_janela_em_foco():
     """Aperta Ctrl+V na janela onde o dono estava.
 
@@ -278,9 +300,17 @@ class GravacaoManual(QtCore.QThread):
         super().__init__()
         self.caminho = caminho
         self._rodando = False
+        # `parar()` pode chegar ANTES de `run()` começar (a thread é agendada,
+        # não iniciada na hora). Sem esta marca, o `self._rodando = True` do
+        # começo do run() apagaria o pedido de parada e a gravação ficaria
+        # correndo para sempre, sem nunca emitir `pronta`.
+        self._cancelado = False
         self._mic = None
 
     def run(self):
+        if self._cancelado:
+            self.pronta.emit()
+            return
         self._rodando = True
         self._mic = Microfone()
         pedacos = []
@@ -306,6 +336,7 @@ class GravacaoManual(QtCore.QThread):
         self.pronta.emit()
 
     def parar(self):
+        self._cancelado = True
         self._rodando = False
         if self._mic is not None:
             self._mic.fechar()
@@ -604,6 +635,8 @@ class PopUp(QtWidgets.QWidget):
             self._registrar(self.escuta)   # mantém referência até a thread morrer
             self.escuta.fala.connect(self._fala_continua)
             self.escuta.start()
+            for velho in self._fila_fala:
+                self._descartar_wav(velho)
             self._fila_fala = []
             self._desperto = False
             self._wav_no_porteiro = None
@@ -619,7 +652,11 @@ class PopUp(QtWidgets.QWidget):
             if self.escuta is not None:
                 self.escuta.parar()        # fecha o microfone; a thread sai sozinha
                 self.escuta = None         # (a referência forte segue em _threads)
-            self._fila_fala = []           # não responder frase velha ao religar
+            # não responder frase velha ao religar — e não deixar a gravação
+            # dessas frases largada no disco
+            for velho in self._fila_fala:
+                self._descartar_wav(velho)
+            self._fila_fala = []
             self._desperto = False
             self._wav_no_porteiro = None
             self.b_conversa.setText("🎙️  Microfone desligado")
@@ -627,6 +664,9 @@ class PopUp(QtWidgets.QWidget):
                 "DESLIGADO: o microfone está fechado, não estou ouvindo nada. "
                 "Clique para eu começar a ouvir.")
             self._toast("parei de ouvir")
+
+    def _descartar_wav(self, caminho):
+        descartar_wav(caminho)
 
     def _fala_continua(self, wav):
         """Chegou uma frase da conversa contínua. Manda transcrever e, quando o
@@ -636,7 +676,7 @@ class PopUp(QtWidgets.QWidget):
         # causa principal do "meu áudio vai pela metade".
         self._fila_fala.append(wav)
         if len(self._fila_fala) > self.MAX_FILA:
-            self._fila_fala.pop(0)
+            self._descartar_wav(self._fila_fala.pop(0))   # conversa velha demais
         self._puxar_da_fila()
 
     def _puxar_da_fila(self):
@@ -660,13 +700,14 @@ class PopUp(QtWidgets.QWidget):
         self._transcrevendo = True
         self._auto_submeter = True
 
+        # guardado até a resposta chegar: para reenviar se o portão abrir, e
+        # para o arquivo ser apagado quando não for mais necessário
+        self._wav_no_porteiro = wav
         if self._desperto and time.time() < self._desperto_ate:
-            self._wav_no_porteiro = None
             self.status.setText("ouvi — transcrevendo…")
             self.status.setStyleSheet(f"color:{ARCANE};")
             self.stt.write(("TRANSCREVER " + wav + "\n").encode())
         else:
-            self._wav_no_porteiro = wav       # guardado para o caso de o portão abrir
             self.status.setText("ouvindo…")
             self.status.setStyleSheet(f"color:{PARCH_DIM};")
             self.stt.write(("PORTEIRO " + wav + "\n").encode())
@@ -778,14 +819,19 @@ class PopUp(QtWidgets.QWidget):
                 except Exception:
                     veredito = {}
                 wav = self._wav_no_porteiro
-                self._wav_no_porteiro = None
                 if veredito.get("acordou") and wav:
+                    # o portão abriu: SÓ AGORA o áudio vai para a nuvem. O
+                    # arquivo continua guardado até a transcrição voltar.
                     self._desperto = True
                     self._desperto_ate = time.time() + self.JANELA_DESPERTO
                     self.status.setText("ouvi meu nome — transcrevendo…")
                     self.status.setStyleSheet(f"color:{ARCANE};")
                     self.stt.write(("TRANSCREVER " + wav + "\n").encode())
                 else:
+                    # não era com ele: a frase morre aqui e a gravação some do
+                    # disco. Nada foi para a nuvem, e nada fica guardado.
+                    self._wav_no_porteiro = None
+                    self._descartar_wav(wav)
                     self._transcrevendo = False
                     self._auto_submeter = False
                     self.status.setText("💤 me chame por 'DERVS'")
@@ -796,6 +842,9 @@ class PopUp(QtWidgets.QWidget):
                     texto = json.loads(s[7:])
                 except Exception:
                     texto = ""
+                # a transcrição chegou: a gravação já cumpriu o papel e some
+                self._descartar_wav(self._wav_no_porteiro)
+                self._wav_no_porteiro = None
                 auto = self._auto_submeter
                 self._auto_submeter = False
                 self._transcrevendo = False

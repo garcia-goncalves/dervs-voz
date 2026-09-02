@@ -171,8 +171,18 @@ def atender(linha: str, porteiro, transcrever_preciso) -> str:
 
 
 def main() -> None:
-    from dervs_porteiro import criar_porteiro
-    porteiro = criar_porteiro(_conf)
+    from dervs_porteiro import criar_porteiro, PorteiroLocal
+    try:
+        porteiro = criar_porteiro(_conf)
+    except Exception as erro:
+        # Sem porteiro este processo morre na largada, o READY nunca sai, e o
+        # app fica esperando para sempre uma resposta que não vem — surdo, e
+        # em silêncio, que é o pior jeito de falhar. Melhor cair no porteiro
+        # que sempre existe e gritar o motivo no registro de erro.
+        sys.stderr.write("dervs_stt: não consegui criar o porteiro pedido (%s). "
+                         "Usando o porteiro local.\n" % erro)
+        sys.stderr.flush()
+        porteiro = PorteiroLocal()
     # O porteiro é carregado ANTES do READY: ele decide toda primeira frase, e
     # pagar 1,2 s de carregamento na primeira vez que o dono fala seria sentido
     # como "o DERVS demorou". Aqui o custo cai no boot, onde ninguém espera.
