@@ -178,21 +178,68 @@ Duas travas novas do lado do comportamento, também verificadas por teste:
   de conversa — antes ela se renovava a cada resposta e nunca fechava, e
   enquanto ele está desperto tudo o que é falado vai direto para a nuvem.
 
-**Suíte: 284 testes passam, zero falham.**
+**Suíte: 293 testes passam, zero falham** (284 + 5 do cérebro travado por schema
++ 4 dos caminhos de voz no Windows).
 
-## 4. Tempo até responder — o que está medido e o que falta
+---
 
-| Etapa | Tempo | Como se sabe |
-|---|---|---|
-| Perceber que a frase acabou | ~1,10 s | valor configurado (`fim_ms`), não medido — é a espera de silêncio que decide que você terminou |
-| **O porteiro decidir** | **0,49 s** | medido, média de 14 frases |
-| Transcrição precisa na nuvem | **não medido** | falta a chave da OpenAI nesta máquina |
-| O cérebro entender | **não medido** | idem |
-| Primeiro som da voz | **0,68 a 0,96 s** | medido, por frase |
+## 3c. A voz não subia nesta máquina (02/09/2026) — CORRIGIDO
 
-**Parcial medido: ~2,3 s** de perceber o fim da frase até o primeiro som, *sem*
-contar nuvem. Com a nuvem, a expectativa é 3 a 4 s no total — mas isso é
-expectativa, não medição, e só fecha quando a chave existir.
+Achado durante a medição ponta a ponta: `dervs_tts.Voz(...).disponivel()` respondia
+**False**. O DERVS ficava **mudo** no Windows.
+
+Causa: `dervs_tts.py` procurava os daemons e os ambientes isolados em
+`~/voice/kokoro-venv`, `~/voice/dervs_kokoro_daemon.py` etc. — o layout do projeto irmão
+no Linux. **Essa pasta não existe no Windows.** Aqui os daemons vêm com o repositório e
+as bibliotecas estão todas no `dervs-venv` do projeto. O modelo do Kokoro já estava
+baixado e o `kokoro-onnx` já estava instalado: faltava só o código apontar para o lugar
+certo.
+
+É o mesmo defeito de porte já corrigido em `dervs_config.py` — lá a chave da OpenAI não
+era achada porque três arquivos só olhavam o caminho do Linux.
+
+Corrigido com `_dir_daemons()` e `_py_do_motor()` em `dervs_tts.py`. Depois:
+`disponivel()` é **True**, o daemon sobe em 4,17 s e sintetiza em 0,41 s.
+
+Travado por `test_dervs_tts.py`, que checa que nenhum caminho de voz aponta para
+`/voice/` no Windows e que existe algum motor de pé.
+
+### Por que a medição de 01/09 não pegou isto
+
+A seção 1 mediu o Kokoro **falando com o daemon diretamente**, com o Python certo passado
+na mão. Isso prova que o *motor* funciona — e provou. Mas não passa pelo caminho que o
+app usa, e era exatamente ali que estava o defeito. Lição: medir o componente não
+substitui medir pelo caminho de produção.
+
+## 4. Tempo até responder — FECHADO
+
+**Fechado em 02/09/2026**, com a chave da OpenAI instalada. Medição ponta a ponta pelo
+caminho de produção (a mesma `dervs_tts.Voz` que o app usa), 3 repetições por estágio,
+mediana. Frase de entrada: *"DERVS, que horas são?"* (1,42 s de áudio).
+
+| Etapa | Tempo | Onde roda | Como se sabe |
+|---|---|---|---|
+| Perceber que a frase acabou | ~1,10 s | local | valor configurado (`fim_ms`), não medido — é a espera de silêncio que decide que você terminou |
+| **O porteiro decidir "foi comigo?"** | **0,35 s** | local, grátis | medido |
+| **Transcrição precisa** | **1,68 s** | nuvem | medido |
+| **O cérebro entender e responder** | **1,50 s** | nuvem | medido |
+| **Primeiro som da voz** | **0,41 s** | local, grátis | medido |
+
+**Do fim da fala até o DERVS começar a responder: 3,94 s** (sem contar a espera de
+silêncio) — dentro dos 3 a 4 s que a esteira previa. Somando a espera de silêncio, são
+~5,0 s desde o momento em que o dono para de falar.
+
+Custo de carga, pago uma vez ao ligar (por isso os daemons nascem aquecidos): daemon da
+voz 4,17 s, porteiro 4,12 s.
+
+O porteiro acertou mesmo com a transcrição local saindo torta — ouviu *"Dervs que aura
+são."* e ainda assim reconheceu o nome, que é exatamente o trabalho do casador difuso.
+
+Observação registrada durante a medição: o cérebro respondeu *"São três e meia."*, que é
+o exemplo literal do prompt, não a hora real. O modelo não tem acesso ao relógio e não
+montou um passo para consultá-lo. **Não é regressão** (o comportamento é anterior a estas
+correções) e está fora do que foi pedido nesta tarefa, mas fica anotado: perguntar a hora
+hoje devolve resposta inventada.
 
 Se esse tempo incomodar, a primeira alavanca é reduzir `janela de silêncio` de
 1,10 s para ~0,8 s (custa cortar a fala de quem respira no meio da frase; o

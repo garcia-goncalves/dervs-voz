@@ -56,9 +56,34 @@ def _dir_modelos_kokoro() -> str:
     return f"{VOICE_DIR}/kokoro-model"
 
 
+def _dir_daemons() -> str:
+    """Pasta onde moram os scripts dos daemons de voz.
+
+    No Linux o projeto irmão instala tudo em `~/voice`. No Windows essa pasta
+    NÃO existe: os daemons vêm junto com o repositório, ao lado deste arquivo.
+    Com o caminho do Linux fixo aqui, `Voz.disponivel()` respondia False e o
+    DERVS ficava mudo na máquina do dono — com o modelo já baixado."""
+    if sys.platform == "win32":
+        return os.path.dirname(os.path.abspath(__file__))
+    return VOICE_DIR
+
+
+def _py_do_motor(venv_linux: str) -> str:
+    """Python que roda um daemon de voz.
+
+    No Linux cada motor tem seu ambiente isolado dentro de `~/voice`. No
+    Windows não há essa separação: tudo foi instalado no `dervs-venv` do
+    próprio projeto — e se ele não estiver lá, serve o mesmo Python que roda o
+    app, que é onde as bibliotecas necessariamente estão."""
+    if sys.platform != "win32":
+        return _venv_python(f"{VOICE_DIR}/{venv_linux}")
+    proprio = _venv_python(os.path.join(_dir_daemons(), "dervs-venv"))
+    return proprio if os.path.exists(proprio) else sys.executable
+
+
 # --- Piper (rápido, padrão) ---
-PIPER_PY = _venv_python(f"{VOICE_DIR}/tts-venv")
-PIPER_DAEMON = f"{VOICE_DIR}/dervs_piper_daemon.py"
+PIPER_PY = _py_do_motor("tts-venv")
+PIPER_DAEMON = os.path.join(_dir_daemons(), "dervs_piper_daemon.py")
 VOZES_DIR = f"{VOICE_DIR}/piper-voices"
 VOZ_PADRAO = "jeff"             # faber / cadu / jeff — ver escolha no relatório da tarefa
 # length_scale < 1 fala mais rápido (1.0 = padrão do modelo). 0.95 deixa a
@@ -69,15 +94,15 @@ NOISE_W = 0.9
 SILENCIO_FRASE = "0.35"          # só usado no modo de reserva (sem daemon)
 
 # --- Kokoro (humano E rápido, padrão novo) ---
-KOKORO_PY = _venv_python(f"{VOICE_DIR}/kokoro-venv")
-KOKORO_DAEMON = f"{VOICE_DIR}/dervs_kokoro_daemon.py"
+KOKORO_PY = _py_do_motor("kokoro-venv")
+KOKORO_DAEMON = os.path.join(_dir_daemons(), "dervs_kokoro_daemon.py")
 KOKORO_MODELO = os.path.join(_dir_modelos_kokoro(), "kokoro-v1.0.onnx")
 VOZ_KOKORO_PADRAO = "pm_santa"   # masculina grave (feiticeiro)
 KOKORO_LANG = "pt-br"
 
 # --- XTTS (humano, opcional) ---
-XTTS_PY = _venv_python(f"{VOICE_DIR}/xtts-venv")
-XTTS_DAEMON = f"{VOICE_DIR}/dervs_tts_daemon.py"
+XTTS_PY = _py_do_motor("xtts-venv")
+XTTS_DAEMON = os.path.join(_dir_daemons(), "dervs_tts_daemon.py")
 
 # Motor padrão: Kokoro — humano E rápido no CPU (~0,6 s até o 1º som quente),
 # o meio-termo que faltava entre Piper (robótico) e XTTS (lento). Cai no Piper
