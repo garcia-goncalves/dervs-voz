@@ -240,8 +240,25 @@ def gravar(chave: str, valor) -> bool:
             do_disco = {}
         do_disco[chave] = valor
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(do_disco, f, ensure_ascii=False, indent=2)
+        # Escreve ao lado e troca de nome no fim. Abrir o próprio config.json em
+        # "w" o ESVAZIA antes de haver conteúdo novo: morrer nesse instante
+        # (queda de energia, processo morto) deixava o arquivo truncado, e aí
+        # `carregar()` engolia o erro e voltava TUDO ao padrão — a voz, a
+        # velocidade e o que o dono editou na mão sumiam calados. `os.replace`
+        # é atômico: ou está o arquivo velho inteiro, ou o novo inteiro.
+        temporario = CONFIG_PATH + ".tmp"
+        try:
+            with open(temporario, "w", encoding="utf-8") as f:
+                json.dump(do_disco, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporario, CONFIG_PATH)
+        except (OSError, ValueError, TypeError):
+            try:
+                os.remove(temporario)
+            except OSError:
+                pass
+            raise
         return True
     except (OSError, ValueError, TypeError):
         return False

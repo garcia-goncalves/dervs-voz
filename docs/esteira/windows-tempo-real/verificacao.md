@@ -249,6 +249,30 @@ Kokoro (`READY` / `WAV <caminho>` / `FIM`), tocando cada pedaço conforme chega,
 queda de volta para o Kokoro quando faltar internet — o encaixe já existe em
 `dervs_tts.Voz`.
 
+## 3e. O que a revisão pegou depois de tudo funcionando (02/09/2026)
+
+Os quatro commits do dia passaram por revisor de Python. Três defeitos
+**importantes**, todos com reprodução, nenhum visível em teste verde:
+
+| Onde | O defeito | Por que era grave |
+|---|---|---|
+| `dervs_transcrever.emendar()` | olhava 60 palavras do começo do próximo pedaço; se um bordão do dono se repetia lá adiante, o casamento caía nele e **tudo antes sumia** | 26 palavras de reunião engolidas, caladas. Perder texto sem aviso é o pior resultado: quem lê nota repetição, não nota ausência |
+| `dervs_config.gravar()` | abria o próprio `config.json` em `"w"`, **esvaziando** antes de ter conteúdo novo | queda de energia no meio deixava o arquivo truncado, `carregar()` engolia o erro e voltava tudo ao padrão: voz, velocidade e o que o dono editou na mão sumiam |
+| `dervs_transcrever.main()` | gravava `<nome>.txt` sem checar se existia | `reuniao.txt` com as anotações do dono, ao lado do `reuniao.mp3`, era sobrescrito sem perguntar |
+
+Correções: janela do lado do próximo limitada a 25 palavras (`JANELA_PROXIMO`,
+o que 6 s de fala cabem); gravação atômica com arquivo temporário e
+`os.replace`; e `nome_livre()`, que vira `reuniao (2).txt` se o nome estiver
+ocupado.
+
+Mais dois menores, também corrigidos: `planejar_pedacos` entrava em **laço
+infinito** se a sobreposição fosse maior que o pedaço (a suíte chegou a levar
+248 s antes de o teste ser interrompido; depois da guarda, 0,25 s), e `_colar`
+comia o ponto de abreviação (`"papel etc e depois"`, `"pelo Dr silva"`).
+
+**A lição:** os 322 testes estavam verdes com os três defeitos dentro. Teste
+prova o que alguém pensou em perguntar; revisão pergunta o que ninguém pensou.
+
 ## 4. Tempo até responder — FECHADO
 
 **Fechado em 02/09/2026**, com a chave da OpenAI instalada. Medição ponta a ponta pelo

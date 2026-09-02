@@ -94,6 +94,10 @@ def planejar_pedacos(duracao: float, pedaco: int = PEDACO_SEG,
     """
     if duracao <= pedaco:
         return [(0.0, duracao)]
+    # sobreposição >= pedaço faria o passo virar zero ou negativo: laço infinito,
+    # e o app congelaria sem mensagem nenhuma.
+    if sobrepor >= pedaco:
+        sobrepor = pedaco // 4
     partes = []
     inicio = 0.0
     while inicio < duracao:
@@ -135,7 +139,17 @@ def _comparavel(palavras: list) -> list:
     return [p.strip(_PONTUACAO).lower() for p in palavras]
 
 
+# Quantas palavras do COMEÇO do próximo trecho podem ser sobreposição. Os 6 s
+# de `SOBREPOR_SEG` cabem em ~20 palavras faladas; 25 dá margem. Olhar mais que
+# isso é o que fazia a emenda casar num bordão repetido lá adiante e ENGOLIR
+# tudo que vinha antes dele — 26 palavras de reunião sumindo caladas, achado na
+# revisão de 02/09/2026. Do lado do anterior a janela pode ser folgada, porque
+# ali o casamento é obrigado a terminar no fim.
+JANELA_PROXIMO = 25
+
+
 def emendar(anterior: str, proximo: str, janela: int = 60,
+            janela_prox: int = JANELA_PROXIMO,
             minimo: int = 5, folga: int = 2) -> str:
     """Junta dois trechos descartando o que se repete por causa da sobreposição.
 
@@ -165,15 +179,20 @@ def emendar(anterior: str, proximo: str, janela: int = 60,
     if not prox:
         return anterior.strip()
 
-    teto = min(janela, len(ant), len(prox))
-    fim = _comparavel(ant[-teto:])
-    comeco = _comparavel(prox[:teto])
+    fim = _comparavel(ant[-min(janela, len(ant)):])
+    comeco = _comparavel(prox[:min(janela_prox, len(prox))])
     m = difflib.SequenceMatcher(None, fim, comeco).find_longest_match(
         0, len(fim), 0, len(comeco))
     termina_no_fim = (len(fim) - (m.a + m.size)) <= folga
     if m.size >= minimo and termina_no_fim:
         return _colar(ant, prox[m.b + m.size:])
     return _colar(ant, prox)
+
+
+# Terminam em ponto NO MEIO da frase. Tirar o ponto delas estraga o texto em vez
+# de arrumar: "papel etc e depois", "pelo Dr silva".
+_ABREVIACOES = {"etc", "dr", "dra", "sr", "sra", "srta", "prof", "profa",
+                "art", "pág", "pag", "fl", "ex", "obs", "av", "n"}
 
 
 def _colar(ant: list, resto: list) -> str:
@@ -190,7 +209,8 @@ def _colar(ant: list, resto: list) -> str:
         return " ".join(resto).strip()
     ant = list(ant)
     primeira = resto[0].lstrip("\"'(")
-    if ant[-1].endswith(".") and primeira[:1].islower():
+    if (ant[-1].endswith(".") and primeira[:1].islower()
+            and ant[-1].strip(".").lower() not in _ABREVIACOES):
         ant[-1] = ant[-1][:-1]
     return (" ".join(ant) + " " + " ".join(resto)).strip()
 
@@ -277,6 +297,21 @@ def _escolher_arquivo() -> str:
     return caminho
 
 
+def nome_livre(caminho_audio: str) -> str:
+    """Onde gravar o texto sem pisar em arquivo que já existe.
+
+    O dono pode ter `reuniao.txt` com as anotações que ELE digitou, ao lado do
+    `reuniao.mp3`. Gravar por cima apagaria isso sem perguntar e sem backup.
+    """
+    base = os.path.splitext(caminho_audio)[0]
+    destino = base + ".txt"
+    n = 2
+    while os.path.exists(destino):
+        destino = f"{base} ({n}).txt"
+        n += 1
+    return destino
+
+
 def main() -> int:
     caminho = sys.argv[1] if len(sys.argv) > 1 else _escolher_arquivo()
     if not caminho:
@@ -288,7 +323,7 @@ def main() -> int:
         print("NÃO DEU:", erro)
         return 1
 
-    destino = os.path.splitext(caminho)[0] + ".txt"
+    destino = nome_livre(caminho)
     with open(destino, "w", encoding="utf-8") as f:
         f.write(texto + "\n")
     print(f"\npronto — {len(texto.split())} palavras")

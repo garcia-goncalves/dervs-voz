@@ -113,7 +113,7 @@ Novidades: `dervs_transcrever.py` (arquivo de áudio → texto, com corte e emen
 para reunião longa), ícone e atalhos, e `dervs_config.gravar()` para o app
 guardar escolha feita na tela.
 
-**322 testes passam, zero falham.**
+**331 testes passam, zero falham.**
 
 **Falta:**
 

@@ -171,3 +171,76 @@ def test_emenda_preserva_o_ponto_quando_a_frase_acabou_mesmo():
     a = "A reunião terminou."
     b = "Depois disso ninguém falou mais nada."
     assert tr.emendar(a, b) == "A reunião terminou. Depois disso ninguém falou mais nada."
+
+
+def test_emenda_nao_olha_alem_do_que_a_sobreposicao_cabe():
+    """O tamanho da janela do lado do próximo É a proteção: 6 s de fala cabem em
+    ~20 palavras, então olhar 60 é convite para casar num trecho que não é a
+    sobreposição."""
+    assert tr.JANELA_PROXIMO <= 30
+
+
+def test_emenda_nao_come_texto_quando_o_bordao_se_repete():
+    """Achado na revisão de 02/09, com reprodução: se um bordão do dono aparece
+    no fim de um pedaço E de novo lá adiante no próximo, o maior bloco comum
+    casa na SEGUNDA aparição, e tudo que vem antes dela some sem aviso.
+
+    Perder texto calado é o pior resultado possível: quem lê nota uma repetição,
+    mas não tem como notar o que não está lá."""
+    bordao = "entao a gente precisa ver isso com calma"
+    # a sobreposição é transcrita DIFERENTE dos dois lados (o modelo faz isso),
+    # então o maior bloco comum não é ela — é o bordão repetido lá adiante.
+    a = f"o primeiro ponto e o orcamento do trimestre e {bordao}"
+    b = ("primeiro ponto e o orcamento do trimestre. O proximo ponto e o "
+         "contrato de manutencao que vence em marco e ninguem olhou ainda, "
+         f"{bordao} antes de assinar qualquer coisa")
+    junto = tr.emendar(a, b)
+    assert "contrato de manutencao que vence em marco" in junto, (
+        f"comeu o miolo da reuniao: {junto}")
+
+
+def test_emenda_preserva_todo_o_conteudo_novo():
+    """Rede geral: nenhuma palavra que só existe no segundo trecho pode sumir."""
+    a = "falamos do orçamento e ficou decidido que sobe dez por cento"
+    b = ("que sobe dez por cento a partir de janeiro conforme o combinado "
+         "com a diretoria na semana passada")
+    junto = tr.emendar(a, b)
+    for palavra in ("janeiro", "conforme", "diretoria", "semana", "passada"):
+        assert palavra in junto, f"perdeu '{palavra}': {junto}"
+
+
+def test_planejar_pedacos_nao_trava_com_sobreposicao_absurda():
+    """Sobreposição >= pedaço fazia o passo virar zero ou negativo: laço infinito,
+    e o app congelava sem mensagem nenhuma."""
+    partes = tr.planejar_pedacos(600.0, pedaco=10, sobrepor=10)
+    assert len(partes) < 500
+    assert partes[-1][0] + partes[-1][1] == pytest.approx(600.0)
+
+
+def test_colar_preserva_ponto_de_abreviacao():
+    """'etc.' e 'Dr.' terminam em ponto no meio da frase — tirar o ponto ali
+    estraga o texto em vez de arrumar."""
+    assert tr.emendar("comprei canetas, papel etc.", "e depois a gente fecha") == \
+        "comprei canetas, papel etc. e depois a gente fecha"
+    assert tr.emendar("fui atendido pelo Dr.", "silva ontem") == \
+        "fui atendido pelo Dr. silva ontem"
+
+
+def test_nome_livre_nao_pisa_em_arquivo_existente(tmp_path):
+    """O dono pode ter 'reuniao.txt' com as anotações dele ao lado do
+    'reuniao.mp3'. A transcrição não pode apagar isso."""
+    audio = tmp_path / "reuniao.mp3"
+    audio.write_bytes(b"x")
+    anotacoes = tmp_path / "reuniao.txt"
+    anotacoes.write_text("minhas anotações", encoding="utf-8")
+
+    destino = tr.nome_livre(str(audio))
+    assert destino != str(anotacoes)
+    assert not __import__("os").path.exists(destino)
+    assert anotacoes.read_text(encoding="utf-8") == "minhas anotações"
+
+
+def test_nome_livre_usa_o_nome_simples_quando_esta_vago(tmp_path):
+    audio = tmp_path / "entrevista.m4a"
+    audio.write_bytes(b"x")
+    assert tr.nome_livre(str(audio)).endswith("entrevista.txt")

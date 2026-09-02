@@ -158,3 +158,35 @@ def test_gravar_nunca_derruba_o_app(tmp_path, monkeypatch):
                         str(tmp_path / "nao" / "existe" / "c.json"))
     monkeypatch.setattr(cfg, "CONFIG_DIR", "\x00caminho invalido\x00")
     assert cfg.gravar("escuta_ao_abrir", False) is False
+
+
+def test_gravar_nunca_deixa_o_config_truncado(tmp_path, monkeypatch):
+    """Achado na revisão de 02/09: `open(..., "w")` esvazia o arquivo ANTES de
+    ter o conteúdo novo. Morrer no meio deixava o config.json vazio, e aí a voz,
+    a velocidade e tudo que o dono editou na mão sumiam para sempre — calado.
+
+    A gravação tem de ser atômica: escreve ao lado e troca de nome no fim."""
+    caminho = tmp_path / "config.json"
+    caminho.write_text('{"voz_kokoro": "pm_alex", "voz_velocidade": 1.3}',
+                       encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    monkeypatch.setattr(cfg, "CONFIG_DIR", str(tmp_path))
+
+    def _morre_no_meio(obj, fp, **k):
+        fp.write('{"vo')          # metade de uma chave, e morre
+        raise OSError("disco cheio no meio da escrita")
+    monkeypatch.setattr(json, "dump", _morre_no_meio)
+
+    assert cfg.gravar("escuta_ao_abrir", False) is False
+    # o arquivo antigo tem de continuar inteiro e legível
+    depois = cfg.carregar()
+    assert depois["voz_kokoro"] == "pm_alex"
+    assert depois["voz_velocidade"] == 1.3
+
+
+def test_gravar_nao_deixa_arquivo_temporario_para_tras(tmp_path, monkeypatch):
+    caminho = tmp_path / "config.json"
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    monkeypatch.setattr(cfg, "CONFIG_DIR", str(tmp_path))
+    assert cfg.gravar("escuta_ao_abrir", False) is True
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
