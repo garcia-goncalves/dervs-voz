@@ -4,6 +4,7 @@
 O que mais importa aqui NÃO é acertar a hora — é NÃO disparar em frase que o
 cérebro deveria pensar. Um atalho que responde errado no lugar do cérebro é
 pior que atalho nenhum. Por isso metade dos testes é de negativa."""
+import sys
 from datetime import datetime
 import dervs_atalhos as at
 
@@ -73,27 +74,76 @@ def test_pega_qual_a_data():
     assert at.tentar("qual a data de hoje", agora=datetime(2026, 8, 30)) is not None
 
 
-# ---- abrir apps (POSITIVOS) ----
-def test_abre_firefox():
+# ---- abrir apps (POSITIVOS) — independentes de sistema: no Windows espera o
+# programa do Windows, em Linux o de Linux. As frases-gatilho são as mesmas.
+# _resolver_programa é sempre dublado: o teste não pode depender do que está
+# de fato instalado na máquina de quem roda (CI, laptop do dono, etc.). ----
+_FIREFOX = "firefox.exe" if sys.platform == "win32" else "firefox"
+_CALC = "calc.exe" if sys.platform == "win32" else "kcalc"
+_TERMINAL = "wt.exe" if sys.platform == "win32" else "konsole"
+
+
+def _tudo_instalado(monkeypatch):
+    """Faz _resolver_programa achar qualquer programa pedido (fingir que está
+    instalado), sem tocar no PATH/registro reais da máquina."""
+    monkeypatch.setattr(at, "_resolver_programa", lambda nome: rf"C:\fake\{nome}")
+
+
+def test_abre_firefox(monkeypatch):
+    _tudo_instalado(monkeypatch)
     f = at.tentar("abre o firefox")
     assert f is not None and f["modo"] == "planejar"
-    assert f["passos"][0]["comando"] == "firefox"
+    assert f["passos"][0]["comando"] == _FIREFOX
     assert f["passos"][0]["risco"] == "reversivel"
 
 
-def test_abre_navegador():
+def test_abre_navegador(monkeypatch):
+    _tudo_instalado(monkeypatch)
     f = at.tentar("pode abrir o navegador pra mim")
-    assert f is not None and f["passos"][0]["comando"] == "firefox"
+    assert f is not None
+    # navegador padrão: Firefox em Linux, Chrome no Windows (não é o mesmo
+    # binário do teste acima) — só confere que resolveu para algo executável.
+    assert f["passos"][0]["comando"]
 
 
-def test_abre_calculadora():
+def test_abre_calculadora(monkeypatch):
+    _tudo_instalado(monkeypatch)
     f = at.tentar("abrir a calculadora")
-    assert f is not None and f["passos"][0]["comando"] == "kcalc"
+    assert f is not None and f["passos"][0]["comando"] == _CALC
 
 
-def test_abre_terminal():
+def test_abre_terminal(monkeypatch):
+    _tudo_instalado(monkeypatch)
     f = at.tentar("abre o terminal")
-    assert f is not None and f["passos"][0]["comando"] == "konsole"
+    assert f is not None and f["passos"][0]["comando"] == _TERMINAL
+
+
+def test_abre_app_nao_instalado_devolve_none(monkeypatch):
+    # regra de ouro: se o programa não existe na máquina, o atalho some e o
+    # cérebro tenta outro caminho — nunca inventa um comando que vai falhar.
+    monkeypatch.setattr(at, "_resolver_programa", lambda nome: None)
+    assert at.tentar("abre o firefox") is None
+
+
+# ---- _resolver_programa (Windows) — com dublê, não depende do que está
+# instalado na máquina de quem roda o teste. ----
+def test_resolver_programa_acha_via_which(monkeypatch):
+    monkeypatch.setattr(at.shutil, "which", lambda nome: r"C:\bin\prog.exe" if nome == "prog" else None)
+    assert at._resolver_programa("prog") == r"C:\bin\prog.exe"
+
+
+def test_resolver_programa_devolve_none_quando_nao_acha(monkeypatch):
+    monkeypatch.setattr(at.shutil, "which", lambda nome: None)
+    monkeypatch.setattr(at, "_via_registro", lambda nome: None)
+    monkeypatch.setattr(at, "_via_caminhos_conhecidos", lambda nome: None)
+    assert at._resolver_programa("naoexiste") is None
+
+
+def test_resolver_programa_cai_pro_registro_quando_which_falha(monkeypatch):
+    monkeypatch.setattr(at.shutil, "which", lambda nome: None)
+    monkeypatch.setattr(at, "_via_registro", lambda nome: r"C:\Program Files\X\x.exe" if nome == "chrome.exe" else None)
+    monkeypatch.setattr(at, "_via_caminhos_conhecidos", lambda nome: None)
+    assert at._resolver_programa("chrome.exe") == r"C:\Program Files\X\x.exe"
 
 
 # ---- NEGATIVOS: tem que cair no cérebro (devolver None) ----

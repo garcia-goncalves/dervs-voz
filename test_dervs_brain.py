@@ -4,6 +4,7 @@
 Nenhum teste aqui chama o `claude` de verdade — a parte que conversa com o
 modelo é isolada com dublês. Rodar: python -m pytest test_dervs_brain.py -q
 """
+import sys
 import pytest
 import dervs_brain as gb
 from dervs_brain import _extrair_json, _normalizar, montar_prompt, _Sessao
@@ -203,3 +204,34 @@ def test_pensar_openai_falha_cai_no_claude(monkeypatch):
     monkeypatch.setattr(gb._sessao, "pensar",
                         lambda conversa, timeout: '{"modo":"conversar","fala":"claude reserva"}')
     assert gb.pensar([{"papel": "dono", "texto": "oi"}])["fala"] == "claude reserva"
+
+
+# ---- o prompt não pode mandar o LLM usar comando de outro sistema ----
+def test_bloco_de_comandos_windows_nao_menciona_linux(monkeypatch):
+    monkeypatch.setattr(gb.sys, "platform", "win32")
+    bloco = gb._bloco_comandos_do_sistema()
+    assert "konsole" not in bloco
+    assert "kcalc" not in bloco
+    assert "wt" in bloco
+    assert "chrome" in bloco
+
+
+def test_bloco_de_comandos_linux_nao_menciona_windows(monkeypatch):
+    monkeypatch.setattr(gb.sys, "platform", "linux")
+    bloco = gb._bloco_comandos_do_sistema()
+    assert "konsole" in bloco
+    assert "kcalc" in bloco
+    assert "explorer" not in bloco
+    assert "notepad" not in bloco
+
+
+def test_sistema_atual_reflete_o_sistema_operacional_da_maquina():
+    # SISTEMA é montado uma vez, no import, para o sistema DESTA máquina — não
+    # pode conter os dois vocabulários misturados nem o do sistema errado.
+    if sys.platform == "win32":
+        assert "konsole" not in gb.SISTEMA
+        assert "kcalc" not in gb.SISTEMA
+        assert "wt" in gb.SISTEMA
+    else:
+        assert "konsole" in gb.SISTEMA
+        assert "kcalc" in gb.SISTEMA

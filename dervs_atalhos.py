@@ -15,8 +15,10 @@ fonte de erro — melhor o cérebro pensar 2,7 s do que o atalho responder errad
 Por isso o casamento é conservador e a lista de apps é curada (só o que existe
 nesta máquina e abre solto pelo dervs_exec).
 """
+import os
 import re
 import shutil
+import sys
 import unicodedata
 from datetime import datetime
 
@@ -106,8 +108,10 @@ _RE_DATA = re.compile(
     r"qual (a )?data|hoje (e|eh) que dia|dia de hoje)\b")
 
 # Apps que abrem por atalho. Chave: como a pessoa fala (normalizado, sem acento).
-# Valor: (comando, nome amigável). Só entram se o binário existir na máquina.
-_APPS = {
+# Valor: (comando, nome amigável). Duas tabelas — Linux (a máquina original,
+# Parrot/KDE) e Windows — escolhidas em tempo de execução por sys.platform.
+# As FRASES em português são as mesmas nas duas; só o binário muda.
+_APPS_LINUX = {
     "firefox": ("firefox", "o Firefox"),
     "navegador": ("firefox", "o navegador"),
     "chrome": ("google-chrome", "o Chrome"),
@@ -124,6 +128,92 @@ _APPS = {
     "editor": ("kate", "o editor de texto"),
     "editor de texto": ("kate", "o editor de texto"),
 }
+_APPS_WINDOWS = {
+    "firefox": ("firefox.exe", "o Firefox"),
+    "navegador": ("chrome.exe", "o navegador"),
+    "chrome": ("chrome.exe", "o Chrome"),
+    "google chrome": ("chrome.exe", "o Chrome"),
+    "edge": ("msedge.exe", "o Edge"),
+    "terminal": ("wt.exe", "o terminal"),
+    "prompt": ("wt.exe", "o terminal"),
+    "powershell": ("wt.exe", "o terminal"),
+    "arquivos": ("explorer.exe", "os arquivos"),
+    "explorador": ("explorer.exe", "o explorador de arquivos"),
+    "gerenciador de arquivos": ("explorer.exe", "os arquivos"),
+    "calculadora": ("calc.exe", "a calculadora"),
+    "editor": ("notepad.exe", "o editor de texto"),
+    "editor de texto": ("notepad.exe", "o editor de texto"),
+    "bloco de notas": ("notepad.exe", "o bloco de notas"),
+    "configuracoes": ("explorer.exe ms-settings:", "as configurações"),
+    "painel de controle": ("explorer.exe ms-settings:", "as configurações"),
+}
+_APPS = _APPS_WINDOWS if sys.platform == "win32" else _APPS_LINUX
+
+
+def _via_registro(nome: str) -> str | None:
+    """Procura o executável na chave 'App Paths' do registro do Windows — é o
+    jeito oficial de achar Chrome/Firefox/etc, que raramente ficam no PATH."""
+    try:
+        import winreg
+    except ImportError:
+        return None  # não é Windows
+    subchave = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{nome}"
+    for raiz in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(raiz, subchave) as chave:
+                valor, _ = winreg.QueryValueEx(chave, None)
+                if valor and os.path.exists(valor):
+                    return valor
+        except OSError:
+            continue
+    return None
+
+
+# Caminhos conhecidos de instalação — último recurso, quando nem o PATH nem o
+# registro acham o programa.
+_CAMINHOS_CONHECIDOS = {
+    "chrome.exe": [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ],
+    "firefox.exe": [
+        r"C:\Program Files\Mozilla Firefox\firefox.exe",
+        r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+    ],
+    "msedge.exe": [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ],
+    "wt.exe": [
+        os.path.expandvars(
+            r"%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe"),
+    ],
+}
+
+
+def _via_caminhos_conhecidos(nome: str) -> str | None:
+    for caminho in _CAMINHOS_CONHECIDOS.get(nome, []):
+        if os.path.exists(caminho):
+            return caminho
+    return None
+
+
+def _resolver_programa(nome: str) -> str | None:
+    """Acha o executável de verdade para 'nome' (ex.: 'chrome.exe'), tentando
+    nesta ordem: PATH, registro do Windows, caminhos conhecidos de instalação.
+
+    REGRA DE OURO: se não achar em lugar nenhum, devolve None — quem chama
+    decide se deixa o cérebro tentar outro caminho."""
+    achado = shutil.which(nome)
+    if achado:
+        return achado
+    achado = _via_registro(nome)
+    if achado:
+        return achado
+    return _via_caminhos_conhecidos(nome)
+
+
 # "abre o firefox", "abrir firefox", "pode abrir o navegador", "abra a calculadora"
 _RE_ABRIR = re.compile(r"\b(abre|abrir|abra|inicia|iniciar|abri)\b\s+(.+)$")
 # Artigo no começo do alvo ("o firefox" -> "firefox").
@@ -166,7 +256,8 @@ def _casar_abrir(n: str) -> dict | None:
     if not par:
         return None
     comando, nome = par
-    if shutil.which(comando.split()[0]) is None:
+    primeiro = comando.split()[0]
+    if _resolver_programa(primeiro) is None:
         return None  # app não instalado: deixa o cérebro achar outro caminho
     return _ficha_abrir(comando, nome)
 
