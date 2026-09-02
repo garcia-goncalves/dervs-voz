@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
 """DERVS STT — o 'ouvido' que fica ligado esperando fala.
 
-Roda no ambiente isolado ~/voice/whisper-venv (que tem o faster-whisper).
+Este processo atende DUAS perguntas diferentes, e a diferença entre elas é a
+decisão mais importante do projeto:
 
-DOIS caminhos, escolhidos pela config (stt):
-  - "openai" (PADRÃO se houver chave): manda o .wav para a OpenAI
-    (gpt-4o-mini-transcribe) — mais rápido e preciso que o local, e ~US$ 0,003
-    por minuto de áudio. Não carrega o modelo local (economiza ~1,6 GB de RAM);
-    o Whisper local só é carregado se a OpenAI falhar (sem internet).
+  PORTEIRO   "isso foi comigo?"  — decidido AQUI, na máquina, de graça.
+  TRANSCREVER "o que ele disse?" — mandado para a nuvem, com precisão, pago.
+
+A ordem importa: **nada vai para a nuvem antes de o porteiro abrir.** Antes
+desta mudança o app transcrevia tudo na nuvem e só depois procurava o nome no
+texto — o que, com o DERVS ligado o dia inteiro, mandava reunião e conversa de
+família para um servidor de terceiro e custava ~US$ 43/mês. Ver `dervs_porteiro`
+para o porquê e para os números medidos.
+
+Transcrição precisa, dois caminhos escolhidos pela config (`stt`):
+  - "openai" (PADRÃO se houver chave): manda o .wav para a OpenAI. O modelo
+    padrão é `gpt-transcribe` (lançado em 28/07/2026, US$ 0,0045/min), que a
+    própria OpenAI recomenda à frente do `gpt-4o-transcribe` (US$ 0,006/min) e
+    do `whisper-1`. Não carrega o Whisper grande (economiza ~1,6 GB de RAM).
   - "local": Whisper large-v3-turbo no processador, offline e grátis (~4,7 s).
 
 Se a OpenAI falhar numa transcrição, cai no local sozinho — nunca fica surdo.
 
-Protocolo de linha, para o app Qt conversar por stdin/stdout:
-  - ao ficar pronto, imprime:      READY
-  - o app manda, por linha, o caminho de um .wav gravado
-  - responde, por linha:           RESULT <json-do-texto>
+Protocolo de linha, por stdin/stdout, para o app Qt conversar:
+  - ao ficar pronto, imprime:            READY
+  - o app manda:  PORTEIRO <caminho.wav>
+    e recebe:     PORTEIRO {"acordou": true|false, "texto": "..."}
+  - o app manda:  TRANSCREVER <caminho.wav>   (ou só o caminho, forma antiga)
+    e recebe:     RESULT <json-do-texto>
 """
 import os
 import sys
@@ -59,7 +71,11 @@ def _carregar_chave_openai():
 
 _conf = _ler_config()
 STT = _conf.get("stt", "openai")
-STT_MODELO = _conf.get("stt_openai_modelo", "gpt-4o-mini-transcribe")
+# gpt-transcribe (lançado 28/07/2026, US$ 0,0045/min) é mais preciso E mais
+# barato que o gpt-4o-transcribe (US$ 0,006). O valor efetivo vem da config;
+# esta constante é a reserva de quem roda sem arquivo de configuração.
+STT_MODELO_PADRAO = "gpt-transcribe"
+STT_MODELO = _conf.get("stt_openai_modelo") or STT_MODELO_PADRAO
 OPENAI_KEY = _carregar_chave_openai()
 
 _local_model = None   # carregado sob demanda (só se precisar do fallback local)
@@ -122,10 +138,48 @@ def _transcrever(caminho: str) -> str:
     return _transcrever_local(caminho)
 
 
+def atender(linha: str, porteiro, transcrever_preciso) -> str:
+    """Atende UMA linha do protocolo e devolve a linha de resposta.
+
+    Esta função existe separada do laço principal por um motivo só: é aqui que
+    se prova, com teste automatizado, que **áudio não vai para a nuvem antes de
+    o porteiro abrir**. Com o verbo PORTEIRO, `transcrever_preciso` não é
+    chamado — e o teste falha se alguém inverter isso um dia.
+
+    Nunca levanta exceção: áudio ruim vira resposta vazia, não daemon morto.
+    """
+    linha = (linha or "").strip()
+    if not linha:
+        return ""
+    verbo, _, resto = linha.partition(" ")
+
+    if verbo == "PORTEIRO":
+        acordou, texto = porteiro.ouviu_o_nome(resto.strip())
+        return "PORTEIRO " + json.dumps(
+            {"acordou": bool(acordou), "texto": texto}, ensure_ascii=True)
+
+    # TRANSCREVER <caminho>, ou só o caminho cru (forma antiga do protocolo).
+    caminho = resto.strip() if verbo == "TRANSCREVER" else linha
+    try:
+        texto = transcrever_preciso(caminho)
+    except Exception as erro:  # nunca derruba o daemon por um áudio ruim
+        texto = ""
+        sys.stderr.write("dervs_stt: erro ao transcrever %s (%s)\n" % (caminho, erro))
+        sys.stderr.flush()
+    return "RESULT " + json.dumps(texto, ensure_ascii=True)
+
+
 def main() -> None:
-    # Se o local é o padrão, carrega já (custa alguns segundos) para o READY só
-    # sair quando estiver pronto. Se a OpenAI é o padrão, READY sai na hora e o
-    # local fica adormecido até ser preciso.
+    from dervs_porteiro import criar_porteiro
+    porteiro = criar_porteiro(_conf)
+    # O porteiro é carregado ANTES do READY: ele decide toda primeira frase, e
+    # pagar 1,2 s de carregamento na primeira vez que o dono fala seria sentido
+    # como "o DERVS demorou". Aqui o custo cai no boot, onde ninguém espera.
+    porteiro.aquecer()
+
+    # Se o local é o padrão da transcrição precisa, carrega já (custa alguns
+    # segundos) para o READY só sair quando estiver pronto. Se a OpenAI é o
+    # padrão, READY sai na hora e o Whisper grande fica adormecido.
     if not (STT == "openai" and OPENAI_KEY):
         _carregar_local()
 
@@ -136,16 +190,10 @@ def main() -> None:
         linha = sys.stdin.readline()
         if not linha:            # stdin fechado = app saiu
             break
-        caminho = linha.strip()
-        if not caminho:
+        resposta = atender(linha, porteiro, _transcrever)
+        if not resposta:
             continue
-        try:
-            texto = _transcrever(caminho)
-        except Exception as erro:  # nunca derruba o daemon por um áudio ruim
-            texto = ""
-            sys.stderr.write("dervs_stt: erro ao transcrever %s (%s)\n" % (caminho, erro))
-            sys.stderr.flush()
-        sys.stdout.write("RESULT " + json.dumps(texto, ensure_ascii=True) + "\n")
+        sys.stdout.write(resposta + "\n")
         sys.stdout.flush()
 
 
