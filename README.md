@@ -43,7 +43,7 @@ No Windows, do diretório do projeto:
 
 ```
 dervs-venv\Scripts\python.exe dervs.py            # abre o DERVS
-dervs-venv\Scripts\python.exe -m pytest -q        # testes (173 verdes)
+dervs-venv\Scripts\python.exe -m pytest -q        # testes (284 verdes)
 dervs-venv\Scripts\python.exe amostras_de_voz.py  # gera amostras das 3 vozes
 ```
 
@@ -84,7 +84,7 @@ Ambientes Python (`*-venv/`, `dervs-venv/`), modelos, o arquivo de segredos,
 atalhos, execução, rede de segurança e prompt do cérebro com vocabulário do
 Windows; configuração e segredo nos caminhos do Windows; colar por
 `keybd_event` no lugar do `ydotool`; gravações apagadas depois de usadas.
-**173 testes passam, zero falham** (antes: 112 passavam e 4 falhavam).
+**284 testes passam, zero falham** (antes: 112 passavam e 4 falhavam).
 
 **Falta:**
 

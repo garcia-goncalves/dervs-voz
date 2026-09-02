@@ -176,4 +176,5 @@ chave, se você não tiver uma.
 | Ele acorda sozinho, sem eu chamar | Me avise. É o mesmo caminho do item acima. |
 | Ele não fala nada | O motor de voz precisa dos modelos em `%LOCALAPPDATA%\dervs\modelos`. Se a pasta sumiu, me avise que eu baixo de novo. |
 | A janela não abre | Me avise, e diga se apareceu alguma mensagem na tela. |
+| Ele pede confirmação demais | Me avise. A rede de segurança prefere perguntar a mais que a menos, mas se estiver incomodando dá para afinar. |
 | "não achei a biblioteca sounddevice" | Faltou instalar. Me avise que eu instalo. |

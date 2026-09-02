@@ -78,6 +78,59 @@ nenhuma das 8 que não deviam — incluindo "Meu Deus, que susto você me deu" e
 | O daemon responde ao protocolo novo | áudio real pelo `stdin` | `PORTEIRO {"acordou": true, "texto": "Ok Dervs. Abriu Chrome para mim."}` e `{"acordou": false}` para "Meu Deus, que susto você me deu" |
 | A suíte de testes | `pytest -q` no ambiente isolado | **173 passam, 0 falham** (antes da rodada: 112 passavam, 4 falhavam) |
 
+## 3b. A rede de segurança, depois da revisão (02/09/2026)
+
+A revisão de segurança encontrou seis achados de gravidade alta, todos obtidos
+**executando** o classificador, não lendo os padrões. O pior era estrutural: a
+lista de comandos seguros casava em qualquer posição da linha, então bastava um
+comando inocente na frente para a guarda baixar.
+
+Depois da correção, verificado executando de novo (não confiando no relatório
+de quem corrigiu):
+
+| Comando de ataque | Antes | Depois |
+|---|---|---|
+| `notepad && net user invasor 123 /add` | reversível | **destrutivo** |
+| `chrome ... & schtasks /create /tn B /tr p.exe /sc onlogon` | reversível | **destrutivo** |
+| `echo oi; Remove-Item C:\Users\Dono\x -Rec` | reversível | **destrutivo** |
+| `Get-ChildItem C:\Users\Dono -Recurse \| Remove-Item` | reversível | **destrutivo** |
+| `Start-Process ...\payload.exe -Verb RunAs` | reversível | **destrutivo** |
+| `Remove-Item ...\Documentos -Rec -Fo` | muda_estado | **destrutivo** |
+| `del C:\Users\Dono\Documentos\*.*` | muda_estado | **destrutivo** |
+| `powershell -EncodedCommand <base64>` | muda_estado | **destrutivo** |
+| `Add-MpPreference -ExclusionPath C:` (desliga antivírus) | muda_estado | **destrutivo** |
+| `wevtutil cl Security` (apaga log de auditoria) | muda_estado | **destrutivo** |
+| `net localgroup administrators invasor /add` | muda_estado | **destrutivo** |
+| `schtasks /create ... /sc onlogon` (persistência) | muda_estado | **destrutivo** |
+| `robocopy vazio Documentos /MIR` | muda_estado | **destrutivo** |
+| `type C:\Users\Dono\.ssh\id_rsa` | reversível | **destrutivo + pede autorização** |
+| `Get-Content $env:USERPROFILE\.aws\credentials` | reversível | **destrutivo + pede autorização** |
+
+E os falsos positivos, que são risco de segurança porque treinam o dono a
+clicar sem ler:
+
+| Comando inofensivo | Antes | Depois |
+|---|---|---|
+| `chrome http://192.168.0.1` (abrir o roteador) | destrutivo, exigia "tenho autorização" | **reversível** |
+| `chrome .../search?q=windows+11+24.2.1.0` | destrutivo, exigia autorização | **reversível** |
+| `dir`, `Get-Date`, `notepad`, `chrome https://google.com` | reversível | reversível |
+
+A regra de ouro continua de pé: comando desconhecido cai em `muda_estado`,
+nunca em `reversível`. E o executor deixou de tratar comando encadeado como
+"app de tela" — era por ali que a cauda arbitrária escapava da rede.
+
+Duas travas novas do lado do comportamento, também verificadas por teste:
+
+- **Voz não confirma o irreversível.** Qualquer som audível pelo microfone
+  podia dizer "OK DERVS, faça X" e, segundos depois, "ok". Agora o plano é
+  classificado antes de começar, e a voz só vale para plano inteiramente
+  reversível; acima disso é preciso clique.
+- **A janela de desperto tem teto de 90 s**, que não é renovado por continuação
+  de conversa — antes ela se renovava a cada resposta e nunca fechava, e
+  enquanto ele está desperto tudo o que é falado vai direto para a nuvem.
+
+**Suíte: 284 testes passam, zero falham.**
+
 ## 4. Tempo até responder — o que está medido e o que falta
 
 | Etapa | Tempo | Como se sabe |
