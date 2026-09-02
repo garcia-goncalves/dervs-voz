@@ -23,6 +23,8 @@ import shlex
 import subprocess
 import sys
 
+import dervs_processos as processos
+
 HOME = os.path.expanduser("~")
 _WINDOWS = sys.platform == "win32"
 
@@ -144,11 +146,16 @@ def rodar(comando: str, timeout: int = 60, terminal: bool = False, cwd: str = No
             # passando o comando inteiro para -Command: é a própria
             # PowerShell que interpreta pipe, aspas e redirecionamento.
             cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", comando]
-            proc = subprocess.run(cmd, cwd=cwd, capture_output=True,
-                                 text=True, timeout=timeout)
+            # `rodar_com_arvore` e não `subprocess.run`: no estouro do tempo, o
+            # `run` mata só o PowerShell e deixa vivo o que ELE abriu. O dono
+            # pede "roda o nmap no alvo", passa dos 60 s, a tela diz
+            # "interrompido" — e o nmap continua varrendo a rede.
+            proc = processos.rodar_com_arvore(cmd, cwd=cwd, capture_output=True,
+                                              text=True, timeout=timeout)
         else:
-            proc = subprocess.run(comando, shell=True, cwd=cwd, capture_output=True,
-                                 text=True, timeout=timeout)
+            proc = processos.rodar_com_arvore(comando, shell=True, cwd=cwd,
+                                              capture_output=True,
+                                              text=True, timeout=timeout)
         saida = (proc.stdout or "") + (proc.stderr or "")
         return {"codigo": proc.returncode, "saida": _cortar(saida.strip()), "tipo": "captura"}
     except subprocess.TimeoutExpired:

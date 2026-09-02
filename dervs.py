@@ -34,8 +34,8 @@ import dervs_instancia as instancia
 import dervs_processos as processos
 import dervs_registro as registro
 from dervs_tts import Voz
-from dervs_listen import (Endpointer, Microfone, salvar_wav,
-                          separar_chamada, esta_mudo,
+from dervs_listen import (Endpointer, Microfone, VigiaDeSilencio,
+                          salvar_wav, separar_chamada, esta_mudo,
                           motivo_do_silencio, FRAME_BYTES,
                           FRAME_AMOSTRAS, TAXA)
 
@@ -322,6 +322,9 @@ class Escuta(QtCore.QThread):
     conversar sem clicar em Gravar/Parar. Enquanto o DERVS fala ou trabalha,
     fica 'pausado' — para não escutar a própria voz nem atropelar."""
     fala = QtCore.pyqtSignal(str)
+    # O microfone está aberto e entregando silêncio digital: ninguém vai
+    # apertar nada para descobrir isso, então a escuta tem de gritar.
+    mudo = QtCore.pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -332,6 +335,7 @@ class Escuta(QtCore.QThread):
     def run(self):
         self._rodando = True
         ep = Endpointer()
+        vigia = VigiaDeSilencio()
         estava_pausado = False
         while self._rodando:
             self._mic = Microfone()
@@ -348,6 +352,10 @@ class Escuta(QtCore.QThread):
                     if not frame:
                         motivo = self._mic.motivo_da_queda()
                         break               # a fonte caiu: sai para religar
+                    # Antes da pausa de propósito: microfone morto é morto
+                    # esteja o DERVS falando ou não.
+                    if vigia.ver(frame):
+                        self.mudo.emit()
                     if self.pausado:
                         if not estava_pausado:
                             ep.reset()      # entrou na pausa: descarta a frase pela metade
@@ -661,6 +669,7 @@ class PopUp(QtWidgets.QWidget):
             self.escuta = Escuta()
             self._registrar(self.escuta)   # mantém referência até a thread morrer
             self.escuta.fala.connect(self._fala_continua)
+            self.escuta.mudo.connect(self._escuta_sem_som)
             self.escuta.start()
             for velho in self._fila_fala:
                 self._descartar_wav(velho)
@@ -865,6 +874,15 @@ class PopUp(QtWidgets.QWidget):
         else:
             self._pendente = REC_WAV
             self.status.setText("preparando o motor de voz… já transcrevo")
+
+    def _escuta_sem_som(self):
+        """A escuta contínua está aberta e nada entra. Diga ao dono.
+
+        Sem isto o DERVS ficava escrito "pronto" enquanto estava surdo, e o
+        dono passava horas achando que estava sendo ignorado — foi assim em
+        02/09/2026, com o cabo do microfone fora da entrada rosa.
+        """
+        self._recado_do_ouvido(motivo_do_silencio(), REC)
 
     def _recado_do_ouvido(self, texto, cor):
         """Fixa um recado sobre o ouvido — e ele SOBREVIVE ao relógio da tela.

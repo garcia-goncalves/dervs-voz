@@ -61,3 +61,69 @@ def sem_janela() -> dict:
     if not WINDOWS:
         return {}
     return {"creationflags": subprocess.CREATE_NO_WINDOW}
+
+
+def encerrar_arvore(proc) -> None:
+    """Mata o processo E tudo que ele abriu. Nunca levanta exceção.
+
+    `proc.kill()` sozinho mata só a casca. No Windows, quem derruba a árvore
+    inteira é o `taskkill /T` (T de *tree*); no Linux, o grupo de processos.
+    """
+    if proc.poll() is not None:
+        return                          # já morreu sozinho: nada a fazer
+    try:
+        if WINDOWS:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=30, **sem_janela())
+        else:
+            os.killpg(os.getpgid(proc.pid), 9)
+    except Exception:
+        pass
+    try:
+        proc.kill()                     # rede: se o taskkill falhou, mata a casca
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except Exception:
+        pass
+
+
+def rodar_com_arvore(cmd, timeout=None, capture_output=False, **kwargs):
+    """`subprocess.run` com UMA diferença, e ela importa muito.
+
+    Quando o tempo estoura, o `subprocess.run` do Python mata só o processo que
+    ele mesmo abriu. Os netos ficam vivos, órfãos, sem ninguém sabendo.
+
+    Isso mordeu o DERVS em dois lugares (revisão de 02/09/2026):
+
+      - o dono pede "roda o nmap no alvo"; o `powershell.exe` dispara o
+        `nmap.exe`. Passa dos 60 s, o PowerShell morre, o **nmap continua
+        varrendo a rede** — e a tela diz "foi interrompido";
+      - o navegador autônomo abre o Chrome do dono com o perfil de verdade.
+        Passa do tempo, o Python que o comandava morre sem rodar o `finally`
+        que fecha o navegador, e sobra um `chrome.exe` **segurando o perfil**.
+        Depois disso o dono não abre mais o próprio Chrome e não tem como
+        adivinhar que foi o DERVS.
+
+    Levanta `subprocess.TimeoutExpired` como o original — quem chama já trata
+    essa exceção, e mudar o contrato quebraria os dois lugares de uma vez.
+    """
+    if capture_output:
+        kwargs.setdefault("stdout", subprocess.PIPE)
+        kwargs.setdefault("stderr", subprocess.PIPE)
+    if not WINDOWS:
+        # no Linux o grupo de processos é o que torna o `killpg` possível
+        kwargs.setdefault("start_new_session", True)
+
+    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        saida, erro = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        encerrar_arvore(proc)
+        try:
+            saida, erro = proc.communicate(timeout=10)
+        except Exception:
+            saida, erro = None, None
+        raise subprocess.TimeoutExpired(cmd, timeout, output=saida, stderr=erro)
+    return subprocess.CompletedProcess(cmd, proc.returncode, saida, erro)

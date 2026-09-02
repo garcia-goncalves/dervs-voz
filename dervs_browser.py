@@ -365,7 +365,13 @@ def rodar_para_app(objetivo: str, timeout: int | None = None) -> dict:
     # de passos, isto é só a rede contra travar de vez.
     limite = timeout or (MAX_PASSOS * 20 + 60)
     try:
-        proc = subprocess.run(
+        # `rodar_com_arvore` e não `subprocess.run`: no estouro do tempo, o
+        # `run` mata o Python que comandava o navegador SEM deixar ele rodar o
+        # `finally` que fecha o Chrome. Sobra um `chrome.exe` órfão segurando o
+        # perfil de verdade do dono — e a partir daí ele não consegue mais abrir
+        # o próprio Chrome, sem nenhuma pista de que foi o DERVS.
+        import dervs_processos as processos
+        proc = processos.rodar_com_arvore(
             [PLAYWRIGHT_PY, os.path.abspath(__file__), "--json", objetivo],
             capture_output=True, text=True, timeout=limite)
     except subprocess.TimeoutExpired:

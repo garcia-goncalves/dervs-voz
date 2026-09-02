@@ -313,6 +313,53 @@ def esta_mudo(pcm: bytes) -> bool:
     return pico(pcm) <= PICO_SILENCIO
 
 
+# Quanto tempo de silencio digital CONTINUO ate avisar o dono, no modo em que o
+# DERVS escuta sozinho. 8 s e o meio-termo medido: curto o bastante para ele
+# descobrir antes de desistir, longo o bastante para nenhuma pausa de conversa
+# chegar perto -- ninguem fica 8 s sem que o microfone capte NADA, nem
+# respiracao, nem o ventilador, nem uma tecla.
+SEGUNDOS_ATE_AVISAR_MUDO = 8
+
+
+class VigiaDeSilencio:
+    """Vigia o microfone durante a escuta continua e avisa quando ele morreu.
+
+    Por que existe: `esta_mudo` cobre o botao Gravar -- o dono aperta, fala, e
+    e avisado. Mas o DERVS tambem escuta SOZINHO ("Ei DERVS"), e ai ninguem
+    aperta nada: com o microfone desconectado o porteiro nunca acorda, a tela
+    segue escrito "pronto", e o dono passa horas achando que esta sendo
+    ignorado. Foi o que aconteceu em 02/09/2026.
+
+    Pura logica de proposito -- entra quadro, sai decisao -- para dar para
+    testar sem microfone nenhum.
+    """
+
+    def __init__(self, segundos: float = SEGUNDOS_ATE_AVISAR_MUDO):
+        self._limite = max(1, int(segundos * 1000 / FRAME_MS))
+        self._seguidos = 0
+        self._ja_avisou = False
+
+    def ver(self, frame: bytes) -> bool:
+        """True UMA unica vez, no quadro em que o silencio completa o tempo.
+
+        Quadro vazio (b'') significa "a fonte caiu", que e outro problema e tem
+        outro dono: o religamento da escuta. Aqui ele nao conta.
+        """
+        if not frame:
+            return False
+        if not esta_mudo(frame):
+            self._seguidos = 0
+            self._ja_avisou = False      # o som voltou: volta a valer o proximo aviso
+            return False
+        if self._ja_avisou:
+            return False
+        self._seguidos += 1
+        if self._seguidos < self._limite:
+            return False
+        self._ja_avisou = True
+        return True
+
+
 def _entradas_do_sistema() -> list:
     """Os microfones que o sistema enxerga, pelo nome. Isolada para o teste
     poder trocar por uma lista fixa -- sem isto nao da para testar a mensagem

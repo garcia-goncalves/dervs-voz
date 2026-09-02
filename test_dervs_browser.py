@@ -145,11 +145,17 @@ class _ProcFalso:
         self.stdout, self.stderr = stdout, stderr
 
 
+# A partir de 02/09/2026 o navegador não usa mais `subprocess.run`, e sim
+# `dervs_processos.rodar_com_arvore`. Não foi troca de gosto: o `run` mata só o
+# Python que comandava o navegador e deixa vivo o `chrome.exe` que ele abriu,
+# segurando o perfil de verdade do dono. O dublê tem de ficar na costura nova,
+# senão estes testes passariam sem exercitar o código que roda.
 def test_rodar_para_app_le_json_marcado(monkeypatch):
     saida = ("Chrome barulho no stdout\n"
              + nav._MARCADOR + '{"codigo":0,"saida":"pronto: achei 3 não lidos","tipo":"navegador"}\n')
-    monkeypatch.setattr(nav.subprocess if hasattr(nav, "subprocess") else __import__("subprocess"),
-                        "run", lambda *a, **k: _ProcFalso(stdout=saida))
+    import dervs_processos
+    monkeypatch.setattr(dervs_processos, "rodar_com_arvore",
+                        lambda *a, **k: _ProcFalso(stdout=saida))
     # garante que o caminho da venv "existe" para não cair no fallback in-process
     monkeypatch.setattr(nav.os.path, "exists", lambda p: True)
     r = nav.rodar_para_app("contar não lidos")
@@ -157,7 +163,8 @@ def test_rodar_para_app_le_json_marcado(monkeypatch):
 
 
 def test_rodar_para_app_sem_marcador_vira_erro(monkeypatch):
-    monkeypatch.setattr(__import__("subprocess"), "run",
+    import dervs_processos
+    monkeypatch.setattr(dervs_processos, "rodar_com_arvore",
                         lambda *a, **k: _ProcFalso(stdout="nada útil", stderr="deu ruim"))
     monkeypatch.setattr(nav.os.path, "exists", lambda p: True)
     r = nav.rodar_para_app("x")
