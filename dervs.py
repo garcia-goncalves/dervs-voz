@@ -94,6 +94,22 @@ def _ydotoold():
         subprocess.Popen(["ydotoold"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def nivel_do_plano(plano) -> str:
+    """O maior risco entre todos os passos de um plano, decidido ANTES de rodar.
+
+    Serve para saber se a confirmação por voz basta. Passo de navegador ou de
+    enriquecimento não tem comando de terminal e conta como reversível, que é
+    como `_processar_passo` já os trata.
+    """
+    pior = "reversivel"
+    for passo in plano or []:
+        if passo.get("tipo") in ("navegador", "enriquecer"):
+            continue
+        d = seg.decidir_risco(passo.get("comando", ""), passo.get("risco", "reversivel"))
+        pior = seg._nivel_max(pior, d["nivel"])
+    return pior
+
+
 def descartar_wav(caminho):
     """Apaga o .wav de uma frase assim que ele não é mais necessário.
 
@@ -438,6 +454,13 @@ class PopUp(QtWidgets.QWidget):
         self.MAX_FILA = 4              # guarda no máximo 4 — depois é conversa velha demais
         self._desperto = False         # já acordou pela palavra "DERVS"?
         self._desperto_ate = 0.0       # até quando fica desperto sem repetir o nome
+        # Teto ABSOLUTO da janela de desperto, em segundos. A janela normal se
+        # renova a cada resposta, o que é bom para conversar — mas sem um teto
+        # ela nunca fecharia numa conversa longa, e enquanto ele está desperto
+        # TUDO que é falado na sala vai direto para a nuvem, sem passar pelo
+        # porteiro. Isso desmentiria a promessa do porteiro justamente na hora
+        # em que a sala está mais falante.
+        self.TETO_DESPERTO = 90.0
         self._wav_no_porteiro = None   # frase esperando o veredito do porteiro local
         self.JANELA_DESPERTO = self._conf["janela_desperto_seg"]  # segs ouvindo após te atender
         self._atalhos_ligados = self._conf["atalhos_ligados"]     # responder trivial sem o cérebro
@@ -446,6 +469,8 @@ class PopUp(QtWidgets.QWidget):
         self.passo_i = 0               # qual passo do plano está na vez
         self._plano_local = False      # plano veio de atalho local? (não chama o cérebro no fim)
         self._aguardando_ok = False    # plano montado, esperando o dono confirmar (voz/botão)
+        self._plano_nivel_max = "reversivel"   # pior risco do plano pendente
+        self._desperto_desde = 0.0     # quando ele acordou (teto absoluto da janela)
         self._2conf = False            # 2a confirmação pendente (trilho destrutivo)
         self._tarefa = None            # thread lógica em andamento (cérebro/execução)
         self._threads = []             # referência forte a TODA thread viva (senão o Qt aborta)
@@ -668,6 +693,37 @@ class PopUp(QtWidgets.QWidget):
     def _descartar_wav(self, caminho):
         descartar_wav(caminho)
 
+    def _esta_desperto(self) -> bool:
+        """Ele ainda está atendendo sem precisar do nome de novo?
+
+        Duas condições, e as duas têm de valer: a janela curta (que se renova a
+        cada resposta, para conversar) e o teto absoluto (que NÃO se renova).
+        Sem o teto, uma conversa longa manteria o portão aberto para sempre, e
+        tudo que fosse falado na sala iria para a nuvem.
+        """
+        agora = time.time()
+        return (self._desperto
+                and agora < self._desperto_ate
+                and agora < self._desperto_desde + self.TETO_DESPERTO)
+
+    def _acordar(self, novo=False):
+        """Abre ou renova a janela de desperto.
+
+        `novo=True` só quando ele OUVIU O NOME — aí o teto absoluto recomeça do
+        zero, porque houve uma chamada nova. `novo=False` é continuação de
+        conversa: renova a janela curta, mas **não** mexe no teto. Sem essa
+        separação o teto seria decorativo: bastaria o DERVS responder para o
+        relógio zerar, e o portão ficaria aberto para sempre numa conversa
+        longa — com tudo que fosse falado na sala indo para a nuvem.
+        """
+        agora = time.time()
+        if novo or not self._desperto:
+            self._desperto_desde = agora
+        elif agora >= self._desperto_desde + self.TETO_DESPERTO:
+            return       # teto estourado: só volta a atender se o nome for dito
+        self._desperto = True
+        self._desperto_ate = agora + self.JANELA_DESPERTO
+
     def _fala_continua(self, wav):
         """Chegou uma frase da conversa contínua. Manda transcrever e, quando o
         texto chegar, ele é enviado sozinho ao cérebro."""
@@ -703,7 +759,7 @@ class PopUp(QtWidgets.QWidget):
         # guardado até a resposta chegar: para reenviar se o portão abrir, e
         # para o arquivo ser apagado quando não for mais necessário
         self._wav_no_porteiro = wav
-        if self._desperto and time.time() < self._desperto_ate:
+        if self._esta_desperto():
             self.status.setText("ouvi — transcrevendo…")
             self.status.setStyleSheet(f"color:{ARCANE};")
             self.stt.write(("TRANSCREVER " + wav + "\n").encode())
@@ -717,7 +773,7 @@ class PopUp(QtWidgets.QWidget):
         Desperto (janela de alguns segundos), atende tudo — como a Siri."""
         tem_nome, resto = separar_chamada(texto)
         agora = time.time()
-        desperto = self._desperto and agora < self._desperto_ate
+        desperto = self._esta_desperto()
 
         if not desperto and not tem_nome:
             self.status.setText("💤 me chame por 'DERVS'")
@@ -726,8 +782,7 @@ class PopUp(QtWidgets.QWidget):
 
         if tem_nome:
             texto = resto
-        self._desperto = True
-        self._desperto_ate = agora + self.JANELA_DESPERTO
+        self._acordar(novo=tem_nome)
 
         if not texto.strip():
             # você só chamou o nome: atende e fica ouvindo o pedido
@@ -822,8 +877,7 @@ class PopUp(QtWidgets.QWidget):
                 if veredito.get("acordou") and wav:
                     # o portão abriu: SÓ AGORA o áudio vai para a nuvem. O
                     # arquivo continua guardado até a transcrição voltar.
-                    self._desperto = True
-                    self._desperto_ate = time.time() + self.JANELA_DESPERTO
+                    self._acordar(novo=True)
                     self.status.setText("ouvi meu nome — transcrevendo…")
                     self.status.setStyleSheet(f"color:{ARCANE};")
                     self.stt.write(("TRANSCREVER " + wav + "\n").encode())
@@ -958,7 +1012,9 @@ class PopUp(QtWidgets.QWidget):
             if resposta == "sim":
                 self._diz("dono", texto); self.entrada.clear()
                 self.conversa.append({"papel": "dono", "texto": "(ok, pode executar)"})
-                self.confirmar_plano_ok()
+                # por_voz=True: este caminho vem de som captado pelo microfone,
+                # que não prova que foi o dono quem falou
+                self.confirmar_plano_ok(por_voz=True)
                 return
             if resposta == "nao":
                 self._diz("dono", texto); self.entrada.clear()
@@ -1016,9 +1072,11 @@ class PopUp(QtWidgets.QWidget):
         self._diz("dervs", fala)
         if fala:
             self.voz.falar(fala)
-        # segue desperto após responder: você emenda sem repetir "DERVS"
+        # segue desperto após responder: você emenda sem repetir "DERVS".
+        # `_acordar` respeita o teto absoluto — passado ele, a janela não
+        # renova mais e é preciso chamar pelo nome de novo.
         if self.escuta is not None:
-            self._desperto_ate = time.time() + self.JANELA_DESPERTO
+            self._acordar()
         modo = ficha.get("modo")
         if modo == "planejar" and ficha.get("passos"):
             self.plano = ficha["passos"]; self.passo_i = 0
@@ -1033,6 +1091,7 @@ class PopUp(QtWidgets.QWidget):
         if not self.plano:
             return
         self._aguardando_ok = True
+        self._plano_nivel_max = self._nivel_do_plano()
         def _rotulo_passo(p):
             if p.get("tipo") == "navegador":
                 return "🌐 navegador: " + p.get("objetivo", "")
@@ -1054,10 +1113,32 @@ class PopUp(QtWidgets.QWidget):
         self.barra.show()
         # a 'fala' do cérebro já disse o que vai fazer e pediu o OK; não repete voz aqui.
 
-    def confirmar_plano_ok(self):
-        """OK do dono ao plano inteiro: agora sim executa os passos."""
+    def _nivel_do_plano(self) -> str:
+        return nivel_do_plano(self.plano)
+
+    def confirmar_plano_ok(self, por_voz=False):
+        """OK do dono ao plano inteiro: agora sim executa os passos.
+
+        VOZ NÃO É SENHA. Qualquer som audível pelo microfone — a TV, um vídeo,
+        uma visita, uma ligação no viva-voz — pode dizer "OK DERVS, faça X" e,
+        segundos depois, dizer "ok". A palavra de acordar está publicada neste
+        repositório e o casador dela é tolerante de propósito. Nada disso exige
+        presença humana.
+
+        Por isso a voz só confirma o que é reversível. Para qualquer coisa
+        acima disso, é preciso um clique — que exige uma mão no computador.
+        """
         if not self._aguardando_ok:
             return
+        if por_voz and self._plano_nivel_max != "reversivel":
+            aviso = ("Esse plano mexe em coisa que não dá para desfazer sozinha. "
+                     "Confirma no botão, por favor — por voz eu não faço.")
+            self._diz("dervs", aviso, cor=GOLD)
+            if self.voz.ligada:
+                self.voz.falar(aviso)
+            self.status.setText("preciso de um clique para este plano")
+            self.status.setStyleSheet(f"color:{REC};")
+            return       # a barra continua à vista, esperando o clique
         self._aguardando_ok = False
         self.barra.hide()
         self.passo_i = 0

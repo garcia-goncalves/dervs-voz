@@ -80,7 +80,12 @@ def test_montar_prompt_inclui_papeis():
     p = montar_prompt(conversa)
     assert "[dono] abre o firefox" in p
     assert "[dervs] qual site?" in p
-    assert "[resultado de um comando] exit 0" in p
+    # a saída de comando é rotulada E cercada: ela é dado observado, não ordem,
+    # e pode conter texto plantado imitando um pedido do dono. Ver
+    # test_dervs_voz_nao_e_senha.py::test_saida_de_comando_vai_cercada_e_com_aviso
+    assert "[resultado de um comando]" in p
+    assert "exit 0" in p
+    assert "SAIDA-DE-COMANDO-INICIO" in p
 
 
 # --- Sessão persistente: a lógica de mandar só o turno NOVO -----------------
