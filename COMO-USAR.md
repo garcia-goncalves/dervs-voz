@@ -36,6 +36,47 @@ esse é caso de pedir ajuda, não de insistir.
 
 ---
 
+## Transcrever um áudio seu (reunião, WhatsApp, entrevista)
+
+**Dois cliques em `DERVS - Transcrever audio`**, na Área de Trabalho. Abre o
+seletor de arquivos, você escolhe o áudio, e ele:
+
+1. manda para a transcrição precisa (a mesma da conversa ao vivo);
+2. salva um arquivo `.txt` **na mesma pasta e com o mesmo nome** do áudio;
+3. abre o texto no Bloco de Notas sozinho.
+
+Aceita mp3, m4a (iPhone e gravador do Windows), ogg (WhatsApp), wav, flac, e
+até vídeo (mp4, webm) — ele tira só o som.
+
+**Áudio longo não é problema.** Reunião de duas horas passa muito do limite de
+envio. Antes de reclamar, o áudio é compactado (fica cerca de 10 vezes menor sem
+perder a fala) e, se ainda assim for grande, é enviado em pedaços de 20 minutos
+que se sobrepõem — a emenda descarta a repetição, para não perder nem duplicar a
+palavra dita bem na hora do corte. Numa reunião de teste cortada em 6 pedaços, o
+texto saiu **idêntico** ao da transcrição sem cortes.
+
+Enquanto trabalha, a janela mostra o andamento:
+
+```
+compactando o áudio (mono, 16 kHz) para caber no envio...
+  84.3 MB -> 8.1 MB
+áudio de 112 min: enviando em 6 pedaços
+  pedaço 1/6 (0–20 min)
+```
+
+**Quanto custa:** cerca de **US$ 0,27 por hora** de gravação (US$ 0,0045 o
+minuto). Uma reunião de duas horas sai por menos de US$ 0,60.
+
+**O que fazer se der errado:**
+
+| Aparece | O que é | Saída |
+|---|---|---|
+| `a chave da OpenAI não está nesta máquina` | falta a chave | ver a seção da chave |
+| `o ffmpeg não está instalado` | falta o programa que compacta | `winget install Gyan.FFmpeg` |
+| `não achei o arquivo` | caminho errado ou arquivo movido | escolher de novo |
+
+---
+
 ## O que ele faz, em uma frase
 
 Fica ouvindo a sala. Quando você diz **"DERVS"** (ou "OK DERVS", ou "Ei DERVS"),
