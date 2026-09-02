@@ -91,9 +91,13 @@ Regra de ouro do atalho: **na dúvida, deixa o cérebro decidir**. O casamento �
 conservador e a lista de apps é curada (só o que existe na máquina). "Abre o
 relatório", "abre o site do banco", "marca reunião às três horas" NÃO viram
 atalho — vão para o cérebro, como antes. É otimização, nunca fonte de erro.
-Coberto por 26 testes (`test_dervs_atalhos.py`), metade deles de negativa.
+Coberto por 33 testes (`test_dervs_atalhos.py`), metade deles de negativa.
 
-### Configuração editável — `~/.config/dervs/config.json`
+### Configuração editável — `%APPDATA%\dervs\config.json` (Windows)
+
+> No Linux, do repositório irmão, o mesmo arquivo fica em
+> `~/.config/dervs/config.json`. Para descobrir o caminho na sua máquina:
+> `dervs-venv\Scripts\python.exe -c "import dervs_config as c; print(c.CONFIG_PATH)"`
 
 O que o dono pode mudar sem tocar no código, num arquivo JSON criado sozinho no
 primeiro boot (`dervs_config.py`):
@@ -185,7 +189,8 @@ memória do cérebro**.
 
 ## A voz: Kokoro (humana E rápida), Piper (reserva), XTTS (opcional)
 
-Três motores. O padrão vem da config (`motor` em `~/.config/dervs/config.json`);
+Três motores. O padrão vem da config (`motor` no `config.json` — no Windows,
+em `%APPDATA%\dervs\`);
 `MOTOR_PADRAO` em `dervs_tts.py` é o fallback do código.
 
 - **kokoro** (PADRÃO) — modelo aberto (82M, Apache-2.0), voz **humana E rápida**.
@@ -228,7 +233,7 @@ destrutivo e alvo de rede sempre no topo; desconhecido sempre confirma), o
 parsing do cérebro, a detecção de fim de fala, a validação da config e a lógica
 do navegador autônomo (montar o estado da página, normalizar a ação, reconhecer
 o Chrome travado, executar uma ação com página falsa) e o enriquecimento de lead
-(validar domínio, agregar eventos do bbot, passivo≠ativo). Hoje: **117 testes verdes**.
+(validar domínio, agregar eventos do bbot, passivo≠ativo). Hoje: **543 testes verdes**.
 
 ## Navegador autônomo — clicar e digitar sozinho no seu Chrome
 

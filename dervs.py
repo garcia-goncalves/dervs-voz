@@ -35,8 +35,8 @@ import dervs_processos as processos
 import dervs_registro as registro
 from dervs_tts import Voz
 from dervs_listen import (Endpointer, Microfone, VigiaDeSilencio,
-                          salvar_wav, separar_chamada, esta_mudo,
-                          motivo_do_silencio, FRAME_BYTES,
+                          faxina_de_audio, salvar_wav, separar_chamada,
+                          esta_mudo, motivo_do_silencio, FRAME_BYTES,
                           FRAME_AMOSTRAS, TAXA)
 
 HOME = os.path.expanduser("~")
@@ -45,9 +45,9 @@ TMP  = tempfile.gettempdir()      # /tmp no Linux, %TEMP% no Windows
 
 # --- caminhos da voz (mesmos do script 'falar') ---
 VOICE_DIR = f"{HOME}/voice"
-PY_VOZ    = f"{VOICE_DIR}/.venv/bin/python"
-ND        = f"{VOICE_DIR}/nerd-dictation/nerd-dictation"   # motor antigo (Vosk), aposentado
-MODEL     = f"{VOICE_DIR}/model"
+# PY_VOZ, ND e MODEL viviam aqui e nao eram lidos por ninguem desde a
+# aposentadoria do nerd-dictation (Vosk). Sobra do script falar.sh do
+# projeto irmao de Linux. Removidos em 02/09/2026.
 
 
 def _python_do_ouvido() -> str:
@@ -1670,6 +1670,14 @@ if __name__ == "__main__":
     # `instalar` zera o arquivo da pane dura para poder escrever nele agora.
     registro.colher_anterior()
     registro.instalar()
+
+    # Faxina do que sobrou de uma queda anterior. Cada frase captada vira um
+    # .wav ANTES de o porteiro decidir se era com o DERVS; no caminho normal
+    # `descartar_wav` apaga, mas quando o app morre de repente elas ficam. E a
+    # pasta temporária do Windows, ao contrário da do Linux, não se limpa
+    # sozinha no desligamento — a voz do dono ficava ali indefinidamente.
+    # Só mexe no que tem mais de uma hora, para não pegar trabalho em curso.
+    faxina_de_audio(TMP)
 
     # UM DERVS só. Até 02/09/2026 cada clique no ícone abria mais um, empilhado
     # exatamente no mesmo ponto da tela e disputando o microfone — o de cima

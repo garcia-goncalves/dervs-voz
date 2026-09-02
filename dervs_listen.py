@@ -360,6 +360,52 @@ class VigiaDeSilencio:
         return True
 
 
+# Nomes de arquivo temporario que o DERVS cria. So estes sao varridos: nada
+# que o dono tenha posto na pasta temporaria por conta propria e tocado.
+_MEUS_AUDIOS = ("dervs_fala_", "dervs_rec.wav", "dervs_kokoro_", "dervs_voz_",
+                "dervs_piper_", "dervs_xtts_")
+
+
+def faxina_de_audio(pasta: str, idade_minima_seg: int = 3600) -> int:
+    """Apaga gravacao do DERVS esquecida na pasta temporaria. Devolve quantas.
+
+    Por que existe: cada frase captada vira um .wav ANTES de o porteiro decidir
+    se era com o DERVS. `descartar_wav` apaga as frases no caminho normal --
+    mas nao existia nada que limpasse o que sobra de uma QUEDA do app, e este
+    app ja caiu varias vezes. A pasta temporaria do Windows, ao contrario da do
+    Linux, nao se limpa sozinha no desligamento: sem isto, a voz do dono ficava
+    ali indefinidamente, ao alcance de qualquer programa que ele instale, de
+    qualquer backup e de qualquer suporte remoto.
+
+    `idade_minima_seg` protege o trabalho em andamento: so vai embora o que ja
+    esta parado ha uma hora. E nenhuma falha aqui pode derrubar a abertura do
+    app -- no Windows, apagar arquivo aberto por outro processo levanta erro, e
+    um erro na faxina deixaria o dono sem DERVS por causa de uma limpeza.
+    """
+    import os
+    import time
+
+    apagados = 0
+    limite = time.time() - idade_minima_seg
+    try:
+        nomes = os.listdir(pasta)
+    except OSError:
+        return 0
+    for nome in nomes:
+        if not nome.startswith(_MEUS_AUDIOS):
+            continue
+        caminho = os.path.join(pasta, nome)
+        try:
+            if os.path.getmtime(caminho) > limite:
+                continue
+            os.remove(caminho)
+            apagados += 1
+        except Exception:
+            continue        # travado por outro processo, ja sumiu, sem permissao
+    return apagados
+
+
+
 def _entradas_do_sistema() -> list:
     """Os microfones que o sistema enxerga, pelo nome. Isolada para o teste
     poder trocar por uma lista fixa -- sem isto nao da para testar a mensagem

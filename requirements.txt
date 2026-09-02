@@ -1,0 +1,44 @@
+# O que uma máquina limpa precisa instalar para o DERVS rodar no Windows.
+#
+# Até 02/09/2026 este arquivo não existia: a receita de montagem do ambiente
+# vivia só dentro do dervs-venv desta máquina, e a documentação chegava a dizer
+# "esse é caso de pedir ajuda". Uma máquina nova, ou esta depois de um
+# formatador, não teria como refazer o ambiente.
+#
+# Versões travadas de propósito, nas que estão rodando e provadas aqui em
+# 02/09/2026. Travar evita a surpresa de uma versão nova quebrar a voz ou o
+# microfone num dia em que o dono precisa do DERVS funcionando.
+#
+# COMO USAR, numa máquina limpa, dentro da pasta do projeto:
+#
+#     python -m venv dervs-venv
+#     dervs-venv\Scripts\python.exe -m pip install -r requirements.txt
+#     dervs-venv\Scripts\python.exe scripts\instalar_atalho.py
+#
+# O que fica de FORA daqui, de propósito:
+#   - kokoro-model/ (~350 MB), baixado à parte — ver COMO-USAR.md;
+#   - o Playwright e sua venv isolada (navegador autônomo), que hoje não têm
+#     instalador de Windows: a funcionalidade fica indisponível até alguém
+#     escrever um;
+#   - coqui-tts/torch (motor de voz XTTS), pesado e opcional — o motor padrão
+#     é o Kokoro.
+
+# --- a janela ---
+PyQt6==6.11.0
+
+# --- ouvir e falar ---
+sounddevice==0.5.6      # captura do microfone e reprodução (substituiu o arecord do Linux)
+soundfile==0.14.0       # leitura dos .wav que a voz gera
+numpy==2.5.2
+
+# --- transcrever ---
+# faster-whisper roda o PORTEIRO na máquina ("isso foi comigo?"), de graça.
+# A transcrição precisa vai para a OpenAI por urllib (biblioteca padrão do
+# Python) — não há dependência do pacote `openai` aqui, e isso é de propósito.
+faster-whisper==1.2.1
+
+# --- a voz do DERVS ---
+kokoro-onnx==0.6.1
+
+# --- testes ---
+pytest==9.1.1

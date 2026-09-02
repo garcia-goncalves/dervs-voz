@@ -23,7 +23,7 @@ anterior deixar passar. É isso que permite deixar ligado o dia inteiro.
 | 1 | Fim de fala (`Endpointer`, energia + histerese) | local | zero |
 | 2 | **Porteiro** — "foi comigo?" (`dervs_porteiro.py`, Whisper `tiny` com aviso de vocabulário) | **local** | **zero** |
 | 3 | Transcrição precisa — OpenAI `gpt-transcribe`. Reserva: Whisper local | nuvem | US$ 0,0045/min |
-| 4 | Cérebro — OpenAI `gpt-4.1-nano`. Reserva: Claude CLI | nuvem | barato |
+| 4 | Cérebro — OpenAI `gpt-4.1-mini`. Reserva: Claude CLI | nuvem | barato |
 | 5 | Voz — Kokoro, velocidade 1,2. Reserva: Piper | local | zero |
 
 **Nada sai da máquina antes do estágio 2 abrir**, e isso é travado por teste
@@ -45,7 +45,7 @@ No Windows, do diretório do projeto:
 dervs-venv\Scripts\python.exe dervs.py                      # abre o DERVS
 dervs-venv\Scripts\python.exe dervs_transcrever.py [audio]  # audio -> texto
 dervs-venv\Scripts\python.exe scripts\instalar_atalho.py    # icone + atalhos
-dervs-venv\Scripts\python.exe -m pytest -q                  # testes (416 verdes)
+dervs-venv\Scripts\python.exe -m pytest -q                  # testes (543 verdes)
 dervs-venv\Scripts\python.exe amostras_de_voz.py            # amostras das 3 vozes
 ```
 
