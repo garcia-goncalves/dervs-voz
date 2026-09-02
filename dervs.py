@@ -252,6 +252,18 @@ class Microfone:
     def __init__(self):
         self._stream = None      # caminho sounddevice
         self._proc = None        # caminho arecord (Linux, reserva)
+        # As duas travas abaixo sao o conserto da queda de 02/09/2026, a que o
+        # dono descreveu como "fecha sozinho quando eu aperto VOZ" e depois
+        # como "sumiu definitivamente". O registro de queda gravou o motivo
+        # exato: `Windows fatal exception: code 0xc0000374` (corrupcao de
+        # memoria) dentro de `sounddevice.close`. A tela, ao parar a escuta, e
+        # a propria thread de escuta, no `finally` do laco, fechavam o MESMO
+        # stream do PortAudio no mesmo instante. O `if self._stream is not
+        # None` nao protegia nada: as duas passavam por ele antes de qualquer
+        # uma zerar. Liberar duas vezes a mesma memoria mata o processo NA
+        # HORA, sem traceback -- o app some da tela sem deixar motivo.
+        self._posse = threading.Lock()       # quem tem o direito de fechar
+        self._em_leitura = threading.Lock()  # ha um `ler()` dentro do PortAudio
 
     def abrir(self):
         try:
@@ -280,18 +292,28 @@ class Microfone:
 
     def ler(self) -> bytes:
         """Um quadro de 30 ms, ou b'' se a fonte caiu (troca de dispositivo,
-        driver reiniciou, `parar()` foi chamado)."""
-        if self._stream is not None:
-            try:
-                dados, _estourou = self._stream.read(FRAME_AMOSTRAS)
-            except Exception:
-                return b""
-            quadro = bytes(dados)
-            return quadro if len(quadro) == FRAME_BYTES else b""
-        if self._proc is not None:
-            quadro = self._proc.stdout.read(FRAME_BYTES)
-            return quadro if quadro and len(quadro) == FRAME_BYTES else b""
-        return b""
+        driver reiniciou, `parar()` foi chamado).
+
+        Segura `_em_leitura` de ponta a ponta, e rele a fonte DENTRO da trava:
+        e isso que impede o `fechar()` de liberar o stream com uma leitura
+        ainda dentro do PortAudio. Se o `fechar()` passou primeiro, os dois
+        caminhos ja sao None e saimos por b'' -- que e como a thread de escuta
+        entende "a fonte caiu".
+        """
+        with self._em_leitura:
+            stream = self._stream
+            proc = self._proc
+            if stream is not None:
+                try:
+                    dados, _estourou = stream.read(FRAME_AMOSTRAS)
+                except Exception:
+                    return b""
+                quadro = bytes(dados)
+                return quadro if len(quadro) == FRAME_BYTES else b""
+            if proc is not None:
+                quadro = proc.stdout.read(FRAME_BYTES)
+                return quadro if quadro and len(quadro) == FRAME_BYTES else b""
+            return b""
 
     def motivo_da_queda(self) -> str:
         if self._proc is not None:
@@ -302,24 +324,41 @@ class Microfone:
         return ""
 
     def fechar(self):
-        """Fecha a fonte. Precisa destravar um `ler()` que esteja bloqueado
-        neste instante, senão a thread de escuta fica presa para sempre."""
-        if self._stream is not None:
+        """Fecha a fonte UMA vez so, venham os pedidos de quantas threads vierem.
+
+        Duas obrigacoes que puxam para lados opostos: precisa destravar um
+        `ler()` que esteja bloqueado neste instante (senao a thread de escuta
+        fica presa para sempre) e, ao mesmo tempo, nunca liberar o stream
+        enquanto esse `ler()` ainda esta dentro do PortAudio -- ler memoria ja
+        liberada mata o processo igual a liberar duas vezes.
+
+        A ordem resolve as duas: primeiro TOMAR a fonte para si (troca atomica
+        por None, sob trava: so uma thread sai daqui com ela na mao, as demais
+        levam None e nao fazem nada), depois `abort()` para o `ler()` preso
+        devolver o controle, depois esperar esse `ler()` sair de verdade, e so
+        entao `close()`. O `abort()` vem ANTES de pedir `_em_leitura`, senao as
+        duas travas se esperariam para sempre.
+        """
+        with self._posse:
+            stream, self._stream = self._stream, None
+            proc, self._proc = self._proc, None
+
+        if stream is not None:
             try:
-                self._stream.abort()
+                stream.abort()           # devolve o controle a um `ler()` preso
             except Exception:
                 pass
+            with self._em_leitura:       # espera o `ler()` em voo terminar
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        if proc is not None:
             try:
-                self._stream.close()
+                proc.terminate()         # destrava o `stdout.read()` do arecord
             except Exception:
                 pass
-            self._stream = None
-        if self._proc is not None:
-            try:
-                self._proc.terminate()
-            except Exception:
-                pass
-            self._proc = None
 
 
 class GravacaoManual(QtCore.QThread):
