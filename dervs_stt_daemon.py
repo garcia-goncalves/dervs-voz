@@ -169,8 +169,17 @@ def atender(linha: str, porteiro, transcrever_preciso) -> str:
         return "PORTEIRO " + json.dumps(
             {"acordou": bool(acordou), "texto": texto}, ensure_ascii=True)
 
-    # TRANSCREVER <caminho>, ou só o caminho cru (forma antiga do protocolo).
-    caminho = resto.strip() if verbo == "TRANSCREVER" else linha
+    # Porta que falha FECHADA. Antes, qualquer linha que não começasse com
+    # `PORTEIRO ` caía aqui e ia para a nuvem — inclusive um caminho cru
+    # (a forma antiga do protocolo), um verbo com erro de digitação ou uma
+    # linha de lixo. A promessa central do projeto (o porteiro decide NA
+    # MÁQUINA o que sai daqui) dependia de ninguém nunca errar uma palavra.
+    # Um deslize assim manda conversa de família para servidor de terceiro
+    # e ainda paga por isso. Achado na revisão de 02/09/2026.
+    if verbo != "TRANSCREVER":
+        return "ERRO verbo desconhecido: " + json.dumps(
+            verbo[:40], ensure_ascii=True)
+    caminho = resto.strip()
     try:
         texto = transcrever_preciso(caminho)
     except Exception as erro:  # nunca derruba o daemon por um áudio ruim

@@ -110,13 +110,24 @@ def _ydotoold():
 def nivel_do_plano(plano) -> str:
     """O maior risco entre todos os passos de um plano, decidido ANTES de rodar.
 
-    Serve para saber se a confirmação por voz basta. Passo de navegador ou de
-    enriquecimento não tem comando de terminal e conta como reversível, que é
-    como `_processar_passo` já os trata.
+    Serve para saber se a confirmação por VOZ basta — e voz não precisa de
+    ninguém presente: a TV ligada na sala serve.
+
+    Por isso o passo de NAVEGADOR não é mais reversível (achado em
+    02/09/2026): ele dirige o Chrome LOGADO do dono — e-mail, banco,
+    compras. "Reversível" quer dizer "só abre, lista, lê", e "entra no meu
+    e-mail e apaga a caixa de entrada" não é isso. Ele sobe para
+    `muda_estado`: um clique, sem cartão vermelho.
+
+    Enriquecimento continua reversível: é só fonte pública, não toca o alvo
+    e não age em nome do dono em lugar nenhum.
     """
     pior = "reversivel"
     for passo in plano or []:
-        if passo.get("tipo") in ("navegador", "enriquecer"):
+        if passo.get("tipo") == "navegador":
+            pior = seg._nivel_max(pior, "muda_estado")
+            continue
+        if passo.get("tipo") == "enriquecer":
             continue
         d = seg.decidir_risco(passo.get("comando", ""), passo.get("risco", "reversivel"))
         pior = seg._nivel_max(pior, d["nivel"])
@@ -870,7 +881,7 @@ class PopUp(QtWidgets.QWidget):
             self._recado_do_ouvido(motivo_do_silencio(), REC)
             return
         if self._stt_pronto:
-            self.stt.write((REC_WAV + "\n").encode())
+            self.stt.write(("TRANSCREVER " + REC_WAV + "\n").encode())
         else:
             self._pendente = REC_WAV
             self.status.setText("preparando o motor de voz… já transcrevo")
@@ -983,7 +994,7 @@ class PopUp(QtWidgets.QWidget):
                 self._stt_religando = False
                 self.status.setToolTip("")
                 if self._pendente:
-                    self.stt.write((self._pendente + "\n").encode())
+                    self.stt.write(("TRANSCREVER " + self._pendente + "\n").encode())
                     self._pendente = None
             elif s.startswith("PORTEIRO "):
                 # O porteiro decidiu, sem o áudio sair da máquina. Se não era
@@ -1281,6 +1292,16 @@ class PopUp(QtWidgets.QWidget):
         # inteiro já foi aprovado por ele). Despacha pro laço e conta como um
         # passo automático — não vira comando de terminal.
         if passo.get("tipo") == "navegador":
+            # A chave `navegador_ligado` existia na configuração, era
+            # validada e tinha teste — e NINGUÉM a lia. O interruptor não
+            # desligava nada. Mesmo defeito que a dica de vocabulário teve
+            # (chave que existe e ninguém usa). Achado em 02/09/2026.
+            if not cfg.carregar().get("navegador_ligado", True):
+                self._diz("dervs", "o navegador automático está desligado nas "
+                                   "configurações — pulei este passo", cor=REC)
+                self.passo_i += 1
+                self._processar_passo()
+                return
             self._auto_seguidos += 1
             objetivo = passo.get("objetivo", "") or passo.get("descricao", "")
             self._diz("dervs", f"abrindo o navegador e cuidando disso: {objetivo}", cor=GOLD)
@@ -1372,12 +1393,23 @@ class PopUp(QtWidgets.QWidget):
         d = getattr(self, "_risco_atual", None)
         if not d:
             return
+        # O comando é lido ANTES de decidir, e reclassificado sobre o texto
+        # FINAL. Antes, o risco vinha do comando proposto e o que rodava era
+        # o do campo editável: o dono corrigia a linha e ela rodava com as
+        # travas da linha anterior. A rede de segurança tem de ser a última a
+        # falar, não a primeira. Achado na revisão de 02/09/2026.
+        comando = self.b_cmd.text().strip()
+        d = seg.decidir_risco(comando, d.get("risco_claude", "reversivel"))
+        self._risco_atual = d
+        b_auth = getattr(self, "b_auth", None)
+        if d["precisa_autorizacao"] and b_auth is not None and not b_auth.isChecked():
+            self.b_confirmar.setEnabled(False)
+            return
         # trilho destrutivo: exige um segundo clique
         if d["dupla_confirmacao"] and not self._2conf:
             self._2conf = True
             self.b_confirmar.setText("Tem certeza? Clique de novo para rodar")
             return
-        comando = self.b_cmd.text().strip()  # pega o comando (talvez corrigido)
         # ferramenta longa/interativa ou que toca alvo → terminal visível
         terminal = d["toca_alvo"] or self.plano[self.passo_i].get("terminal", False)
         self.barra.hide()

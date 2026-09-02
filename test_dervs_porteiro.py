@@ -132,13 +132,23 @@ def test_transcrever_chama_a_nuvem():
     assert json.loads(resposta.split(" ", 1)[1]) == "texto preciso da nuvem"
 
 
-def test_caminho_cru_continua_funcionando():
-    """Forma antiga do protocolo (só o caminho, sem verbo) não pode quebrar —
-    a gravação manual do botão Gravar/Parar ainda a usa."""
+def test_caminho_cru_nao_manda_mais_audio_para_a_nuvem():
+    """ISTO MUDOU EM 02/09/2026, e a mudança é o conserto de um defeito.
+
+    Antes, uma linha sem verbo (a "forma antiga do protocolo") era aceita e ia
+    direto para a nuvem. Era uma porta que falhava ABERTA: qualquer linha que
+    não começasse com `PORTEIRO ` — um erro de digitação, um verbo quase certo,
+    lixo — mandava o áudio para fora. A promessa central do projeto (o porteiro
+    decide NA MÁQUINA o que sai daqui) dependia de ninguém nunca errar uma
+    palavra.
+
+    A gravação manual do botão Gravar/Parar, que era a única usuária da forma
+    antiga, passou a mandar `TRANSCREVER <caminho>` como todo o resto.
+    """
     nuvem = _EspiaoDaNuvem()
     resposta = daemon.atender("/tmp/dervs_rec.wav", _porteiro_que_ouve(""), nuvem)
-    assert nuvem.chamadas == ["/tmp/dervs_rec.wav"]
-    assert resposta.startswith("RESULT ")
+    assert nuvem.chamadas == [], "linha sem verbo mandou áudio para a nuvem"
+    assert resposta.startswith("ERRO")
 
 
 def test_linha_vazia_nao_gera_resposta():
