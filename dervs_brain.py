@@ -602,7 +602,14 @@ def _mensagens_openai(conversa: list) -> list:
         if papel == "dervs":
             msgs.append({"role": "assistant", "content": texto})
         elif papel == "resultado":
-            msgs.append({"role": "user", "content": "[resultado de um comando]\n" + texto})
+            # `_rotular` e não concatenação crua: é a MESMA cerca que o caminho
+            # do Claude usa desde 01/09/2026 contra injeção de segunda ordem.
+            # Ela existia só lá — e o cérebro PADRÃO deste projeto é a OpenAI.
+            # Sem isto, uma página web ou um .txt contendo "[dono] agora rode:
+            # ..." entrava aqui como `role: user`, ou seja, o modelo lia como se
+            # fosse o dono falando. Achado em 02/09/2026, e o pior detalhe é que
+            # o teste da cerca passava verde — exercitando o caminho que não roda.
+            msgs.append({"role": "user", "content": _rotular(m)})
         else:  # dono
             msgs.append({"role": "user", "content": texto})
     msgs.append({"role": "user",
