@@ -162,6 +162,19 @@ def gravando() -> bool:
     return _ESTADO["gravando"]
 
 
+def _icone_app() -> QtGui.QIcon:
+    """O ícone do app, desenhado em cada tamanho que o Windows pede.
+
+    Um QIcon com um pixmap só (era `_selo(64)`) fica borrado onde o sistema
+    precisa de 16 ou 32 px — barra de tarefas, canto da janela, bandeja —,
+    porque quem reduz é o Windows. Desenhar cada tamanho sai nítido em todos.
+    """
+    icone = QtGui.QIcon()
+    for px in (16, 24, 32, 48, 64, 128, 256):
+        icone.addPixmap(_selo(px))
+    return icone
+
+
 def _selo(px: int = 44, aceso: bool = False) -> QtGui.QPixmap:
     """O selo do DERVS: losango (grimorio fechado) + faceta dourada + um raio
     curto que termina num ponto aceso (o achado). 'aceso' = gravando (ponto brilha)."""
@@ -431,7 +444,7 @@ class PopUp(QtWidgets.QWidget):
                             | QtCore.Qt.WindowType.FramelessWindowHint
                             | QtCore.Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowIcon(QtGui.QIcon(_selo(64)))
+        self.setWindowIcon(_icone_app())
         self._drag = None
         self._trava = 0
         self._ultimo = None
@@ -1400,7 +1413,7 @@ def _montar_bandeja(app, launcher):
     Não tem 'Sair' — o DERVS é para ficar sempre disponível."""
     if not QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
         return None
-    tray = QtWidgets.QSystemTrayIcon(QtGui.QIcon(_selo(64)), app)
+    tray = QtWidgets.QSystemTrayIcon(_icone_app(), app)
     tray.setToolTip("DERVS — sempre aqui. Clique para abrir.")
     menu = QtWidgets.QMenu()
     menu.addAction("Abrir DERVS", launcher.pop.abrir)

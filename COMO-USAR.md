@@ -5,6 +5,37 @@ decorado; todos podem ser copiados inteiros.
 
 ---
 
+## Como abrir o DERVS
+
+**Dois cliques no ícone `DERVS`** — ele está na sua Área de Trabalho e também no
+menu Iniciar (aperte a tecla Windows e comece a digitar "DERVS").
+
+O ícone é o losango dourado com o ponto aceso, o mesmo selo que aparece dentro
+do app.
+
+Não abre janela preta de terminal junto: o atalho usa o `pythonw`, que é a
+versão do Python que roda sem console.
+
+**Se o atalho sumir** (acontece se a pasta do projeto for movida), ele é refeito
+rodando uma vez:
+
+```
+dervs-venv\Scripts\python.exe scripts\instalar_atalho.py
+```
+
+O que aparece quando dá certo:
+
+```
+ícone: ...\dervs-voz\dervs.ico
+atalho: ...\Desktop\DERVS.lnk
+atalho: ...\Start Menu\Programs\DERVS.lnk
+```
+
+Se disser `não achei ... pythonw.exe`, o ambiente do projeto não está montado —
+esse é caso de pedir ajuda, não de insistir.
+
+---
+
 ## O que ele faz, em uma frase
 
 Fica ouvindo a sala. Quando você diz **"DERVS"** (ou "OK DERVS", ou "Ei DERVS"),
