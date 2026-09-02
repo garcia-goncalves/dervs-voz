@@ -56,17 +56,18 @@ def _ler_config():
 
 
 def _carregar_chave_openai():
-    v = os.environ.get("OPENAI_API_KEY")
-    if v:
-        return v.strip()
+    """Delega para `dervs_config.segredo`, que procura nos dois sistemas.
+
+    Estava duplicado aqui e em mais dois arquivos, cada cópia olhando só o
+    caminho do Linux — por isso a chave não era encontrada no Windows.
+    Nunca registra o valor em log.
+    """
     try:
-        for linha in open(os.path.expanduser("~/voice/.env"), encoding="utf-8"):
-            linha = linha.strip()
-            if linha.startswith("OPENAI_API_KEY="):
-                return linha.split("=", 1)[1].strip().strip('"').strip("'")
-    except OSError:
-        pass
-    return None
+        import dervs_config as _cfg
+        return _cfg.segredo("OPENAI_API_KEY")
+    except Exception:
+        v = os.environ.get("OPENAI_API_KEY")
+        return v.strip() if v else None
 
 
 _conf = _ler_config()

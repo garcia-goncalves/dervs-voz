@@ -50,19 +50,14 @@ def _ler_config() -> dict:
 
 
 def _carregar_chave_openai() -> str | None:
-    """Lê OPENAI_API_KEY do ambiente ou de ~/voice/.env. Nunca loga o valor."""
-    v = os.environ.get("OPENAI_API_KEY")
-    if v:
-        return v.strip()
-    caminho = os.path.expanduser("~/voice/.env")
+    """Delega para `dervs_config.segredo`, que procura nos dois sistemas.
+    Nunca loga o valor."""
     try:
-        for linha in open(caminho, encoding="utf-8"):
-            linha = linha.strip()
-            if linha.startswith("OPENAI_API_KEY="):
-                return linha.split("=", 1)[1].strip().strip('"').strip("'")
-    except OSError:
-        pass
-    return None
+        import dervs_config as _cfg
+        return _cfg.segredo("OPENAI_API_KEY")
+    except Exception:
+        v = os.environ.get("OPENAI_API_KEY")
+        return v.strip() if v else None
 
 
 _conf = _ler_config()

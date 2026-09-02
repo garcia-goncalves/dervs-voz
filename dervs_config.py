@@ -27,6 +27,41 @@ def _resolver_config_dir() -> str:
 CONFIG_DIR = _resolver_config_dir()
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
+
+def caminhos_do_segredo():
+    """Onde o arquivo de segredos pode morar, na ordem em que é procurado.
+
+    O primeiro é ao lado da configuração — `%APPDATA%\\dervs` no Windows,
+    `~/.config/dervs` no Linux. O segundo é `~/voice/.env`, que é onde o
+    projeto irmão do Linux guarda, mantido para quem vier de lá.
+    """
+    return [os.path.join(CONFIG_DIR, ".env"),
+            os.path.expanduser("~/voice/.env")]
+
+
+def segredo(nome: str):
+    """Devolve o valor de um segredo (ambiente primeiro, depois arquivo).
+
+    Estava duplicado em três arquivos, cada um só olhando o caminho do Linux —
+    por isso o DERVS não achava a chave no Windows. Agora existe um lugar só.
+
+    NUNCA registre o retorno em log, mensagem de erro ou commit. Quem chama
+    recebe o valor e é responsável por não deixá-lo escapar.
+    """
+    do_ambiente = os.environ.get(nome)
+    if do_ambiente:
+        return do_ambiente.strip()
+    for caminho in caminhos_do_segredo():
+        try:
+            with open(caminho, encoding="utf-8") as f:
+                for linha in f:
+                    linha = linha.strip()
+                    if linha.startswith(nome + "="):
+                        return linha.split("=", 1)[1].strip().strip('"').strip("'")
+        except OSError:
+            continue
+    return None
+
 # Valores de fábrica. Editar o config.json sobrescreve só o que você mudar.
 PADRAO = {
     # Segundos que o DERVS segue ouvindo depois de te atender, SEM você
