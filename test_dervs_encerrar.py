@@ -18,9 +18,15 @@ Duas correções, e a segunda é a que importa: usar o método que existe
 (`parar()`), e tornar cada passo do fechamento independente dos outros, para
 que o próximo defeito nesta lista custe UM passo, e não todos.
 """
-import threading
-
 import pytest
+
+# Este arquivo testa o fechamento do app, que é Qt de verdade: importar
+# `dervs` puxa PyQt6. Sem o `importorskip` abaixo, um Python sem PyQt6
+# falha na COLETA -- e erro de coleta interrompe a suíte INTEIRA,
+# escondendo os outros 370+ testes que nada têm com Qt. Pular um arquivo
+# é ruim; esconder todos é muito pior. No ambiente do projeto
+# (dervs-venv), onde o app de fato roda, este arquivo roda normalmente.
+pytest.importorskip("PyQt6", reason="o fechamento do app é Qt; rode no dervs-venv")
 
 import dervs
 

@@ -24,7 +24,7 @@ import threading
 
 import pytest
 
-import dervs
+import dervs_listen
 
 
 class StreamDeMentira:
@@ -71,7 +71,7 @@ class StreamDeMentira:
 
 
 def _microfone_com(stream):
-    mic = dervs.Microfone()
+    mic = dervs_listen.Microfone()
     mic._stream = stream
     return mic
 
@@ -161,7 +161,7 @@ def test_ler_depois_de_fechar_devolve_vazio_e_nao_explode():
 
 def test_fechar_sem_nunca_ter_aberto_e_inofensivo():
     """`parar()` pode chegar antes de `abrir()`; não pode explodir por isso."""
-    dervs.Microfone().fechar()
+    dervs_listen.Microfone().fechar()
 
 
 class ProcDeMentira:
@@ -177,7 +177,7 @@ class ProcDeMentira:
 
 
 def test_o_caminho_arecord_tambem_so_e_encerrado_uma_vez():
-    mic = dervs.Microfone()
+    mic = dervs_listen.Microfone()
     proc = ProcDeMentira()
     mic._proc = proc
 

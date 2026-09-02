@@ -33,8 +33,9 @@ import dervs_config as cfg
 import dervs_instancia as instancia
 import dervs_registro as registro
 from dervs_tts import Voz
-from dervs_listen import (Endpointer, salvar_wav, separar_chamada,
-                          FRAME_BYTES, FRAME_AMOSTRAS, TAXA)
+from dervs_listen import (Endpointer, Microfone, salvar_wav,
+                          separar_chamada, FRAME_BYTES,
+                          FRAME_AMOSTRAS, TAXA)
 
 HOME = os.path.expanduser("~")
 AQUI = os.path.dirname(os.path.abspath(__file__))
@@ -238,127 +239,11 @@ class Tarefa(QtCore.QThread):
             self.erro.emit(str(e))
 
 
-class Microfone:
-    """De onde vêm os quadros de 30 ms de som. Esconde a diferença entre os
-    sistemas, para a thread de escuta não precisar saber em qual está.
-
-    Windows não tem `arecord` (utilitário do ALSA, que é do Linux), então a
-    fonte padrão passou a ser a biblioteca `sounddevice`, que fala direto com o
-    driver de áudio do sistema e funciona nos dois. O `arecord` fica só como
-    reserva para uma máquina Linux que não tenha `sounddevice` instalado — é
-    como o projeto nasceu e não custa nada manter.
-    """
-
-    def __init__(self):
-        self._stream = None      # caminho sounddevice
-        self._proc = None        # caminho arecord (Linux, reserva)
-        # As duas travas abaixo sao o conserto da queda de 02/09/2026, a que o
-        # dono descreveu como "fecha sozinho quando eu aperto VOZ" e depois
-        # como "sumiu definitivamente". O registro de queda gravou o motivo
-        # exato: `Windows fatal exception: code 0xc0000374` (corrupcao de
-        # memoria) dentro de `sounddevice.close`. A tela, ao parar a escuta, e
-        # a propria thread de escuta, no `finally` do laco, fechavam o MESMO
-        # stream do PortAudio no mesmo instante. O `if self._stream is not
-        # None` nao protegia nada: as duas passavam por ele antes de qualquer
-        # uma zerar. Liberar duas vezes a mesma memoria mata o processo NA
-        # HORA, sem traceback -- o app some da tela sem deixar motivo.
-        self._posse = threading.Lock()       # quem tem o direito de fechar
-        self._em_leitura = threading.Lock()  # ha um `ler()` dentro do PortAudio
-
-    def abrir(self):
-        try:
-            import sounddevice as sd
-        except Exception:
-            sd = None
-
-        if sd is not None:
-            # dtype int16 e 1 canal a 16 kHz: exatamente o que o Endpointer e o
-            # Whisper esperam, sem conversão no meio do caminho.
-            self._stream = sd.RawInputStream(
-                samplerate=TAXA, blocksize=FRAME_AMOSTRAS,
-                dtype="int16", channels=1, latency="low")
-            self._stream.start()
-            return
-
-        if WINDOWS:
-            raise RuntimeError(
-                "não achei a biblioteca sounddevice, que é como eu ouço o "
-                "microfone no Windows. Instale com: "
-                "dervs-venv\\Scripts\\python.exe -m pip install sounddevice")
-
-        self._proc = subprocess.Popen(
-            ["arecord", "-q", "-f", "S16_LE", "-r", str(TAXA), "-c", "1", "-t", "raw"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    def ler(self) -> bytes:
-        """Um quadro de 30 ms, ou b'' se a fonte caiu (troca de dispositivo,
-        driver reiniciou, `parar()` foi chamado).
-
-        Segura `_em_leitura` de ponta a ponta, e rele a fonte DENTRO da trava:
-        e isso que impede o `fechar()` de liberar o stream com uma leitura
-        ainda dentro do PortAudio. Se o `fechar()` passou primeiro, os dois
-        caminhos ja sao None e saimos por b'' -- que e como a thread de escuta
-        entende "a fonte caiu".
-        """
-        with self._em_leitura:
-            stream = self._stream
-            proc = self._proc
-            if stream is not None:
-                try:
-                    dados, _estourou = stream.read(FRAME_AMOSTRAS)
-                except Exception:
-                    return b""
-                quadro = bytes(dados)
-                return quadro if len(quadro) == FRAME_BYTES else b""
-            if proc is not None:
-                quadro = proc.stdout.read(FRAME_BYTES)
-                return quadro if quadro and len(quadro) == FRAME_BYTES else b""
-            return b""
-
-    def motivo_da_queda(self) -> str:
-        if self._proc is not None:
-            try:
-                return (self._proc.stderr.read() or b"").decode("utf-8", "replace").strip()[:200]
-            except Exception:
-                pass
-        return ""
-
-    def fechar(self):
-        """Fecha a fonte UMA vez so, venham os pedidos de quantas threads vierem.
-
-        Duas obrigacoes que puxam para lados opostos: precisa destravar um
-        `ler()` que esteja bloqueado neste instante (senao a thread de escuta
-        fica presa para sempre) e, ao mesmo tempo, nunca liberar o stream
-        enquanto esse `ler()` ainda esta dentro do PortAudio -- ler memoria ja
-        liberada mata o processo igual a liberar duas vezes.
-
-        A ordem resolve as duas: primeiro TOMAR a fonte para si (troca atomica
-        por None, sob trava: so uma thread sai daqui com ela na mao, as demais
-        levam None e nao fazem nada), depois `abort()` para o `ler()` preso
-        devolver o controle, depois esperar esse `ler()` sair de verdade, e so
-        entao `close()`. O `abort()` vem ANTES de pedir `_em_leitura`, senao as
-        duas travas se esperariam para sempre.
-        """
-        with self._posse:
-            stream, self._stream = self._stream, None
-            proc, self._proc = self._proc, None
-
-        if stream is not None:
-            try:
-                stream.abort()           # devolve o controle a um `ler()` preso
-            except Exception:
-                pass
-            with self._em_leitura:       # espera o `ler()` em voo terminar
-                try:
-                    stream.close()
-                except Exception:
-                    pass
-
-        if proc is not None:
-            try:
-                proc.terminate()         # destrava o `stdout.read()` do arecord
-            except Exception:
-                pass
+# A classe `Microfone` mora em `dervs_listen.py`, importada no topo deste
+# arquivo. Ela nao usa Qt em nada, e enquanto morava aqui era impossivel
+# testa-la sem PyQt6 instalado -- num Python sem PyQt6 o pytest nem COLETA
+# o arquivo de teste, e um erro de coleta interrompe a suite INTEIRA,
+# escondendo todos os outros testes. Ver test_dervs_microfone.py.
 
 
 class GravacaoManual(QtCore.QThread):
