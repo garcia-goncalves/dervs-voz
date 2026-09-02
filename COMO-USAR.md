@@ -36,6 +36,40 @@ esse é caso de pedir ajuda, não de insistir.
 
 ---
 
+## Como FECHAR o DERVS
+
+Clique com o **botão direito** no ícone do DERVS na bandeja (o cantinho ao lado
+do relógio, na barra de tarefas — talvez seja preciso clicar na setinha `^` para
+ver os ícones escondidos) e escolha **Sair do DERVS**.
+
+Até 02/09/2026 **não havia como fechar**, de propósito: a ideia era ele ficar
+sempre disponível. Na prática isso deu errado — veja a seção abaixo.
+
+## Cliquei no ícone e "abriu outro DERVS"
+
+Não abre mais. **Clicar no ícone com o DERVS já aberto agora TRAZ o que está
+aberto de volta para a frente**, em vez de subir mais um.
+
+Antes de 02/09/2026, cada clique abria um DERVS novo e o antigo continuava vivo,
+invisível, disputando o seu microfone — e, sem "Sair", não havia como fechar
+nenhum. Depois de alguns cliques a máquina ficava com vários empilhados e o app
+parecia "bugado" ou "sumido". Era exatamente isso.
+
+## O selo sumiu da tela
+
+O selo (o losango dourado) fica no **rodapé do meio da tela**, logo acima da
+barra de tarefas. Como ele é pequeno e escuro, no Windows 11 ele fica bem em
+cima dos ícones da barra — dá para não notar.
+
+Se não achar, duas saídas:
+
+1. **Dê dois cliques no ícone DERVS de novo.** Ele traz o selo de volta ao lugar
+   de origem, na frente de tudo.
+2. **Botão direito no ícone da bandeja → "Trazer o selo de volta".**
+
+Ele também **não sai mais da tela quando você arrasta**: antes dava para
+arrastá-lo até fora da área visível e ele sumia de vez.
+
 ## Transcrever um áudio seu (reunião, WhatsApp, entrevista)
 
 **Dois cliques em `DERVS - Transcrever audio`**, na Área de Trabalho. Abre o
@@ -267,5 +301,8 @@ chave, se você não tiver uma.
 | Ele acorda sozinho, sem eu chamar | Me avise. É o mesmo caminho do item acima. |
 | Ele não fala nada | O motor de voz precisa dos modelos em `%LOCALAPPDATA%\dervs\modelos`. Se a pasta sumiu, me avise que eu baixo de novo. |
 | A janela não abre | Me avise, e diga se apareceu alguma mensagem na tela. |
+| Aperto Gravar e **nada acontece** | Olhe a palavrinha ao lado do nome DERVS, no alto do pop-up. Se disser "não estou conseguindo ouvir", o motor de voz caiu — me avise. Antes de 02/09/2026 ele dizia "pronto" mesmo surdo, e você não tinha como saber. |
+| "o ouvido caiu — levantando de novo" | É normal e se resolve sozinho: ele tenta duas vezes. Só me avise se virar "não estou conseguindo ouvir". |
+| Parece que tem mais de um DERVS aberto | Não tem mais como acontecer. Se acontecer, me avise — é um defeito novo. |
 | Ele pede confirmação demais | Me avise. A rede de segurança prefere perguntar a mais que a menos, mas se estiver incomodando dá para afinar. |
 | "não achei a biblioteca sounddevice" | Faltou instalar. Me avise que eu instalo. |

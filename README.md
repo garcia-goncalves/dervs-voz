@@ -113,7 +113,53 @@ Novidades: `dervs_transcrever.py` (arquivo de áudio → texto, com corte e emen
 para reunião longa), ícone e atalhos, e `dervs_config.gravar()` para o app
 guardar escolha feita na tela.
 
-**331 testes passam, zero falham.**
+**347 testes passam, zero falham.**
+
+## O "o DERVS sumiu / bugou" — investigado em 02/09/2026
+
+Relato do dono, sem mais detalhe. **Os 331 testes passavam e o app subia sem
+erro.** O defeito estava fora do alcance de todos eles. Achado medindo o app de
+verdade, pelo caminho do atalho:
+
+| Defeito | Como foi confirmado | Efeito para o dono |
+|---|---|---|
+| **Sem trava de instância única** | abrir pelo atalho 2× → de 2 processos para 4 | cada clique no ícone subia MAIS um DERVS; os antigos ficavam vivos e invisíveis, disputando o microfone, empilhados no mesmo pixel |
+| **Bandeja sem "Sair"** | lído no código, era intencional | somado ao de cima: nenhum jeito de fechar sem o Gerenciador de Tarefas, que o dono não usa. O app piorava a cada uso, para sempre |
+| **Morte do daemon de STT não era escutada** | `finished`/`errorOccurred`/`stderr`: zero ocorrências no arquivo | daemon morto = `_stt_pronto` False para sempre = o botão Gravar deixava de fazer **qualquer** coisa, em silêncio. DERVS surdo e calado |
+| **`atualizar()` mentia** | sonda com o daemon quebrado de propósito: o status voltava a "pronto" em 3 s | o timer de 500 ms reescrevia "pronto" por cima de tudo — inclusive com o ouvido morto |
+| **Selo arrastável para fora da tela** | `mouseMoveEvent` sem limite de `availableGeometry` | arrastar até a borda sumia com o selo, sem volta |
+
+**Conserto**, com prova pelo caminho de produção:
+
+- `dervs_instancia.py` (novo, 9 testes): UM DERVS só. Quem abre primeiro reserva
+  uma porta em `127.0.0.1` e anota porta + senha sorteada em
+  `%APPDATA%\dervs\instancia.json`; quem abrir depois manda `MOSTRAR <senha>`,
+  o primeiro pula na frente, e o segundo encerra. Medido: 3 cliques no atalho =
+  1 DERVS.
+- `finished`, `errorOccurred` e `readyReadStandardError` ligados no daemon de
+  STT, com 2 tentativas de religar e vigia de 90 s. Medido com o daemon
+  quebrado de propósito: a tela passa a dizer "não estou conseguindo ouvir — o
+  motor de voz não sobe", e o recado **fica** (motivo real no tooltip). Com o
+  daemon inteiro, chega em "pronto" em menos de 2 s, sem alarme falso.
+- Bandeja com **"Sair do DERVS"** e **"Trazer o selo de volta"**; arrasto do
+  selo limitado à tela.
+
+**A revisão pegou dois bloqueantes no próprio conserto**, ambos reproduzidos e
+corrigidos: (1) `QTimer.singleShot` chamado da thread do socket nunca dispara —
+o segundo clique encerrava o processo novo e a janela **não** aparecia, pior que
+o defeito original; agora a travessia é por sinal do Qt (`Ponte`), medido em
+2,01 s. (2) procurar `OK` solto na resposta deixava qualquer servidor local que
+responda `HTTP/1.1 200 OK` numa porta reciclada impedir o DERVS de abrir para
+sempre; agora a resposta tem de ser exatamente `DERVS-OK`, e o registro só vale
+se o processo dono ainda estiver vivo. Mais: uma queda avisava duas vezes e
+gastava as duas tentativas de uma só; o vigia de 90 s não era rearmado; o selo
+não ia mais para um segundo monitor; a gravação pendente era descartada calada;
+e falha de reserva por motivo de máquina agora deixa o app abrir SEM trava, em
+vez de recusar-se a abrir.
+
+**Medido e descartado:** processo órfão. Matando só o DERVS principal, os
+filhos (`dervs_stt_daemon` 130 MB, `dervs_kokoro_daemon` 395 MB) morrem junto —
+0 órfãos.
 
 **Falta:**
 

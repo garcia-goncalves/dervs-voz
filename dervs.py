@@ -30,6 +30,7 @@ import dervs_browser as navegador
 import dervs_enrich as enriquecimento
 import dervs_atalhos as atalhos
 import dervs_config as cfg
+import dervs_instancia as instancia
 from dervs_tts import Voz
 from dervs_listen import (Endpointer, salvar_wav, separar_chamada,
                           FRAME_BYTES, FRAME_AMOSTRAS, TAXA)
@@ -64,6 +65,11 @@ def _python_do_ouvido() -> str:
 STT_PY    = _python_do_ouvido()
 STT_DMN   = os.path.join(AQUI, "dervs_stt_daemon.py")   # fica ao lado deste arquivo
 REC_WAV   = os.path.join(TMP, "dervs_rec.wav")   # gravação manual, antes de transcrever
+# Quantas vezes tentar levantar o motor de voz se ele cair, e quanto esperar
+# pelo "pronto" antes de avisar o dono. A primeira partida carrega o Whisper
+# do disco e pode demorar: 90 s é folgado de propósito, para não gritar à toa.
+STT_TENTATIVAS = 2
+STT_ESPERA_SEG = 90
 
 # --- paleta Grimorio Arcano (valores do globals.css do produto) ---
 INK      = "#07080e"   # fundo mais fundo
@@ -495,10 +501,25 @@ class PopUp(QtWidgets.QWidget):
         self._pendente = None
         self.rec = None
         self._rec_enviado = True       # nada gravado ainda para mandar
+        self._stt_erro_texto = ""       # última reclamação do motor, para o aviso
+        self._stt_recado = None         # o que a tela diz sobre o ouvido, e a cor
+        self._stt_tentativas = 0
+        self._stt_religando = False     # já há uma religada marcada
+        self._stt_encerrando = False    # True quando o app está fechando de propósito
         self.stt = QtCore.QProcess(self)
         self.stt.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.SeparateChannels)
         self.stt.readyReadStandardOutput.connect(self._stt_saida)
+        # O ouvido roda num processo separado. Até 02/09/2026 só a saída de
+        # SUCESSO dele era escutada: se ele morresse na partida, `_stt_pronto`
+        # ficava False para sempre e o botão Gravar deixava de fazer QUALQUER
+        # coisa, sem uma linha na tela. O DERVS ficava surdo e calado — parte
+        # do 'sumiu / bugou' que o dono relatou.
+        self.stt.readyReadStandardError.connect(self._stt_reclamou)
+        self.stt.finished.connect(self._stt_caiu)
+        self.stt.errorOccurred.connect(self._stt_caiu)
         self.stt.start(STT_PY, [STT_DMN])
+        # E se ele nem morrer nem ficar pronto? Também deixava o dono no escuro.
+        QtCore.QTimer.singleShot(STT_ESPERA_SEG * 1000, self._conferir_ouvido)
 
         # Sobe o cérebro adiantado, junto com o Whisper. MEDIDO: o 1º turno depois
         # de subir custa ~10 s (paga a partida do CLI uma vez) e os seguintes ~2,7 s.
@@ -887,6 +908,84 @@ class PopUp(QtWidgets.QWidget):
             self._pendente = REC_WAV
             self.status.setText("preparando o motor de voz… já transcrevo")
 
+    def _recado_do_ouvido(self, texto, cor):
+        """Fixa um recado sobre o ouvido — e ele SOBREVIVE ao relógio da tela.
+
+        Sem isto o aviso durava meio segundo: `atualizar()` reescrevia 'pronto'
+        duas vezes por segundo, por cima de tudo."""
+        self._stt_recado = (texto, cor)
+        self.status.setText(texto)
+        self.status.setStyleSheet(f"color:{cor};")
+
+    def _status_parado(self):
+        """O que a tela mostra quando NÃO está gravando.
+
+        Isto era um 'pronto' fixo, escrito duas vezes por segundo — inclusive
+        com o ouvido morto. O DERVS afirmava estar pronto estando SURDO, e o
+        dono só descobria apertando Gravar e nada acontecendo. Achado na
+        investigação do 'o DERVS sumiu', 02/09/2026."""
+        if self._stt_recado is not None:
+            texto, cor = self._stt_recado
+        elif not self._stt_pronto:
+            texto, cor = "preparando o ouvido…", PARCH_DIM
+        else:
+            texto, cor = "pronto", PARCH_DIM
+        if self.status.text() != texto:
+            self.status.setText(texto)
+            self.status.setStyleSheet(f"color:{cor};")
+
+    def _stt_reclamou(self):
+        """Guarda o que o motor de voz reclamou. Antes ninguém lia esse canal:
+        o motivo real da surdez ia para o nada."""
+        texto = bytes(self.stt.readAllStandardError()).decode("utf-8", "replace").strip()
+        if texto:
+            self._stt_erro_texto = texto.splitlines()[-1][:200]
+
+    def _stt_caiu(self, *_):
+        """O motor de voz morreu ou nem conseguiu subir. Avisa na tela e tenta
+        levantar de novo — em vez de deixar o DERVS surdo em silêncio."""
+        if self._stt_encerrando or self._stt_religando:
+            # Uma queda faz o Qt avisar DUAS vezes (errorOccurred e finished).
+            # Sem esta guarda, uma única morte gastava as duas tentativas de
+            # uma vez e o dono via 'levantando (2 de 2)' já na primeira queda.
+            return
+        self._stt_pronto = False
+        self._transcrevendo = False
+        # A gravação que estava esperando o motor (`_pendente`) NÃO é jogada
+        # fora: se a religada der certo, ela é enviada no READY. Descartá-la em
+        # silêncio perderia o que o dono acabou de falar.
+        if self._stt_tentativas < STT_TENTATIVAS:
+            self._stt_tentativas += 1
+            self._stt_religando = True
+            self._recado_do_ouvido("o ouvido caiu — levantando de novo (%d de %d)…"
+                                   % (self._stt_tentativas, STT_TENTATIVAS), GOLD)
+            QtCore.QTimer.singleShot(1500, self._levantar_ouvido)
+            return
+        self._recado_do_ouvido(
+            "não estou conseguindo ouvir — o motor de voz não sobe", REC)
+        self.status.setToolTip(self._stt_erro_texto or
+                               "o motor encerrou sem dizer o motivo")
+
+    def _levantar_ouvido(self):
+        self._stt_religando = False
+        if self._stt_encerrando:
+            return
+        self.stt.start(STT_PY, [STT_DMN])
+        # Rearma o vigia: sem isto, um motor que religa e fica PENDURADO (nem
+        # morre nem fica pronto) deixava a tela congelada em 'levantando de
+        # novo' para sempre, e Gravar voltava a não fazer nada sem novo aviso.
+        QtCore.QTimer.singleShot(STT_ESPERA_SEG * 1000, self._conferir_ouvido)
+
+    def _conferir_ouvido(self):
+        """Passou o tempo de folga e o motor não disse 'pronto' nem morreu:
+        está pendurado. O dono precisa saber, em vez de apertar Gravar e nada
+        acontecer para sempre."""
+        if self._stt_pronto or self._stt_encerrando:
+            return
+        if self.stt.state() == QtCore.QProcess.ProcessState.NotRunning:
+            return                      # já morreu: _stt_caiu cuidou do aviso
+        self._recado_do_ouvido("o ouvido está demorando demais para ficar pronto", REC)
+
     def _stt_saida(self):
         self._stt_buf += bytes(self.stt.readAllStandardOutput())
         while b"\n" in self._stt_buf:
@@ -894,6 +993,10 @@ class PopUp(QtWidgets.QWidget):
             s = linha.decode("utf-8", "replace").strip()
             if s == "READY":
                 self._stt_pronto = True
+                self._stt_recado = None      # o ouvido voltou: o aviso sai
+                self._stt_tentativas = 0
+                self._stt_religando = False
+                self.status.setToolTip("")
                 if self._pendente:
                     self.stt.write((self._pendente + "\n").encode())
                     self._pendente = None
@@ -976,8 +1079,7 @@ class PopUp(QtWidgets.QWidget):
         else:
             self.b_grav.setText("▶  Gravar")
             self.b_grav.setStyleSheet("")
-            self.status.setText("pronto")
-            self.status.setStyleSheet(f"color:{PARCH_DIM};")
+            self._status_parado()
 
     # ---- copiar / enviar / limpar ----
     def _toast(self, txt):
@@ -1369,6 +1471,19 @@ class PopUp(QtWidgets.QWidget):
         e.ignore(); self.hide()
 
 
+class Ponte(QtCore.QObject):
+    """Leva o “me chamaram” da thread do socket para a thread da TELA.
+
+    Sem isto o segundo clique no ícone não fazia nada: `QTimer.singleShot`
+    chamado de uma thread comum cria o relógio NESSA thread, que não tem laço
+    de eventos do Qt — e ele nunca dispara. Passar um objeto de contexto
+    também não resolve (medido em 02/09/2026: continuou não disparando).
+    Sinal do Qt atravessa a fronteira de thread sozinho, e este é o caminho
+    que a própria documentação do Qt indica.
+    """
+    chegou = QtCore.pyqtSignal()
+
+
 class Launcher(QtWidgets.QWidget):
     """Selo pequeno sempre-no-topo, embaixo da tela. Clique abre o pop-up."""
     def __init__(self):
@@ -1392,6 +1507,28 @@ class Launcher(QtWidgets.QWidget):
     def _pos_canto(self):
         tela = QtWidgets.QApplication.primaryScreen().availableGeometry()
         self.move(tela.center().x()-self.width()//2, tela.bottom()-self.height()-16)
+
+    def _dentro_da_tela(self, ponto):
+        """Impede o selo de ser arrastado para FORA da tela.
+
+        Sem isto, um arrasto até a borda levava o selo para a área invisível e
+        não havia como trazê-lo de volta — parte do 'o DERVS sumiu' relatado
+        pelo dono em 02/09/2026."""
+        # A tela SOB o ponto, não a principal: prender à principal impediria o
+        # selo de ir para um segundo monitor, tirando algo que funcionava.
+        alvo = QtWidgets.QApplication.screenAt(ponto)
+        tela = (alvo or QtWidgets.QApplication.primaryScreen()).availableGeometry()
+        x = min(max(ponto.x(), tela.left()), tela.right() - self.width() + 1)
+        y = min(max(ponto.y(), tela.top()), tela.bottom() - self.height() + 1)
+        return QtCore.QPoint(x, y)
+
+    def aparecer(self):
+        """Traz o selo de volta ao lugar de sempre, à vista e por cima de tudo.
+
+        Roda quando o dono clica no ícone com o DERVS JÁ aberto, e no item
+        'Trazer o selo de volta' da bandeja."""
+        self._pos_canto()
+        self.show(); self.raise_(); self.activateWindow()
 
     def paintEvent(self, _):
         p = QtGui.QPainter(self); p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
@@ -1419,7 +1556,7 @@ class Launcher(QtWidgets.QWidget):
             novo = e.globalPosition().toPoint() - self._press
             if (e.globalPosition().toPoint() - (self.frameGeometry().topLeft()+self._press)).manhattanLength() > 6:
                 self._arrastou = True
-            self.move(novo)
+            self.move(self._dentro_da_tela(novo))
     def mouseReleaseEvent(self, e):
         if self._press is not None and not self._arrastou:
             self.toggle_pop()
@@ -1429,14 +1566,20 @@ class Launcher(QtWidgets.QWidget):
 def _montar_bandeja(app, launcher):
     """Ícone permanente na bandeja do sistema (a 'barra de tarefas'). Garante que
     o DERVS está sempre ao alcance, mesmo que o selo flutuante saia da vista.
-    Não tem 'Sair' — o DERVS é para ficar sempre disponível."""
+    TEM 'Sair'. Até 02/09/2026 não tinha, de propósito — e o resultado foi que
+    o dono não tinha NENHUM jeito de fechar o app sem o Gerenciador de Tarefas,
+    que ele não usa. Somado à falta de trava de instância única, os DERVS iam se
+    acumulando vivos e invisíveis a cada clique no ícone."""
     if not QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
         return None
     tray = QtWidgets.QSystemTrayIcon(_icone_app(), app)
     tray.setToolTip("DERVS — sempre aqui. Clique para abrir.")
     menu = QtWidgets.QMenu()
     menu.addAction("Abrir DERVS", launcher.pop.abrir)
+    menu.addAction("Trazer o selo de volta", launcher.aparecer)
     menu.addAction("Recolher janela", launcher.pop.hide)
+    menu.addSeparator()
+    menu.addAction("Sair do DERVS", app.quit)
     tray.setContextMenu(menu)
     def _clique(motivo):
         if motivo == QtWidgets.QSystemTrayIcon.ActivationReason.Trigger:
@@ -1448,12 +1591,38 @@ def _montar_bandeja(app, launcher):
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    # UM DERVS só. Até 02/09/2026 cada clique no ícone abria mais um, empilhado
+    # exatamente no mesmo ponto da tela e disputando o microfone — o de cima
+    # comia o clique do de baixo, e sem 'Sair' na bandeja não havia como fechar
+    # nenhum. Era o 'o DERVS sumiu / bugou' do dono. Agora o segundo clique TRAZ
+    # de volta o que já está aberto e encerra sem subir. Ver dervs_instancia.py.
+    _mostrar = []
+
+    def _me_chamaram():
+        # Roda numa thread de fundo. Mexer em janela daqui é proibido: quem
+        # atravessa é o sinal da Ponte, ligado lá embaixo. Ver a Ponte para o
+        # porquê de não ser um QTimer.
+        if _mostrar:
+            _mostrar[0]()
+
+    posse = instancia.tomar_posse(_me_chamaram)
+    if posse is None:
+        sys.exit(0)          # o que já estava aberto acabou de pular na frente
+
     app = QtWidgets.QApplication([])
     app.setQuitOnLastWindowClosed(False)
     l = Launcher(); l.show()
+    ponte = Ponte()                  # nasce na thread da tela: é o que importa
+    ponte.chegou.connect(l.aparecer)
+    _mostrar.append(ponte.chegou.emit)
     bandeja = _montar_bandeja(app, l)  # ícone fixo na bandeja
 
     def _encerrar():
+        # Primeira linha de todas: a partir daqui, o motor de voz morrer é
+        # ESPERADO. Sem isto o desligamento disparava o aviso de queda e uma
+        # tentativa de religar, no meio do fechamento.
+        l.pop._stt_encerrando = True
         try:
             if l.pop.rec is not None:
                 l.pop.rec.kill()
@@ -1469,6 +1638,7 @@ if __name__ == "__main__":
             l.pop.stt.kill()
         except Exception:
             pass
+        posse.soltar()       # libera a vez para o próximo DERVS
     app.aboutToQuit.connect(_encerrar)
 
     app.exec()
