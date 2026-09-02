@@ -113,7 +113,7 @@ Novidades: `dervs_transcrever.py` (arquivo de áudio → texto, com corte e emen
 para reunião longa), ícone e atalhos, e `dervs_config.gravar()` para o app
 guardar escolha feita na tela.
 
-**347 testes passam, zero falham.**
+**359 testes passam, zero falham.**
 
 ## O "o DERVS sumiu / bugou" — investigado em 02/09/2026
 
@@ -160,6 +160,39 @@ vez de recusar-se a abrir.
 **Medido e descartado:** processo órfão. Matando só o DERVS principal, os
 filhos (`dervs_stt_daemon` 130 MB, `dervs_kokoro_daemon` 395 MB) morrem junto —
 0 órfãos.
+
+## "Fechando sozinho, e não está me entendendo" — 02/09/2026, tarde
+
+**O fechamento sozinho NÃO foi reproduzido.** 6 apertos reais de mouse no botão
+Voz e 8 no do microfone, no app aberto pelo atalho, processo vivo no fim dos
+dois. Sonda em processo: 3 rodadas sem morrer. Em vez de adivinhar em cima de
+código que funciona, o app passou a **registrar a própria morte**
+(`dervs_registro.py`): `sys.excepthook`, `threading.excepthook` e `faulthandler`
+gravam em `%APPDATA%\dervs\ultimo_erro.txt`, e a abertura seguinte mostra o
+motivo na tela. Até aqui o app morria sem deixar uma linha — `pythonw` não tem
+terminal.
+
+Para "não está me entendendo" e "a transcrição não está boa", cinco defeitos
+confirmados no código:
+
+| Defeito | Onde | Efeito |
+|---|---|---|
+| **A margem de áudio sumia da 2ª frase em diante** | `dervs_listen.py`, `_entregar` | `self.pre` era esvaziado no início da fala e nunca reposto: toda frase depois da primeira começava no 1º quadro acima do limiar e **perdia a primeira sílaba**. Agora a cauda da frase vira a margem da próxima — travado por teste |
+| **O cérebro achava que estava no Linux** | `dervs_brain.SISTEMA` | dizia em texto fixo "roda na máquina Linux (Parrot)" enquanto o bloco de comandos logo abaixo era de Windows 11. Agora o SO vem do mesmo `sys.platform` |
+| **Ordem contraditória no mesmo prompt** | `dervs_brain.SISTEMA` | "SEMPRE espere o OK" e, 6 linhas depois, "aja sem pedir licença" |
+| **Porteiro com `beam_size=1` e sem VAD** | `dervs_porteiro.py` | quando ele erra, a frase é **descartada em silêncio**. Agora `beam_size=3` + `vad_filter` |
+| **Cérebro no modelo mais fraco da família** | `dervs_config.py` | `gpt-4.1-nano` para `gpt-4.1-mini` |
+
+Margem subiu de 300 ms para 600 ms (`pre_roll=20`) e `min_fala_ms` caiu de 300
+para 200 — um "sim"/"ok" rápido de confirmação batia perto do piso e sumia.
+
+**Medido depois da troca do modelo**, mesmas 3 perguntas: nano 3,07/1,21/1,50 s
+contra mini **2,04**/1,51/1,42 s. Mais preciso e **não ficou mais lento**.
+
+> **Armadilha:** mudar o `PADRAO` de `dervs_config.py` **não muda nada** numa
+> instalação que já existe — `garantir_arquivo()` grava o dicionário inteiro no
+> `config.json`, e `carregar()` só completa o que falta. A troca do modelo só
+> valeu depois de `cfg.gravar()` na máquina do dono. Vale para toda chave nova.
 
 **Falta:**
 
