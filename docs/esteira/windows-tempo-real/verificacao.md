@@ -27,6 +27,55 @@ lenta (aquecimento), então o daemon precisa nascer aquecido — como já faz ho
 velocidade 1,2 não custa mais caro que a 1,0. Amostras gravadas em
 `%LOCALAPPDATA%\dervs\modelos\amostra_*.wav` para o dono escolher a voz.
 
+
+---
+
+## 1.5. O cérebro na nuvem (gpt-4.1-nano) — 02/09/2026, com a chave instalada
+
+Medido com 40 chamadas reais, oito pedidos diferentes em rodízio (conta, hora, abrir
+programa, ler o Gmail, listar pasta, enriquecer domínio).
+
+| | Tempo |
+|---|---|
+| Mediana | **0,96 s** |
+| Melhor | 0,64 s |
+| Pior | 6,40 s (uma chamada isolada; a rede da OpenAI oscila) |
+
+### O defeito que a medição revelou — e a correção
+
+O código pedia a resposta com `response_format: {"type":"json_object"}`. Isso **pede**
+JSON ao modelo, não **obriga**. Medido: o gpt-4.1-nano quebrava em **3 de 20 chamadas
+(15%)**. O padrão era sempre o mesmo — fechava o campo `fala`, abria uma aspa a mais e
+degringolava em texto repetido até estourar os 800 tokens:
+
+```
+{"modo":"conversar","fala":"São 96, é isso mesmo.","}  # Resposta direta...
+```
+
+Consequência: `_extrair_json` falhava, `pensar()` engolia o erro e caía no cérebro
+reserva (o Claude local). O DERVS **não ficava mudo**, mas ficava lento à toa em uma a
+cada sete falas.
+
+Comparação de três configurações, 20 chamadas cada:
+
+| Configuração | JSON quebrado | Tempo (mediana) | Tokens de saída |
+|---|---|---|---|
+| nano + `json_object` (como estava) | **3/20** | 1,03 s | 148 |
+| nano + `json_schema` strict | **0/20** | 1,02 s | 38 |
+| gpt-4.1-mini + `json_object` | 0/20 | 1,02 s | 32 |
+
+**Correção aplicada:** trocar para `json_schema` com `strict: true` (Structured
+Outputs), que força a gramática no decodificador — sair do formato deixa de ser
+possível. Não foi preciso subir para um modelo mais caro. Além de eliminar a falha, a
+saída ficou **4× menor** (o lixo repetido é que inflava), o que também baixa a conta.
+
+Validação depois da correção: **0 falhas em 40 chamadas.**
+
+Efeito colateral tratado: com `strict`, o modelo devolve *toda* propriedade, usando
+`null` no que não se aplica àquele passo. `dict.setdefault` não substitui `None` — só
+chave ausente — então um passo de navegador chegava na tela com `comando: None`. Daí a
+função `_preencher()` em `dervs_brain.py`.
+
 ---
 
 ## 2. O porteiro local (decidir "é comigo?" sem mandar áudio para a nuvem)

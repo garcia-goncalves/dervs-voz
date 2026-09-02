@@ -4,6 +4,7 @@
 Nenhum teste aqui chama o `claude` de verdade — a parte que conversa com o
 modelo é isolada com dublês. Rodar: python -m pytest test_dervs_brain.py -q
 """
+import json
 import sys
 import pytest
 import dervs_brain as gb
@@ -240,3 +241,102 @@ def test_sistema_atual_reflete_o_sistema_operacional_da_maquina():
     else:
         assert "konsole" in gb.SISTEMA
         assert "kcalc" in gb.SISTEMA
+
+
+# ---- a resposta da OpenAI precisa vir travada por schema ----
+def _espiar_corpo(monkeypatch, resposta='{"modo":"conversar","fala":"oi","pergunta":null,"passos":null}'):
+    """Intercepta o urlopen e devolve o corpo JSON que o DERVS mandou."""
+    import io
+    import json as _json
+    visto = {}
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _falso_urlopen(req, timeout=None):
+        visto["corpo"] = _json.loads(req.data.decode("utf-8"))
+        corpo = _json.dumps({"choices": [{"message": {"content": resposta}}]})
+        return _Resp(corpo.encode("utf-8"))
+
+    monkeypatch.setattr(gb.urllib.request, "urlopen", _falso_urlopen)
+    monkeypatch.setattr(gb, "OPENAI_KEY", "sk-teste")
+    return visto
+
+
+def test_openai_pede_json_travado_por_schema(monkeypatch):
+    """`json_object` só PEDE JSON; `json_schema` com strict FORÇA a gramática.
+
+    Sem isso o gpt-4.1-nano quebrava em 3 de 20 chamadas: fechava a 'fala',
+    abria uma aspa a mais e degringolava em texto repetido até estourar o
+    limite de tokens — e o DERVS caía no cérebro reserva, lento, por nada.
+    """
+    visto = _espiar_corpo(monkeypatch)
+    gb._pensar_openai([{"papel": "dono", "texto": "quanto é 12 vezes 8?"}], timeout=30)
+    fmt = visto["corpo"]["response_format"]
+    assert fmt["type"] == "json_schema", "precisa da trava forte, não do json_object"
+    assert fmt["json_schema"]["strict"] is True, "sem strict a trava não é gramática"
+
+
+def test_schema_da_openai_cobre_os_tres_modos(monkeypatch):
+    """O schema não pode proibir nenhum dos modos que a tela sabe tratar."""
+    visto = _espiar_corpo(monkeypatch)
+    gb._pensar_openai([{"papel": "dono", "texto": "oi"}], timeout=30)
+    esquema = visto["corpo"]["response_format"]["json_schema"]["schema"]
+    assert set(esquema["properties"]["modo"]["enum"]) == {"planejar", "conversar", "perguntar"}
+    assert esquema["additionalProperties"] is False
+    # strict exige TODA propriedade em required; os opcionais viram anuláveis
+    assert set(esquema["required"]) == set(esquema["properties"])
+
+
+def test_openai_aceita_passos_de_navegador_e_enriquecer(monkeypatch):
+    """Um plano com passo de navegador tem 'objetivo' e não 'comando' — o
+    schema precisa deixar passar, senão a API recusa a resposta inteira."""
+    passo = {"descricao": "abrir o Gmail", "comando": None, "tipo": "navegador",
+             "objetivo": "entrar no Gmail e contar os não lidos", "dominio": None,
+             "risco": "muda_estado", "reversivel": None, "toca_alvo": True}
+    resposta = json.dumps({"modo": "planejar", "fala": "vou lá", "pergunta": None,
+                           "passos": [passo]})
+    visto = _espiar_corpo(monkeypatch, resposta=resposta)
+    ficha = gb._pensar_openai([{"papel": "dono", "texto": "vê meu gmail"}], timeout=30)
+    assert ficha["passos"][0]["objetivo"] == "entrar no Gmail e contar os não lidos"
+    props = visto["corpo"]["response_format"]["json_schema"]["schema"]["properties"]
+    campos = props["passos"]["items"]["properties"]
+    for c in ("descricao", "comando", "tipo", "objetivo", "dominio", "risco",
+              "reversivel", "toca_alvo"):
+        assert c in campos, f"o schema esqueceu o campo '{c}' do passo"
+
+
+def test_normalizar_trata_campo_nulo_como_ausente():
+    """Com json_schema strict o modelo manda TODO campo, usando null no que não
+    se aplica. `setdefault` não substitui null — só chave ausente — então um
+    passo de navegador chegava com comando=None e vazava para a tela."""
+    ficha = _normalizar({
+        "modo": "planejar", "fala": "vou lá", "pergunta": None,
+        "passos": [{"descricao": "abrir o Gmail", "comando": None,
+                    "tipo": "navegador", "objetivo": "contar os não lidos",
+                    "dominio": None, "risco": "muda_estado",
+                    "reversivel": None, "toca_alvo": None}],
+    })
+    p = ficha["passos"][0]
+    assert p["comando"] == "", "comando nulo tem de virar string vazia"
+    assert p["objetivo"] == "contar os não lidos"
+    assert p["reversivel"] is False
+    assert p["toca_alvo"] is True, "navegador age no Chrome logado: toca o alvo"
+
+
+def test_normalizar_passo_de_comando_com_nulos():
+    """Passo comum: os campos de navegador/enriquecer vêm nulos e não atrapalham."""
+    ficha = _normalizar({
+        "modo": "planejar", "fala": "beleza", "pergunta": None,
+        "passos": [{"descricao": "listar a pasta", "comando": "dir",
+                    "tipo": None, "objetivo": None, "dominio": None,
+                    "risco": "reversivel", "reversivel": None, "toca_alvo": None}],
+    })
+    p = ficha["passos"][0]
+    assert p["comando"] == "dir"
+    assert p["reversivel"] is True
+    assert p["toca_alvo"] is False

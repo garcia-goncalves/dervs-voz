@@ -285,36 +285,47 @@ def _extrair_json(bruto: str) -> dict:
     return json.loads(bruto[ini:fim + 1])
 
 
+def _preencher(d: dict, chave: str, valor):
+    """setdefault que trata None como ausente.
+
+    Com json_schema strict o modelo devolve TODA propriedade, pondo null no que
+    não se aplica àquele passo — um passo de navegador vem com "comando": null.
+    O setdefault só age em chave AUSENTE, então o null passava batido e chegava
+    na tela no lugar de uma string."""
+    if d.get(chave) is None:
+        d[chave] = valor
+
+
 def _normalizar(ficha: dict) -> dict:
     """Garante que a ficha tem os campos que a tela espera, sem quebrar se o
-    cérebro esquecer algum."""
+    cérebro esquecer algum — ou mandar null no lugar."""
     modo = ficha.get("modo", "conversar")
-    ficha.setdefault("fala", "")
+    _preencher(ficha, "fala", "")
     if modo == "planejar":
         passos = ficha.get("passos") or []
         for p in passos:
-            p.setdefault("descricao", "")
+            _preencher(p, "descricao", "")
             if p.get("tipo") == "navegador":
                 # passo de navegador autônomo: tem 'objetivo', não 'comando'.
-                p.setdefault("objetivo", p.get("comando", "") or p.get("descricao", ""))
-                p.setdefault("comando", "")
+                _preencher(p, "objetivo", p.get("comando") or p.get("descricao") or "")
+                _preencher(p, "comando", "")
                 # age no Chrome logado do dono: no mínimo muda_estado e toca alvo.
-                p.setdefault("risco", "muda_estado")
-                p.setdefault("reversivel", False)
-                p.setdefault("toca_alvo", True)
+                _preencher(p, "risco", "muda_estado")
+                _preencher(p, "reversivel", False)
+                _preencher(p, "toca_alvo", True)
             elif p.get("tipo") == "enriquecer":
                 # enriquecimento PASSIVO de lead: tem 'dominio', não 'comando'.
                 # Só fonte pública — não toca o alvo, não pede autorização.
-                p.setdefault("dominio", p.get("comando", ""))
-                p.setdefault("comando", "")
-                p.setdefault("risco", "muda_estado")
-                p.setdefault("reversivel", True)
-                p.setdefault("toca_alvo", False)
+                _preencher(p, "dominio", p.get("comando") or "")
+                _preencher(p, "comando", "")
+                _preencher(p, "risco", "muda_estado")
+                _preencher(p, "reversivel", True)
+                _preencher(p, "toca_alvo", False)
             else:
-                p.setdefault("comando", "")
-                p.setdefault("risco", "reversivel")
-                p.setdefault("reversivel", True)
-                p.setdefault("toca_alvo", False)
+                _preencher(p, "comando", "")
+                _preencher(p, "risco", "reversivel")
+                _preencher(p, "reversivel", True)
+                _preencher(p, "toca_alvo", False)
         ficha["passos"] = passos
     return ficha
 
@@ -562,13 +573,62 @@ def _mensagens_openai(conversa: list) -> list:
     return msgs
 
 
+# Schema da ficha, na forma que a OpenAI trava de verdade.
+#
+# "json_object" apenas PEDE JSON ao modelo; "json_schema" com strict=True força
+# a gramática no decodificador — sair do formato vira impossível. Com o
+# json_object, o gpt-4.1-nano quebrava em 3 de 20 chamadas medidas: fechava a
+# "fala", abria uma aspa a mais e degringolava em texto repetido até estourar os
+# 800 tokens. O DERVS não ficava mudo (cai no Claude reserva), mas ficava lento
+# à toa. Com strict: 0 de 20, mesmo tempo, e 4x menos token de saída.
+#
+# strict exige TODA propriedade em "required" e additionalProperties=False; por
+# isso o que é opcional aparece como anulável ("null" no type) em vez de ausente.
+_PASSO_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "descricao":  {"type": "string"},
+        "comando":    {"type": ["string", "null"]},
+        "tipo":       {"type": ["string", "null"],
+                       "enum": ["navegador", "enriquecer", None]},
+        "objetivo":   {"type": ["string", "null"]},
+        "dominio":    {"type": ["string", "null"]},
+        "risco":      {"type": "string",
+                       "enum": ["reversivel", "muda_estado", "destrutivo"]},
+        "reversivel": {"type": ["boolean", "null"]},
+        "toca_alvo":  {"type": ["boolean", "null"]},
+    },
+    "required": ["descricao", "comando", "tipo", "objetivo", "dominio", "risco",
+                 "reversivel", "toca_alvo"],
+    "additionalProperties": False,
+}
+
+FICHA_SCHEMA = {
+    "name": "ficha_dervs",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "modo":     {"type": "string",
+                         "enum": ["planejar", "conversar", "perguntar"]},
+            "fala":     {"type": "string"},
+            "pergunta": {"type": ["string", "null"]},
+            "passos":   {"type": ["array", "null"], "items": _PASSO_SCHEMA},
+        },
+        "required": ["modo", "fala", "pergunta", "passos"],
+        "additionalProperties": False,
+    },
+}
+
+
 def _pensar_openai(conversa: list, timeout: int) -> dict:
-    """Cérebro na OpenAI (rápido e barato). response_format json_object força
-    JSON válido, então o DERVS nunca fica mudo por resposta fora do formato."""
+    """Cérebro na OpenAI (rápido e barato). O response_format com json_schema
+    strict força a gramática da resposta, então o modelo não tem como devolver
+    JSON quebrado — ver FICHA_SCHEMA acima para o porquê."""
     body = json.dumps({
         "model": OPENAI_MODELO,
         "messages": _mensagens_openai(conversa),
-        "response_format": {"type": "json_object"},
+        "response_format": {"type": "json_schema", "json_schema": FICHA_SCHEMA},
         "max_tokens": 800,
         "temperature": 0.3,
     }).encode("utf-8")
