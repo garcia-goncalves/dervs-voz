@@ -99,9 +99,14 @@ class PorteiroLocal:
         modelo = self._carregar()
         segmentos, _info = modelo.transcribe(
             caminho_wav, language="pt",
-            # beam_size=1: o porteiro não precisa da melhor transcrição, só de
-            # uma boa o bastante para achar o nome. É o que segura os 0,49 s.
-            beam_size=1,
+            # beam_size=3 e vad_filter: o porteiro NÃO precisa da melhor
+            # transcrição, mas precisa achar o nome — e quando ele erra a frase
+            # é DESCARTADA em silêncio, sem nada na tela e sem registro. Era
+            # beam_size=1 e sem VAD (o STT local já usava os dois). Custa ~0,2 s
+            # numa etapa de 0,49 s, e o que se compra é falso-negativo a menos:
+            # frase do dono sumindo calada é o pior resultado possível aqui.
+            beam_size=3,
+            vad_filter=True,
             condition_on_previous_text=False,
             initial_prompt=COLA_PORTEIRO)
         return "".join(seg.text for seg in segmentos).strip()

@@ -81,6 +81,18 @@ OPENAI_KEY = _carregar_chave_openai()
 # turno) — útil para depurar se o streaming der problema numa máquina.
 USAR_STREAM = os.environ.get("DERVS_BRAIN_STREAM", "1") != "0"
 
+def _maquina_do_dono() -> str:
+    """A frase de abertura do prompt dizia, em texto FIXO, que o DERVS roda numa
+    máquina Linux (Parrot) — enquanto `_bloco_comandos_do_sistema()` injetava,
+    seis linhas abaixo, comandos de Windows 11. O modelo lia as duas coisas e
+    raciocinava sobre a máquina errada. Achado em 02/09/2026, quando o dono
+    disse "não está me entendendo direito". Agora o sistema operacional vem do
+    mesmo `sys.platform` que decide os comandos: uma fonte só."""
+    if sys.platform == "win32":
+        return "máquina Windows 11"
+    return "máquina Linux (Parrot, de segurança ofensiva autorizada)"
+
+
 def _bloco_comandos_do_sistema() -> str:
     """O trecho do prompt com os comandos pré-aprovados MUDA com o sistema
     operacional em que o DERVS está rodando agora — no Linux ele sugeriria
@@ -105,8 +117,8 @@ def _bloco_comandos_do_sistema() -> str:
     )
 
 
-SISTEMA = """Você é o CÉREBRO do DERVS, um parceiro de VOZ que roda na máquina \
-Linux (Parrot, de segurança ofensiva autorizada) do dono. Você e ele conversam \
+SISTEMA = """Você é o CÉREBRO do DERVS, um parceiro de VOZ que roda na \
+__MAQUINA_DO_DONO__ do dono. Você e ele conversam \
 como duas pessoas. Você responde em português do Brasil.
 
 COMO VOCÊ FALA (importante — sua resposta é LIDA EM VOZ ALTA):
@@ -142,7 +154,7 @@ Fale curto e natural — é conversa por voz, não relatório.
 Você responde SEMPRE e SOMENTE com um objeto JSON válido, em UMA linha, sem \
 markdown, sem cerca de código, sem texto fora do JSON. Um destes formatos:
 
-Para agir (o caso comum — aja sem pedir licença):
+Para PROPOR um plano (o caso comum — quem pede o OK é a tela, depois):
 {"modo":"planejar",
  "fala":"<o que você vai fazer + o que já sabe, em voz, 1-2 frases naturais>",
  "passos":[
@@ -226,6 +238,7 @@ instaladas. Um comando por passo. Se um passo depende do resultado do anterior, 
 pare ali e diga na 'fala' que continua depois de ver a saída."""
 
 SISTEMA = SISTEMA.replace("__BLOCO_COMANDOS_DO_SISTEMA__", _bloco_comandos_do_sistema())
+SISTEMA = SISTEMA.replace("__MAQUINA_DO_DONO__", _maquina_do_dono())
 
 
 _DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",

@@ -48,8 +48,13 @@ class Endpointer:
        Fim de palavra é sempre mais fraco que o começo; sem isso ele é cortado.
     """
 
-    def __init__(self, fim_ms=1100, min_fala_ms=300, limiar_abs=380.0,
-                 pre_roll=10, max_ms=20000, saida_frac=0.5):
+    # pre_roll=20 são 600 ms de margem antes da fala. Eram 300 ms, que não
+    # cobrem a rampa de uma sílaba surda ("s", "f", "p") com o limiar de
+    # entrada em 3,5x o piso de ruído. min_fala_ms caiu de 300 para 200 porque
+    # um "sim"/"ok" rápido de confirmação batia perto do piso e era descartado
+    # calado — e confirmação por voz é o que mais precisa funcionar sempre.
+    def __init__(self, fim_ms=1100, min_fala_ms=200, limiar_abs=380.0,
+                 pre_roll=20, max_ms=20000, saida_frac=0.5):
         self.fim_frames = max(1, fim_ms // FRAME_MS)      # silêncio que fecha a frase
         self.min_fala = max(1, min_fala_ms // FRAME_MS)   # frase curta demais = ignora (tosse)
         self.max_frames = max(1, max_ms // FRAME_MS)      # teto: entrega o que tem e recomeça
@@ -95,7 +100,14 @@ class Endpointer:
         """Fecha a frase atual: devolve o áudio se valeu a pena, senão descarta."""
         pcm = b"".join(self.buf)
         falou = self.n_fala
+        # A cauda desta frase vira a MARGEM da próxima. Sem isto, `self.pre`
+        # era esvaziado no início da fala e nunca reposto: da SEGUNDA frase
+        # em diante o áudio começava exatamente no primeiro quadro acima do
+        # limiar, e a primeira sílaba — justo a de ataque mais fraco — se
+        # perdia. Achado em 02/09/2026: "minha transcrição não está boa".
+        cauda = self.buf[-self.pre_max:] if self.pre_max else []
         self._reset()
+        self.pre = list(cauda)
         return pcm if falou >= self.min_fala else None
 
     def processar(self, frame: bytes):

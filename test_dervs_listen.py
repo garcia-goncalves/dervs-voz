@@ -232,3 +232,57 @@ def test_aquecer_mantem_o_pre_roll_durante_a_pausa():
         ep.aquecer(_frame(0))
     assert len(ep.pre) == ep.pre_max, "pre-roll vazio: começo da fala seria cortado"
     assert ep.em_fala is False
+
+
+# ---------------------------------------------------------------------------
+# Achado de 02/09/2026: a partir da SEGUNDA frase o audio comecava sem margem.
+# O dono relatou "minha transcricao nao esta boa" -- perder a primeira silaba de
+# toda frase depois da primeira e causa suficiente.
+# ---------------------------------------------------------------------------
+
+def _quadro(nivel: int) -> bytes:
+    """Um quadro de audio com aquele nivel de energia."""
+    import struct
+    return struct.pack("<%dh" % FRAME_AMOSTRAS, *([nivel] * FRAME_AMOSTRAS))
+
+
+def _falar_uma_frase(ep, quadros_de_fala=40):
+    """Fala, depois cala ate a frase fechar. Devolve o audio entregue."""
+    for _ in range(quadros_de_fala):
+        r = ep.processar(_quadro(6000))
+        if r is not None:
+            return r
+    for _ in range(ep.fim_frames + 5):
+        r = ep.processar(_quadro(0))
+        if r is not None:
+            return r
+    return None
+
+
+def test_a_segunda_frase_tambem_comeca_com_margem():
+    """A margem (pre-roll) existe para nao cortar a primeira silaba. Ela era
+    esvaziada no comeco da fala e NUNCA reposta: da segunda frase em diante o
+    audio comecava exatamente no primeiro quadro acima do limiar."""
+    ep = Endpointer()
+    primeira = _falar_uma_frase(ep)
+    assert primeira, "a primeira frase tinha de sair"
+    assert len(ep.pre) >= ep.pre_max, (
+        "depois de entregar, a margem tem de estar cheia para a proxima frase; "
+        "esta com %d de %d" % (len(ep.pre), ep.pre_max))
+
+    # segunda frase imediatamente depois, sem pausa nenhuma
+    segunda = _falar_uma_frase(ep)
+    assert segunda, "a segunda frase tinha de sair"
+    quadro_bytes = FRAME_AMOSTRAS * 2
+    quadros_na_segunda = len(segunda) // quadro_bytes
+    # 40 de fala + fim_frames de silencio + a margem
+    assert quadros_na_segunda >= 40 + ep.fim_frames + ep.pre_max - 2, (
+        "a segunda frase veio sem margem: %d quadros" % quadros_na_segunda)
+
+
+def test_a_margem_e_o_audio_imediatamente_anterior():
+    """Nao basta ter margem: ela tem de ser o som que veio ANTES da fala."""
+    ep = Endpointer()
+    _falar_uma_frase(ep)
+    assert all(len(q) == FRAME_AMOSTRAS * 2 for q in ep.pre)
+    assert len(ep.pre) == ep.pre_max

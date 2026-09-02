@@ -106,9 +106,17 @@ PADRAO = {
     # em ~/voice/.env e internet) ou "claude" (CLI local, grátis na assinatura).
     # Se "openai" mas sem chave/internet, cai no Claude sozinho.
     "cerebro": "openai",
-    # Modelo da OpenAI para o cérebro. "gpt-4.1-nano" é o mais barato; suba para
-    # "gpt-4o-mini" se quiser um pouco mais de esperteza (custa ~50% mais).
-    "cerebro_openai_modelo": "gpt-4.1-nano",
+    # Modelo da OpenAI para o cérebro. É ELE que faz o teste de sanidade da
+    # transcrição, decide perguntar em vez de chutar e monta o plano — ou seja,
+    # é a peça que o dono sente como "está me entendendo" ou não.
+    #
+    # Era "gpt-4.1-nano", o mais fraco da família. Trocado por "gpt-4.1-mini" em
+    # 02/09/2026, depois de o dono dizer "não está me entendendo direito".
+    # MEDIDO em 01/09: o mini responde no MESMO tempo do nano (1,02 s) — a troca
+    # não custa lentidão, só dinheiro, e o dono pediu "ultra rápido E preciso".
+    # Custa ~4x o nano por chamada; no volume previsto continua da ordem de
+    # centavos de dólar por mês. Voltar é trocar esta palavra.
+    "cerebro_openai_modelo": "gpt-4.1-mini",
 
     # Motor de voz: "kokoro" (humana, offline, grátis — PADRÃO), "piper"
     # (sintética, instantânea, reserva) ou "xtts" (a mais humana, mas lenta).
