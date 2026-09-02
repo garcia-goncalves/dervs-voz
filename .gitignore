@@ -31,3 +31,7 @@ kokoro-venv/
 
 # Ambiente Python do Windows (recriavel)
 dervs-venv/
+
+# Pastas de trabalho temporarias dos agentes (nao versionar)
+.claude/worktrees/
+amostras_voz/
