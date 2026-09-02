@@ -340,3 +340,41 @@ def test_normalizar_passo_de_comando_com_nulos():
     assert p["comando"] == "dir"
     assert p["reversivel"] is True
     assert p["toca_alvo"] is False
+
+
+# ---- o cérebro tem de saber que horas são ----
+def test_o_cerebro_recebe_a_hora_de_agora_na_openai():
+    """Sem isto o DERVS inventava a hora, repetindo o exemplo do prompt
+    ("São três e meia.") — o modelo não tem relógio nenhum."""
+    import datetime
+    msgs = gb._mensagens_openai([{"papel": "dono", "texto": "que horas são?"}])
+    tudo = " ".join(m["content"] for m in msgs)
+    agora = datetime.datetime.now()
+    assert agora.strftime("%H:%M") in tudo, "a hora de agora não chegou ao cérebro"
+    assert str(agora.year) in tudo, "o ano não chegou ao cérebro"
+
+
+def test_o_cerebro_recebe_a_hora_de_agora_no_claude():
+    """Mesmo dado pelo caminho reserva, senão a resposta muda conforme o cérebro."""
+    import datetime
+    texto = montar_prompt([{"papel": "dono", "texto": "que horas são?"}])
+    assert datetime.datetime.now().strftime("%H:%M") in texto
+
+
+def test_a_hora_vem_com_o_dia_da_semana_por_extenso():
+    """'que dia é hoje' é tão comum quanto 'que horas são'."""
+    linha = gb._agora()
+    assert any(d in linha.lower() for d in
+               ("segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"))
+    assert any(m in linha.lower() for m in
+               ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+                "agosto", "setembro", "outubro", "novembro", "dezembro"))
+
+
+def test_a_hora_nao_e_confundivel_com_fala_do_dono():
+    """O bloco da hora é dado do sistema. Não pode entrar como se fosse pedido
+    do dono, senão vira uma ordem a cumprir em vez de contexto."""
+    msgs = gb._mensagens_openai([{"papel": "dono", "texto": "oi"}])
+    daora = [m for m in msgs if gb._agora() in m["content"]]
+    assert daora, "a hora sumiu"
+    assert all(m["role"] == "system" for m in daora), "a hora tem de vir como sistema"

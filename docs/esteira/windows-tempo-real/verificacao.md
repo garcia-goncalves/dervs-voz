@@ -235,11 +235,26 @@ voz 4,17 s, porteiro 4,12 s.
 O porteiro acertou mesmo com a transcrição local saindo torta — ouviu *"Dervs que aura
 são."* e ainda assim reconheceu o nome, que é exatamente o trabalho do casador difuso.
 
-Observação registrada durante a medição: o cérebro respondeu *"São três e meia."*, que é
-o exemplo literal do prompt, não a hora real. O modelo não tem acesso ao relógio e não
-montou um passo para consultá-lo. **Não é regressão** (o comportamento é anterior a estas
-correções) e está fora do que foi pedido nesta tarefa, mas fica anotado: perguntar a hora
-hoje devolve resposta inventada.
+### A hora inventada — achada nesta medição, corrigida no mesmo dia
+
+O cérebro respondeu *"São três e meia."*, que é o exemplo literal do prompt, não a hora
+real. O modelo não tem relógio nenhum e repetia o exemplo com toda a convicção.
+
+Corrigido injetando data e hora em **cada** pergunta, como mensagem de **sistema** —
+nunca como fala do dono, onde viraria uma ordem a cumprir em vez de contexto. É a função
+`_agora()` em `dervs_brain.py`, presente nos dois caminhos (OpenAI e Claude reserva).
+
+Verificado com o relógio do PC marcando 12:50 de 02/09/2026:
+
+| Pergunta | Resposta |
+|---|---|
+| "que horas são?" | *"São meia dia e cinquenta."* |
+| "que dia é hoje?" | *"Hoje é quarta-feira, 2 de setembro de 2026."* |
+| "quanto tempo falta pro Natal?" | *"Faltam exatamente 113 dias pro Natal, mais ou menos."* |
+
+Sem `locale` de propósito: `strftime("%A")` devolveria o dia da semana em inglês, e mexer
+em locale global é efeito colateral num processo que também sintetiza voz. Duas listas de
+nomes resolvem sem dependência.
 
 Se esse tempo incomodar, a primeira alavanca é reduzir `janela de silêncio` de
 1,10 s para ~0,8 s (custa cortar a fala de quem respira no meio da frase; o

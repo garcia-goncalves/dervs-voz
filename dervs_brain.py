@@ -28,6 +28,7 @@ a sessão no turno seguinte.
 import os
 import sys
 import json
+import datetime
 import time
 import shutil
 import select
@@ -227,13 +228,35 @@ pare ali e diga na 'fala' que continua depois de ver a saída."""
 SISTEMA = SISTEMA.replace("__BLOCO_COMANDOS_DO_SISTEMA__", _bloco_comandos_do_sistema())
 
 
+_DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
+         "sexta-feira", "sábado", "domingo"]
+_MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+          "agosto", "setembro", "outubro", "novembro", "dezembro"]
+
+
+def _agora() -> str:
+    """A data e a hora de agora, em português, para o cérebro NÃO inventar.
+
+    O modelo não tem relógio: perguntado que horas eram, ele repetia o exemplo
+    do prompt ("São três e meia.") com toda a convicção. Isto entra em cada
+    pergunta, como dado do sistema — não como fala do dono, que seria uma ordem.
+
+    Sem locale: `strftime("%A")` devolve o dia em inglês (ou no idioma do
+    sistema, que nesta máquina é português mas não é garantido em outra), e
+    mexer em locale global é efeito colateral em processo que também sintetiza
+    voz. Duas listas resolvem, sem dependência."""
+    a = datetime.datetime.now()
+    return (f"Agora são {a.strftime('%H:%M')} de {_DIAS[a.weekday()]}, "
+            f"{a.day} de {_MESES[a.month - 1]} de {a.year}.")
+
+
 def montar_prompt(conversa: list) -> str:
     """Renderiza o transcript inteiro num texto para o Claude ler.
 
     'conversa' é uma lista de dicts {"papel","texto"} onde papel é um de:
     'dono' (o que a pessoa falou), 'dervs' (o que o cérebro respondeu),
     'resultado' (a saída de um comando que já rodou)."""
-    linhas = ["CONVERSA ATÉ AGORA:"]
+    linhas = [_agora(), "", "CONVERSA ATÉ AGORA:"]
     for msg in conversa:
         linhas.append(_rotular(msg))
     linhas.append("")
@@ -558,7 +581,8 @@ def _pensar_oneshot(conversa: list, timeout: int) -> dict:
 
 def _mensagens_openai(conversa: list) -> list:
     """Converte a conversa do DERVS no formato de mensagens da OpenAI."""
-    msgs = [{"role": "system", "content": SISTEMA}]
+    msgs = [{"role": "system", "content": SISTEMA},
+            {"role": "system", "content": _agora()}]
     for m in conversa:
         papel = m.get("papel", "")
         texto = m.get("texto", "")
