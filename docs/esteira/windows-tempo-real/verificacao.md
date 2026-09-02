@@ -211,6 +211,44 @@ na mão. Isso prova que o *motor* funciona — e provou. Mas não passa pelo cam
 app usa, e era exatamente ali que estava o defeito. Lição: medir o componente não
 substitui medir pelo caminho de produção.
 
+## 3d. Voz mais humana — medido, pendente de decisão do dono (02/09/2026)
+
+O dono ouviu as três vozes do Kokoro e escolheu `pm_alex` a 1,3x, mas disse:
+*"não gostei muito dessas vozes... quero uma voz melhor, mais fluida e mais humana...
+e rápida"*.
+
+O Kokoro é um modelo de 82 milhões de parâmetros rodando em processador sem placa de
+vídeo. Ele é bom para o tamanho, mas não vai soar como gente de verdade — esse é o teto
+do que roda local e de graça nesta máquina.
+
+A alternativa medida foi a voz da OpenAI (`gpt-4o-mini-tts`), que aceita instrução de
+estilo em texto ("fale como um parceiro brasileiro, natural e direto").
+
+### Tempo até começar a falar
+
+O primeiro número que se mede é enganoso: o áudio **inteiro** demora 2,1 a 3,4 s. Mas
+quem conversa não espera o áudio inteiro — espera começar. Lendo a resposta em fluxo
+(`response_format: pcm`, primeiro pedaço de 4 KB):
+
+| Voz | Onde | Primeiro som | Custo |
+|---|---|---|---|
+| **Kokoro `pm_alex` 1,3x** (hoje) | local | **0,48 s** | zero |
+| OpenAI `ash` | nuvem | **0,90 s** | ~US$ 0,015 / 1.000 caracteres |
+| OpenAI `sage` | nuvem | 1,01 s | idem |
+
+**A conta:** trocar custa **+0,42 s** por resposta — o tempo total iria de 3,94 s para
+cerca de 4,4 s. Em dinheiro, uma resposta típica de 100 caracteres sai por ~US$ 0,0015;
+100 respostas por dia dão cerca de **US$ 4,50 por mês**.
+
+Amostras gravadas em `amostras_voz/nuvem_*.mp3` (ash, ballad, verse, sage, onyx) para o
+dono comparar de ouvido com as do Kokoro. **A decisão é dele**, porque é troca de
+dinheiro e de latência por naturalidade — não é decisão técnica.
+
+Se ele escolher a nuvem, o trabalho é um daemon novo no mesmo protocolo de linha do
+Kokoro (`READY` / `WAV <caminho>` / `FIM`), tocando cada pedaço conforme chega, e a
+queda de volta para o Kokoro quando faltar internet — o encaixe já existe em
+`dervs_tts.Voz`.
+
 ## 4. Tempo até responder — FECHADO
 
 **Fechado em 02/09/2026**, com a chave da OpenAI instalada. Medição ponta a ponta pelo
