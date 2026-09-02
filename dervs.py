@@ -14,9 +14,12 @@ e a palavra final da máquina sobre o perigo. Pode falar de volta (voz, Piper).
 
 Identidade visual: segue o "Grimório Arcano" do produto — geométrico, ouro (o
 que se ganha) + arcano (o que se descobre) sobre fundo quase preto."""
-import os, subprocess, signal, json, sys, threading
-# Forca XWayland para 'sempre no topo' funcionar de forma confiavel no KDE Wayland
-os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+import os, subprocess, signal, json, sys, threading, tempfile
+WINDOWS = sys.platform == "win32"
+if not WINDOWS:
+    # Forca XWayland para 'sempre no topo' funcionar de forma confiavel no KDE
+    # Wayland. No Windows nao existe xcb: forcar aqui deixaria o Qt sem tela.
+    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 import time
@@ -28,9 +31,12 @@ import dervs_enrich as enriquecimento
 import dervs_atalhos as atalhos
 import dervs_config as cfg
 from dervs_tts import Voz
-from dervs_listen import Endpointer, salvar_wav, separar_chamada, FRAME_BYTES
+from dervs_listen import (Endpointer, salvar_wav, separar_chamada,
+                          FRAME_BYTES, FRAME_AMOSTRAS, TAXA)
 
 HOME = os.path.expanduser("~")
+AQUI = os.path.dirname(os.path.abspath(__file__))
+TMP  = tempfile.gettempdir()      # /tmp no Linux, %TEMP% no Windows
 
 # --- caminhos da voz (mesmos do script 'falar') ---
 VOICE_DIR = f"{HOME}/voice"
@@ -38,10 +44,26 @@ PY_VOZ    = f"{VOICE_DIR}/.venv/bin/python"
 ND        = f"{VOICE_DIR}/nerd-dictation/nerd-dictation"   # motor antigo (Vosk), aposentado
 MODEL     = f"{VOICE_DIR}/model"
 
-# --- motor de voz novo: Whisper large-v3-turbo via faster-whisper ---
-STT_PY    = f"{VOICE_DIR}/whisper-venv/bin/python"   # python do ambiente isolado do Whisper
-STT_DMN   = f"{VOICE_DIR}/dervs_stt_daemon.py"    # cérebro que fica carregado esperando fala
-REC_WAV   = "/tmp/dervs_rec.wav"                  # onde a gravação é salva antes de transcrever
+
+def _python_do_ouvido() -> str:
+    """O Python que tem faster-whisper instalado — é ele que roda o daemon.
+
+    Ordem: variável de ambiente (quem quiser mandar), depois o ambiente isolado
+    do próprio repositório (é onde o instalador do Windows põe tudo), depois o
+    ambiente do Linux, e por fim o Python que está rodando este arquivo.
+    """
+    for caminho in (os.environ.get("DERVS_PY"),
+                    os.path.join(AQUI, "dervs-venv", "Scripts", "python.exe"),
+                    f"{VOICE_DIR}/whisper-venv/bin/python"):
+        if caminho and os.path.exists(caminho):
+            return caminho
+    return sys.executable
+
+
+# --- motor de voz: porteiro local + transcrição precisa ---
+STT_PY    = _python_do_ouvido()
+STT_DMN   = os.path.join(AQUI, "dervs_stt_daemon.py")   # fica ao lado deste arquivo
+REC_WAV   = os.path.join(TMP, "dervs_rec.wav")   # gravação manual, antes de transcrever
 
 # --- paleta Grimorio Arcano (valores do globals.css do produto) ---
 INK      = "#07080e"   # fundo mais fundo
@@ -70,6 +92,28 @@ RISCO_TXT = {
 def _ydotoold():
     if subprocess.run(["pgrep", "-x", "ydotoold"], capture_output=True).returncode != 0:
         subprocess.Popen(["ydotoold"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _colar_na_janela_em_foco():
+    """Aperta Ctrl+V na janela onde o dono estava.
+
+    Não dá para fazer isso de um jeito só: cada sistema tem a própria maneira de
+    o programa 'apertar uma tecla' por você. No Linux é o `ydotool` (que escreve
+    em /dev/uinput); no Windows é a função `keybd_event` do próprio sistema,
+    chamada direto pelo `ctypes` — sem instalar nada.
+    """
+    if WINDOWS:
+        import ctypes
+        VK_CONTROL, VK_V, SOLTAR = 0x11, 0x56, 0x0002
+        teclado = ctypes.windll.user32
+        teclado.keybd_event(VK_CONTROL, 0, 0, 0)          # segura Ctrl
+        teclado.keybd_event(VK_V, 0, 0, 0)                # aperta V
+        teclado.keybd_event(VK_V, 0, SOLTAR, 0)           # solta V
+        teclado.keybd_event(VK_CONTROL, 0, SOLTAR, 0)     # solta Ctrl
+        return
+    _ydotoold()
+    # keycodes do kernel Linux: 29 = Ctrl, 47 = V
+    subprocess.Popen(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"])
 
 
 # Estado de gravação compartilhado entre o pop-up e o selo flutuante (que o lê para acender).
@@ -136,6 +180,137 @@ class Tarefa(QtCore.QThread):
             self.erro.emit(str(e))
 
 
+class Microfone:
+    """De onde vêm os quadros de 30 ms de som. Esconde a diferença entre os
+    sistemas, para a thread de escuta não precisar saber em qual está.
+
+    Windows não tem `arecord` (utilitário do ALSA, que é do Linux), então a
+    fonte padrão passou a ser a biblioteca `sounddevice`, que fala direto com o
+    driver de áudio do sistema e funciona nos dois. O `arecord` fica só como
+    reserva para uma máquina Linux que não tenha `sounddevice` instalado — é
+    como o projeto nasceu e não custa nada manter.
+    """
+
+    def __init__(self):
+        self._stream = None      # caminho sounddevice
+        self._proc = None        # caminho arecord (Linux, reserva)
+
+    def abrir(self):
+        try:
+            import sounddevice as sd
+        except Exception:
+            sd = None
+
+        if sd is not None:
+            # dtype int16 e 1 canal a 16 kHz: exatamente o que o Endpointer e o
+            # Whisper esperam, sem conversão no meio do caminho.
+            self._stream = sd.RawInputStream(
+                samplerate=TAXA, blocksize=FRAME_AMOSTRAS,
+                dtype="int16", channels=1, latency="low")
+            self._stream.start()
+            return
+
+        if WINDOWS:
+            raise RuntimeError(
+                "não achei a biblioteca sounddevice, que é como eu ouço o "
+                "microfone no Windows. Instale com: "
+                "dervs-venv\\Scripts\\python.exe -m pip install sounddevice")
+
+        self._proc = subprocess.Popen(
+            ["arecord", "-q", "-f", "S16_LE", "-r", str(TAXA), "-c", "1", "-t", "raw"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def ler(self) -> bytes:
+        """Um quadro de 30 ms, ou b'' se a fonte caiu (troca de dispositivo,
+        driver reiniciou, `parar()` foi chamado)."""
+        if self._stream is not None:
+            try:
+                dados, _estourou = self._stream.read(FRAME_AMOSTRAS)
+            except Exception:
+                return b""
+            quadro = bytes(dados)
+            return quadro if len(quadro) == FRAME_BYTES else b""
+        if self._proc is not None:
+            quadro = self._proc.stdout.read(FRAME_BYTES)
+            return quadro if quadro and len(quadro) == FRAME_BYTES else b""
+        return b""
+
+    def motivo_da_queda(self) -> str:
+        if self._proc is not None:
+            try:
+                return (self._proc.stderr.read() or b"").decode("utf-8", "replace").strip()[:200]
+            except Exception:
+                pass
+        return ""
+
+    def fechar(self):
+        """Fecha a fonte. Precisa destravar um `ler()` que esteja bloqueado
+        neste instante, senão a thread de escuta fica presa para sempre."""
+        if self._stream is not None:
+            try:
+                self._stream.abort()
+            except Exception:
+                pass
+            try:
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
+        if self._proc is not None:
+            try:
+                self._proc.terminate()
+            except Exception:
+                pass
+            self._proc = None
+
+
+class GravacaoManual(QtCore.QThread):
+    """A gravação do botão Gravar/Parar, para quem prefere clicar a falar o nome.
+
+    Antes isto era o `pw-record` do PipeWire, que só existe no Linux, parado por
+    `terminate()` num processo externo. Agora é uma thread que usa a mesma fonte
+    de microfone da escuta contínua: um caminho só, igual nos dois sistemas, e
+    sem depender de o processo externo fechar o arquivo a tempo.
+    """
+    pronta = QtCore.pyqtSignal()
+
+    def __init__(self, caminho):
+        super().__init__()
+        self.caminho = caminho
+        self._rodando = False
+        self._mic = None
+
+    def run(self):
+        self._rodando = True
+        self._mic = Microfone()
+        pedacos = []
+        try:
+            self._mic.abrir()
+            while self._rodando:
+                quadro = self._mic.ler()
+                if not quadro:
+                    break
+                pedacos.append(quadro)
+        except Exception as e:
+            sys.stderr.write("dervs: gravação manual falhou (%s)\n" % e)
+            sys.stderr.flush()
+        finally:
+            self._mic.fechar()
+        # Grava mesmo se vier vazio: quem espera o arquivo prefere um .wav de
+        # silêncio a ficar esperando para sempre por um arquivo que não vem.
+        try:
+            salvar_wav(b"".join(pedacos), self.caminho)
+        except Exception as e:
+            sys.stderr.write("dervs: não consegui salvar a gravação (%s)\n" % e)
+            sys.stderr.flush()
+        self.pronta.emit()
+
+    def parar(self):
+        self._rodando = False
+        if self._mic is not None:
+            self._mic.fechar()
+
+
 class Escuta(QtCore.QThread):
     """Escuta o microfone o tempo todo e, quando você termina uma frase, avisa
     (emite o caminho de um .wav pronto para transcrever). É o que permite
@@ -147,26 +322,27 @@ class Escuta(QtCore.QThread):
         super().__init__()
         self._rodando = False
         self.pausado = False
-        self._proc = None
+        self._mic = None
 
     def run(self):
         self._rodando = True
         ep = Endpointer()
         estava_pausado = False
         while self._rodando:
+            self._mic = Microfone()
             try:
-                self._proc = subprocess.Popen(
-                    ["arecord", "-q", "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "raw"],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self._mic.abrir()
             except Exception as e:
                 sys.stderr.write("dervs: não consegui abrir o microfone (%s)\n" % e)
                 sys.stderr.flush()
                 return
+            motivo = ""
             try:
                 while self._rodando:
-                    frame = self._proc.stdout.read(FRAME_BYTES)
-                    if not frame or len(frame) < FRAME_BYTES:
-                        break               # arecord morreu: sai para religar
+                    frame = self._mic.ler()
+                    if not frame:
+                        motivo = self._mic.motivo_da_queda()
+                        break               # a fonte caiu: sai para religar
                     if self.pausado:
                         if not estava_pausado:
                             ep.reset()      # entrou na pausa: descarta a frase pela metade
@@ -178,36 +354,25 @@ class Escuta(QtCore.QThread):
                     estava_pausado = False
                     pcm = ep.processar(frame)
                     if pcm:
-                        caminho = "/tmp/dervs_fala_%d.wav" % int(time.time() * 1000)
+                        caminho = os.path.join(
+                            TMP, "dervs_fala_%d.wav" % int(time.time() * 1000))
                         salvar_wav(pcm, caminho)
                         self.fala.emit(caminho)
             finally:
-                erro = b""
-                try:
-                    erro = self._proc.stderr.read() or b""
-                except Exception:
-                    pass
-                try:
-                    self._proc.terminate()
-                except Exception:
-                    pass
+                self._mic.fechar()
             if self._rodando:
-                # o microfone caiu sozinho (troca de dispositivo, pipewire reiniciou):
-                # religa em vez de ficar surdo para sempre, como acontecia antes.
-                sys.stderr.write("dervs: microfone caiu, religando em 1s %s\n"
-                                 % erro.decode("utf-8", "replace").strip()[:200])
+                # o microfone caiu sozinho (troca de dispositivo, driver de áudio
+                # reiniciou): religa em vez de ficar surdo para sempre.
+                sys.stderr.write("dervs: microfone caiu, religando em 1s %s\n" % motivo)
                 sys.stderr.flush()
                 time.sleep(1.0)
 
     def parar(self):
-        """Para a escuta de verdade: mata o arecord para o read() destravar na
-        hora (senão a thread ficaria presa lendo o microfone)."""
+        """Para a escuta de verdade: fecha a fonte para o `ler()` destravar na
+        hora (senão a thread ficaria presa esperando som do microfone)."""
         self._rodando = False
-        if self._proc is not None:
-            try:
-                self._proc.terminate()
-            except Exception:
-                pass
+        if self._mic is not None:
+            self._mic.fechar()
 
 
 class PopUp(QtWidgets.QWidget):
@@ -242,6 +407,7 @@ class PopUp(QtWidgets.QWidget):
         self.MAX_FILA = 4              # guarda no máximo 4 — depois é conversa velha demais
         self._desperto = False         # já acordou pela palavra "DERVS"?
         self._desperto_ate = 0.0       # até quando fica desperto sem repetir o nome
+        self._wav_no_porteiro = None   # frase esperando o veredito do porteiro local
         self.JANELA_DESPERTO = self._conf["janela_desperto_seg"]  # segs ouvindo após te atender
         self._atalhos_ligados = self._conf["atalhos_ligados"]     # responder trivial sem o cérebro
         self.conversa = []             # transcript: [{papel, texto}]
@@ -425,6 +591,14 @@ class PopUp(QtWidgets.QWidget):
             self._toast("voz desligada 📖")
 
     def alternar_conversa(self, ligar):
+        """O liga/desliga da escuta. LIGADO = o microfone está aberto o tempo
+        todo; DESLIGADO = nada é ouvido, nem localmente.
+
+        O estado precisa ser óbvio num relance, sem abrir menu: quem deixa um
+        microfone ligado o dia inteiro tem de conseguir olhar para a tela e
+        saber, na hora, se ele está aberto. Daí o botão dizer com todas as
+        letras em qual dos dois estados está, em vez de só ficar 'apertado'.
+        """
         if ligar:
             self.escuta = Escuta()
             self._registrar(self.escuta)   # mantém referência até a thread morrer
@@ -432,15 +606,26 @@ class PopUp(QtWidgets.QWidget):
             self.escuta.start()
             self._fila_fala = []
             self._desperto = False
+            self._wav_no_porteiro = None
+            self.b_conversa.setText("🔴  Ouvindo")
+            self.b_conversa.setToolTip(
+                "LIGADO: o microfone está aberto. Só respondo quando ouvir "
+                "'DERVS' ou 'OK DERVS' — o resto é decidido aqui na sua "
+                "máquina e não sai dela. Clique para desligar o microfone.")
             self._toast("ouvindo 🎙️ — me chame por 'DERVS'")
             if self.voz.ligada:
                 self.voz.falar("Tô ligado. É só me chamar de DERVS.")
         else:
             if self.escuta is not None:
-                self.escuta.parar()        # mata o arecord; a thread sai sozinha
+                self.escuta.parar()        # fecha o microfone; a thread sai sozinha
                 self.escuta = None         # (a referência forte segue em _threads)
             self._fila_fala = []           # não responder frase velha ao religar
             self._desperto = False
+            self._wav_no_porteiro = None
+            self.b_conversa.setText("🎙️  Microfone desligado")
+            self.b_conversa.setToolTip(
+                "DESLIGADO: o microfone está fechado, não estou ouvindo nada. "
+                "Clique para eu começar a ouvir.")
             self._toast("parei de ouvir")
 
     def _fala_continua(self, wav):
@@ -455,7 +640,15 @@ class PopUp(QtWidgets.QWidget):
         self._puxar_da_fila()
 
     def _puxar_da_fila(self):
-        """Manda a próxima frase da fila para transcrever, se der para atender agora."""
+        """Manda a próxima frase da fila para o motor de voz, se der para atender.
+
+        AQUI mora a decisão que faz o DERVS poder ficar ligado o dia inteiro:
+        se ele ainda está dormindo, a frase vai primeiro para o PORTEIRO, que
+        decide na própria máquina se o nome foi dito. Só o que o porteiro deixa
+        passar vai para a nuvem. Se ele já está desperto (você acabou de falar
+        com ele), a frase vai direto para a transcrição precisa — não faz
+        sentido pedir o nome de novo no meio de uma conversa.
+        """
         if not self._fila_fala:
             return
         if self._tarefa is not None or self._transcrevendo or not self._stt_pronto:
@@ -466,8 +659,17 @@ class PopUp(QtWidgets.QWidget):
         wav = self._fila_fala.pop(0)
         self._transcrevendo = True
         self._auto_submeter = True
-        self.status.setText("ouvi — transcrevendo…"); self.status.setStyleSheet(f"color:{ARCANE};")
-        self.stt.write((wav + "\n").encode())
+
+        if self._desperto and time.time() < self._desperto_ate:
+            self._wav_no_porteiro = None
+            self.status.setText("ouvi — transcrevendo…")
+            self.status.setStyleSheet(f"color:{ARCANE};")
+            self.stt.write(("TRANSCREVER " + wav + "\n").encode())
+        else:
+            self._wav_no_porteiro = wav       # guardado para o caso de o portão abrir
+            self.status.setText("ouvindo…")
+            self.status.setStyleSheet(f"color:{PARCH_DIM};")
+            self.stt.write(("PORTEIRO " + wav + "\n").encode())
 
     def _entrada_continua(self, texto):
         """Aplica a palavra de acordar. Dormindo, só reage se ouvir 'DERVS'.
@@ -510,17 +712,18 @@ class PopUp(QtWidgets.QWidget):
             self._iniciar_gravacao()
 
     def _iniciar_gravacao(self):
-        self.rec = QtCore.QProcess(self)
-        self.rec.start("pw-record",
-                       ["--rate", "16000", "--channels", "1", "--format", "s16", REC_WAV])
+        self.rec = GravacaoManual(REC_WAV)
+        self._registrar(self.rec)      # referência forte até a thread morrer
+        self.rec.pronta.connect(lambda: self._gravacao_fechada())
+        self.rec.start()
         _ESTADO["gravando"] = True
 
     def _parar_gravacao(self):
         """Para a gravação SEM congelar a tela.
 
         Antes havia um `waitForFinished(2000)` aqui: a janela ficava travada até
-        2 segundos esperando o pw-record fechar o arquivo. Agora só pedimos para
-        parar e seguimos quando ele avisar que acabou (sinal `finished`) — a
+        2 segundos esperando o gravador fechar o arquivo. Agora só pedimos para
+        parar e seguimos quando ele avisar que acabou (sinal `pronta`) — a
         espera é obrigatória, senão o .wav vai incompleto para o Whisper, mas
         ela não precisa ser feita segurando a interface.
         """
@@ -531,9 +734,8 @@ class PopUp(QtWidgets.QWidget):
         if self.rec is None:
             self._gravacao_fechada()
             return
-        self.rec.finished.connect(lambda *_: self._gravacao_fechada())
-        self.rec.terminate()
-        # rede de segurança: se o pw-record não morrer, seguimos assim mesmo em 2s
+        self.rec.parar()
+        # rede de segurança: se a thread não terminar, seguimos assim mesmo em 2s
         QtCore.QTimer.singleShot(2000, self._gravacao_fechada)
 
     def _gravacao_fechada(self):
@@ -547,7 +749,7 @@ class PopUp(QtWidgets.QWidget):
         self._rec_enviado = True
         if self.rec is not None:
             try:
-                self.rec.kill()
+                self.rec.parar()
             except Exception:
                 pass
             self.rec = None
@@ -567,6 +769,28 @@ class PopUp(QtWidgets.QWidget):
                 if self._pendente:
                     self.stt.write((self._pendente + "\n").encode())
                     self._pendente = None
+            elif s.startswith("PORTEIRO "):
+                # O porteiro decidiu, sem o áudio sair da máquina. Se não era
+                # com ele, a frase morre aqui: nada vai para a nuvem, nada é
+                # cobrado, e o que foi dito na sala não sai do computador.
+                try:
+                    veredito = json.loads(s[9:])
+                except Exception:
+                    veredito = {}
+                wav = self._wav_no_porteiro
+                self._wav_no_porteiro = None
+                if veredito.get("acordou") and wav:
+                    self._desperto = True
+                    self._desperto_ate = time.time() + self.JANELA_DESPERTO
+                    self.status.setText("ouvi meu nome — transcrevendo…")
+                    self.status.setStyleSheet(f"color:{ARCANE};")
+                    self.stt.write(("TRANSCREVER " + wav + "\n").encode())
+                else:
+                    self._transcrevendo = False
+                    self._auto_submeter = False
+                    self.status.setText("💤 me chame por 'DERVS'")
+                    self.status.setStyleSheet(f"color:{PARCH_DIM};")
+                    self._puxar_da_fila()
             elif s.startswith("RESULT "):
                 try:
                     texto = json.loads(s[7:])
@@ -634,8 +858,13 @@ class PopUp(QtWidgets.QWidget):
         QtCore.QTimer.singleShot(280, self._colar)
 
     def _colar(self):
-        _ydotoold()
-        subprocess.Popen(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"])
+        try:
+            _colar_na_janela_em_foco()
+        except Exception as e:
+            # o texto já está na área de transferência: o dono cola com Ctrl+V
+            sys.stderr.write("dervs: não consegui colar sozinho (%s)\n" % e)
+            sys.stderr.flush()
+            self._toast("copiado — cole com Ctrl+V")
 
     def limpar(self):
         """Recomeça do zero: apaga o campo de baixo, a conversa de cima E a
