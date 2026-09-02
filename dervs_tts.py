@@ -23,15 +23,41 @@ Regras de projeto:
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
+import time
+import wave
 import json
+
+import dervs_config
 
 HOME = os.path.expanduser("~")
 VOICE_DIR = f"{HOME}/voice"
 
+
+def _venv_python(venv_dir: str) -> str:
+    """Caminho do python de dentro de um venv: Scripts\\python.exe no Windows,
+    bin/python em Linux — mesma venv, layout diferente por plataforma."""
+    if sys.platform == "win32":
+        return os.path.join(venv_dir, "Scripts", "python.exe")
+    return os.path.join(venv_dir, "bin", "python")
+
+
+def _dir_modelos_kokoro() -> str:
+    """Onde ficam os modelos do Kokoro. DERVS_MODELOS sobrepõe tudo; senão,
+    no Windows é %LOCALAPPDATA%\\dervs\\modelos (onde já foram baixados nesta
+    máquina); em Linux continua ~/voice/kokoro-model."""
+    if os.environ.get("DERVS_MODELOS"):
+        return os.environ["DERVS_MODELOS"]
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
+        return os.path.join(base, "dervs", "modelos")
+    return f"{VOICE_DIR}/kokoro-model"
+
+
 # --- Piper (rápido, padrão) ---
-PIPER_PY = f"{VOICE_DIR}/tts-venv/bin/python"
+PIPER_PY = _venv_python(f"{VOICE_DIR}/tts-venv")
 PIPER_DAEMON = f"{VOICE_DIR}/dervs_piper_daemon.py"
 VOZES_DIR = f"{VOICE_DIR}/piper-voices"
 VOZ_PADRAO = "jeff"             # faber / cadu / jeff — ver escolha no relatório da tarefa
@@ -43,15 +69,14 @@ NOISE_W = 0.9
 SILENCIO_FRASE = "0.35"          # só usado no modo de reserva (sem daemon)
 
 # --- Kokoro (humano E rápido, padrão novo) ---
-KOKORO_PY = f"{VOICE_DIR}/kokoro-venv/bin/python"
+KOKORO_PY = _venv_python(f"{VOICE_DIR}/kokoro-venv")
 KOKORO_DAEMON = f"{VOICE_DIR}/dervs_kokoro_daemon.py"
-KOKORO_MODELO = f"{VOICE_DIR}/kokoro-model/kokoro-v1.0.onnx"
+KOKORO_MODELO = os.path.join(_dir_modelos_kokoro(), "kokoro-v1.0.onnx")
 VOZ_KOKORO_PADRAO = "pm_santa"   # masculina grave (feiticeiro)
-KOKORO_SPEED = 1.15              # 1.0 = natural; 1.15 = mais ágil, ainda claro (pedido do dono)
 KOKORO_LANG = "pt-br"
 
 # --- XTTS (humano, opcional) ---
-XTTS_PY = f"{VOICE_DIR}/xtts-venv/bin/python"
+XTTS_PY = _venv_python(f"{VOICE_DIR}/xtts-venv")
 XTTS_DAEMON = f"{VOICE_DIR}/dervs_tts_daemon.py"
 
 # Motor padrão: Kokoro — humano E rápido no CPU (~0,6 s até o 1º som quente),
@@ -67,22 +92,122 @@ def caminho_voz(nome: str) -> str:
 MODELO_VOZ = caminho_voz(VOZ_PADRAO)   # compatibilidade
 
 
-def _player():
+def _player_linux():
     for p in ("pw-play", "paplay", "aplay"):
         if shutil.which(p):
             return p
     return None
 
 
+def _reproducao_disponivel() -> bool:
+    """Tem como tocar áudio nesta máquina? No Windows sempre tem — sounddevice
+    se estiver instalado, senão winsound (biblioteca padrão, sempre presente)."""
+    if sys.platform == "win32":
+        return True
+    return _player_linux() is not None
+
+
+class _ReprodutorSD:
+    """Toca um wav com sounddevice e imita a interface mínima de
+    subprocess.Popen (poll/terminate/wait) que o resto de Voz já usa para
+    _play — assim calar() (barge-in) funciona igual em Windows e Linux."""
+
+    def __init__(self, wav: str):
+        import sounddevice as sd
+        import soundfile as sf
+        self._sd = sd
+        dados, taxa = sf.read(wav, dtype="float32")
+        sd.play(dados, taxa)
+
+    def poll(self):
+        try:
+            fluxo = self._sd.get_stream()
+        except Exception:
+            return 0
+        if fluxo is not None and fluxo.active:
+            return None      # ainda tocando (igual Popen.poll() == None)
+        return 0
+
+    def terminate(self):
+        try:
+            self._sd.stop()
+        except Exception:
+            pass
+
+    def wait(self):
+        try:
+            self._sd.wait()
+        except Exception:
+            pass
+
+
+class _ReprodutorWinsound:
+    """Reserva quando sounddevice não está instalado: winsound é da biblioteca
+    padrão do Windows, então nunca falta. Assíncrono, para o barge-in
+    (calar()) conseguir cortar no meio — SND_PURGE derruba o que estiver
+    tocando na hora."""
+
+    def __init__(self, wav: str):
+        import winsound
+        self._winsound = winsound
+        self._parado = False
+        with wave.open(wav, "rb") as w:
+            self._duracao = w.getnframes() / float(w.getframerate() or 1)
+        self._inicio = time.monotonic()
+        winsound.PlaySound(wav, winsound.SND_FILENAME | winsound.SND_ASYNC)
+
+    def poll(self):
+        if self._parado:
+            return 0
+        return None if (time.monotonic() - self._inicio) < self._duracao else 0
+
+    def terminate(self):
+        self._parado = True
+        try:
+            self._winsound.PlaySound(None, self._winsound.SND_PURGE)
+        except Exception:
+            pass
+
+    def wait(self):
+        while self.poll() is None:
+            time.sleep(0.02)
+
+
+def criar_reprodutor(wav: str):
+    """Devolve um objeto com poll()/terminate()/wait() tocando `wav` — mesmo
+    contrato do subprocess.Popen usado no Linux, para calar() e falando()
+    valerem para os dois sistemas sem precisar saber qual está tocando.
+    Devolve None se não há como tocar nada."""
+    if sys.platform == "win32":
+        try:
+            return _ReprodutorSD(wav)
+        except Exception as erro:
+            sys.stderr.write(f"dervs_tts: sounddevice indisponível ({erro}), usando winsound\n")
+            try:
+                return _ReprodutorWinsound(wav)
+            except Exception as erro2:
+                sys.stderr.write(f"dervs_tts: winsound também falhou ({erro2})\n")
+                return None
+    player = _player_linux()
+    if not player:
+        return None
+    return subprocess.Popen([player, wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 class Voz:
     """Fala frases, uma de cada vez. Ligada/desligada por um interruptor."""
 
     def __init__(self, ligada: bool = False, motor: str = MOTOR_PADRAO,
-                 voz: str = VOZ_PADRAO, voz_kokoro: str = VOZ_KOKORO_PADRAO):
+                 voz: str = VOZ_PADRAO, voz_kokoro: str = VOZ_KOKORO_PADRAO,
+                 voz_velocidade: float | None = None):
         self.ligada = ligada
         self.motor = motor
         self.modelo = caminho_voz(voz)    # voz do Piper
         self.voz_kokoro = voz_kokoro      # voz do Kokoro
+        # velocidade do Kokoro: vem da config (voz_velocidade), a menos que
+        # quem chamou passe um valor explícito.
+        self.voz_velocidade = (voz_velocidade if voz_velocidade is not None
+                                else dervs_config.carregar()["voz_velocidade"])
         self._synth = None                 # processo de síntese "de reserva" (sem daemon)
         self._play = None                  # processo do player
         self._daemon = None                # processo do daemon XTTS (persistente)
@@ -110,7 +235,7 @@ class Voz:
     # ---- disponibilidade ----
     def _piper_disponivel(self):
         return (os.path.exists(PIPER_PY) and os.path.exists(self.modelo)
-                and _player() is not None)
+                and _reproducao_disponivel())
 
     def _piper_daemon_instalado(self):
         return os.path.exists(PIPER_DAEMON) and self._piper_disponivel()
@@ -120,7 +245,7 @@ class Voz:
 
     def _kokoro_instalado(self):
         return (os.path.exists(KOKORO_PY) and os.path.exists(KOKORO_DAEMON)
-                and os.path.exists(KOKORO_MODELO) and _player() is not None)
+                and os.path.exists(KOKORO_MODELO) and _reproducao_disponivel())
 
     def _kokoro_disponivel(self):
         return self._kokoro_instalado() and not self._kokoro_morto
@@ -346,7 +471,7 @@ class Voz:
                             return
                 pedido = json.dumps({
                     "texto": texto, "voz": self.voz_kokoro,
-                    "speed": KOKORO_SPEED, "lang": KOKORO_LANG,
+                    "speed": self.voz_velocidade, "lang": KOKORO_LANG,
                 }) + "\n"
                 d.stdin.write(pedido.encode("utf-8"))
                 d.stdin.flush()
@@ -432,13 +557,11 @@ class Voz:
 
     # ---- tocar ----
     def _tocar(self, wav):
-        player = _player()
-        if not player:
-            return
         with self._lock:
-            self._play = subprocess.Popen(
-                [player, wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._play = criar_reprodutor(wav)
             play = self._play
+        if play is None:
+            return
         play.wait()
 
 

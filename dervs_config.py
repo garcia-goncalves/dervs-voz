@@ -10,9 +10,21 @@ Cada chave está documentada no PADRAO abaixo; é ele que vira o arquivo de
 exemplo em `garantir_arquivo()`.
 """
 import os
+import sys
 import json
 
-CONFIG_DIR = os.path.expanduser("~/.config/dervs")
+
+def _resolver_config_dir() -> str:
+    """No Windows a config mora em %APPDATA%\\dervs (padrão do sistema para
+    dado de app, sobrevive a reinstalação da conta); em Linux continua
+    ~/.config/dervs. DERVS_MODELOS não afeta isto — é só para os modelos."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roaming")
+        return os.path.join(base, "dervs")
+    return os.path.expanduser("~/.config/dervs")
+
+
+CONFIG_DIR = _resolver_config_dir()
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 # Valores de fábrica. Editar o config.json sobrescreve só o que você mudar.
@@ -48,6 +60,11 @@ PADRAO = {
     # Voz do Kokoro (quando motor="kokoro"): "pm_santa" (masculina grave,
     # feiticeiro), "pm_alex" (masculina) ou "pf_dora" (feminina).
     "voz_kokoro": "pm_santa",
+
+    # Velocidade da fala do Kokoro. 1.0 = natural; 1.2 = mais ágil, ainda
+    # claro (testado na máquina do dono, sem custo extra de tempo). Aceita de
+    # 0.5 (bem devagar) a 2.0 (bem rápido).
+    "voz_velocidade": 1.2,
 
     # Voz do Piper (quando motor="piper"): "jeff", "cadu" ou "faber".
     "voz": "jeff",
@@ -92,6 +109,13 @@ def _validar(conf: dict) -> dict:
         conf["motor"] = PADRAO["motor"]
     if conf.get("voz_kokoro") not in ("pm_santa", "pm_alex", "pf_dora"):
         conf["voz_kokoro"] = PADRAO["voz_kokoro"]
+    try:
+        v = float(conf["voz_velocidade"])
+        if not (0.5 <= v <= 2.0):
+            raise ValueError
+        conf["voz_velocidade"] = v
+    except (TypeError, ValueError, KeyError):
+        conf["voz_velocidade"] = PADRAO["voz_velocidade"]
     if conf.get("voz") not in ("jeff", "cadu", "faber"):
         conf["voz"] = PADRAO["voz"]
     conf["navegador_ligado"] = bool(conf.get("navegador_ligado", True))

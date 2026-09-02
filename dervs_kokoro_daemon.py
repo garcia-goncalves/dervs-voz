@@ -30,8 +30,21 @@ import tempfile
 import numpy as np
 from kokoro_onnx import Kokoro
 
-MODELO = os.path.expanduser("~/voice/kokoro-model/kokoro-v1.0.onnx")
-VOZES = os.path.expanduser("~/voice/kokoro-model/voices-v1.0.bin")
+
+def _dir_modelos() -> str:
+    """DERVS_MODELOS sobrepõe tudo; senão, no Windows é
+    %LOCALAPPDATA%\\dervs\\modelos (onde já foram baixados nesta máquina);
+    em Linux continua ~/voice/kokoro-model."""
+    if os.environ.get("DERVS_MODELOS"):
+        return os.environ["DERVS_MODELOS"]
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
+        return os.path.join(base, "dervs", "modelos")
+    return os.path.expanduser("~/voice/kokoro-model")
+
+
+MODELO = os.path.join(_dir_modelos(), "kokoro-v1.0.onnx")
+VOZES = os.path.join(_dir_modelos(), "voices-v1.0.bin")
 
 VOZ_PADRAO = "pm_santa"   # masculina grave (feiticeiro); troca no pedido
 LANG_PADRAO = "pt-br"
