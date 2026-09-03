@@ -341,3 +341,18 @@ mecanismo (o aviso de vocabulário resolve a troca por "Deus") e mede a velocida
 na máquina, mas **não** prova a taxa de acerto com a voz e o microfone dele, em ambiente
 com ruído. Isso só se mede com ele falando ao microfone — é o critério de aceitação nº 5
 do briefing e continua pendente.
+
+### Por que o criterio 5 esta BLOQUEADO, e nao apenas pendente — 03/09/2026
+
+Medido em 02/09/2026, noite: **nao ha microfone ligado nesta maquina.** As duas
+entradas rosa do gabinete (`Front Pink In` e `Rear Pink In`) aparecem como
+DESCONECTADO no registro do Windows, e nao existe microfone USB, webcam com
+microfone nem fone Bluetooth. A ultima gravacao do dono tinha 4,71 s e **pico 1
+numa escala de 32.767** — silencio digital puro.
+
+Ou seja: o criterio de aceitacao nº 5 nao esta pendente por falta de tempo. Ele
+esta **bloqueado por hardware**, e destrava no minuto em que o dono ligar um
+microfone na entrada rosa. Nenhuma linha de codigo o resolve.
+
+O detalhe da medicao, e o que o app aprendeu com isso (aviso de "nao entrou som"
+em vez de campo vazio), esta em `ESTADO.md` §2.1 e §3.1.

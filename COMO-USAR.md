@@ -270,26 +270,30 @@ tempo mais preciso e mais barato que o anterior.
 
 ## O que ainda falta para funcionar 100%
 
-**Falta a chave da OpenAI nesta máquina.** É o que permite a transcrição
-precisa e o cérebro. Sem ela o DERVS ainda abre, ouve e reconhece seu nome
-(isso é local), mas para transcrever ele cai no modo offline, que é bem mais
-lento nesta máquina — que não tem placa de vídeo dedicada.
+*(atualizado em 03/09/2026 — a versão anterior desta seção dizia que faltava a
+chave da OpenAI. Ela foi instalada em 02/09 e está funcionando.)*
 
-A chave é um segredo: **não me mande por aqui.** O caminho certo é você mesmo
-criar o arquivo. Para descobrir o caminho exato, é este comando:
+**1. Ligar um microfone no computador.** É a única coisa que depende da sua
+mão, e é o motivo do "o DERVS não está me ouvindo". As duas entradas de
+microfone do gabinete — a rosa da frente e a rosa de trás — estão **vazias**, e
+não há microfone USB, webcam com microfone nem fone Bluetooth nesta máquina.
+Ligue na entrada rosa de trás e ele ouve na hora, sem instalar nada.
 
-```
-python -c "import dervs_config as c; print(c.caminhos_do_segredo()[0])"
-```
+**2. Me passar 20 a 30 nomes próprios seus** (clientes, empresas, pessoas,
+termos do seu ramo). Está medido: o DERVS só acerta nome que esteja escrito
+numa lista dentro do programa — o nome "DERVS" saiu de 0 acertos em 5 para 5 em
+5 só por estar lá. Hoje a lista tem palavras genéricas e nenhum nome seu.
 
-Crie um arquivo de texto nesse caminho com uma única linha:
+**3. Decidir se quer a voz da nuvem.** Fica 0,42 segundo mais lenta e custa
+cerca de US$ 4,50 por mês. É dinheiro, então é sua decisão — a voz de hoje
+continua funcionando de graça.
 
-```
-OPENAI_API_KEY=sua-chave-aqui
-```
+**4. O navegador automático não funciona no Windows.** O DERVS sabe pilotar o
+Chrome sozinho, mas o ambiente que isso precisa nunca foi montado aqui. Se você
+quiser essa parte, me avise.
 
-Se preferir, me avise e eu te guio passo a passo — inclusive onde pegar a
-chave, se você não tiver uma.
+O inventário completo — o que funciona, o que não funciona e de quem é a culpa
+de cada coisa — está no arquivo `ESTADO.md`, na pasta do projeto.
 
 ---
 
@@ -297,7 +301,9 @@ chave, se você não tiver uma.
 
 | O que acontece | O que fazer |
 |---|---|
-| Ele não acorda quando chamo | Fale um pouco mais alto e mais perto. Se continuar, me avise: existe um detector mais preciso que dá para ligar (Porcupine), que exige uma conta gratuita de 5 minutos. |
+| **A tela diz "não entrou som"** | É o aviso mais importante que ele dá: o microfone não está entregando áudio nenhum. Ou não tem microfone ligado na entrada rosa, ou ele está mudo no Windows (clique com o botão direito no ícone de som → Configurações de som → Entrada). |
+| **Aperto Gravar, falo, e o texto vem vazio** | Se ele não mostrou nenhum recado, avise. Se mostrou "não entrou som", é a linha de cima. Desde 03/09/2026 ele nunca mais fica calado nesse caso — e também não gasta com a nuvem à toa. |
+| Ele não acorda quando chamo | Primeiro veja se não é a linha acima: sem microfone, ele nunca acorda. Se o microfone está bom, fale um pouco mais alto e mais perto. Se continuar, me avise: existe um detector mais preciso que dá para ligar (Porcupine), que exige uma conta gratuita de 5 minutos. |
 | Ele acorda sozinho, sem eu chamar | Me avise. É o mesmo caminho do item acima. |
 | Ele não fala nada | O motor de voz precisa dos modelos em `%LOCALAPPDATA%\dervs\modelos`. Se a pasta sumiu, me avise que eu baixo de novo. |
 | A janela não abre | Me avise, e diga se apareceu alguma mensagem na tela. |
