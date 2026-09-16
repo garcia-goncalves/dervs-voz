@@ -1,0 +1,23 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <rect width="256" height="256" fill="#050810"/>
+
+  <!-- anel externo, segmentado (8 arcos com espaço entre eles) -->
+  <g stroke="#00E5FF" stroke-width="10" fill="none" stroke-linecap="round">
+    <path d="M 128 40 A 88 88 0 0 1 206 90"/>
+    <path d="M 216 128 A 88 88 0 0 1 190 196"/>
+    <path d="M 128 216 A 88 88 0 0 1 50 190"/>
+    <path d="M 40 128 A 88 88 0 0 1 66 60"/>
+  </g>
+
+  <!-- ticks curtos ao redor, tipo dial -->
+  <g stroke="#0A6E82" stroke-width="4">
+    <path d="M 128 18 L 128 30"/>
+    <path d="M 238 128 L 226 128"/>
+    <path d="M 128 238 L 128 226"/>
+    <path d="M 18 128 L 30 128"/>
+  </g>
+
+  <!-- nucleo -->
+  <circle cx="128" cy="128" r="34" fill="#00E5FF"/>
+  <circle cx="128" cy="128" r="16" fill="#FFFFFF"/>
+</svg>
