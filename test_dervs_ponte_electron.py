@@ -188,6 +188,19 @@ def test_resposta_de_plano_chama_ao_plano_com_confirmar():
     assert _esperar(lambda: recebido == ["confirmar"])
 
 
+def test_verbo_sair_seguido_de_fechar_stdout_chama_ao_sair_uma_vez_so():
+    # a sequência real: o Electron manda "sair" e em seguida fecha o stdout
+    # (encerramento normal) — o `finally` de `_ler_saida` não pode chamar
+    # `ao_sair` de novo por cima do que o verbo já disparou.
+    chamado = []
+    p, processo = _nova_ponte(
+        linhas_de_saida=b'{"verbo": "sair"}\n',
+        ao_sair=lambda: chamado.append(True))
+    assert _esperar(lambda: len(chamado) >= 1)
+    time.sleep(0.2)   # dá tempo do finally (stdout fechado) rodar, se for rodar
+    assert len(chamado) == 1
+
+
 def test_stdout_fechar_chama_ao_sair():
     chamado = []
     # sem linha nenhuma: o BytesIO já nasce "fechado" (EOF imediato)
