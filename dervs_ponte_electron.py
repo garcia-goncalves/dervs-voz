@@ -8,9 +8,25 @@ espírito de protocolo dos daemons (`dervs_stt_daemon.py`, cabeçalho) e das tr�
 escutas do `QProcess` do STT (`dervs.py`, saída/erro/morte): sem as três,
 volta o "DERVS surdo e calado".
 
-Python fala com o Electron pelo `stdin` do filho; o Electron fala de volta
-pelo `stdout`. O `stderr` do filho é lido aqui e reescrito no `sys.stderr`
-deste processo, com o prefixo `electron:` — falha nunca é engolida.
+Electron fala com o Python pelo `stdout` do filho — essa direção funciona
+sem problema. Python fala com o Electron por um SOQUETE TCP local (só
+`127.0.0.1`, porta escolhida pelo sistema, passada ao Electron como
+argumento de linha de comando), **não** pelo `stdin` do filho.
+
+Por quê: um app Electron (sem console, como todo app gráfico do Windows)
+recebe um "fim de stdin" FALSO quase na hora, mesmo com o processo pai
+vivo e escrevendo — é uma limitação do Chromium/Electron no Windows, não
+um jeito errado de escrever. Confirmado em bancada em 17/09/2026: um
+Electron mínimo, sem nenhuma linha do DERVS, reproduz o mesmo "fim falso"
+ao ler `stdin` herdado de um `subprocess.Popen` do Python; rodando o
+MESMO binário como Node puro (`ELECTRON_RUN_AS_NODE=1`, que tem console)
+o problema some. Depois do "fim falso", o `stdin` também para de entregar
+dado novo — não dá para só ignorar o evento e seguir lendo. Daí o soquete:
+mesmo padrão (`127.0.0.1`, nunca a rede) já comprovado em
+`dervs_instancia.py` para a trava de instância única.
+
+O `stderr` do filho é lido aqui e reescrito no `sys.stderr` deste processo,
+com o prefixo `electron:` — falha nunca é engolida.
 
 Verbos Python → Electron (só estes cinco):
   estado  {"valor", "texto", "apoio"} — só quando o estado muda.
@@ -67,6 +83,7 @@ parte do Python):
 """
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -114,26 +131,70 @@ class PonteElectron:
         self._ultimo_volume_enviado = None
         self._ultimo_envio_volume = 0.0
         self._sair_notificado = False
+        self._servidor = None       # soquete que escuta a conexão do Electron
+        self._conexao = None        # soquete aceito, já conversando com o Electron
+        self._canal_saida = None    # onde `_escrever` escreve de verdade
+                                     # (o objeto do soquete, via makefile) —
+                                     # `None` nos testes com dublê, que
+                                     # continuam escrevendo em `processo.stdin`
 
     # ---- subir o filho -----------------------------------------------
 
     def abrir(self, caminho_app, executavel=None):
         """Sobe o Electron apontando para `caminho_app` (a pasta com o
         `package.json`/`main.js`). Levanta `FileNotFoundError` se o Electron
-        não estiver instalado — nunca sobe um DERVS invisível calado."""
+        não estiver instalado — nunca sobe um DERVS invisível calado.
+
+        Antes de subir o filho, abre o soquete de escuta (só `127.0.0.1`)
+        que vai carregar a direção Python → Electron (ver o cabeçalho do
+        arquivo para o porquê de não ser o `stdin`) e passa a porta como
+        último argumento de linha de comando."""
         executavel = executavel or _EXECUTAVEL_PADRAO
         if not os.path.isfile(executavel):
             raise FileNotFoundError(
                 f"o Electron não está instalado ({executavel}) — rode "
                 f"'npm install' dentro da pasta 'electron/' e tente de novo")
+        servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        servidor.bind(("127.0.0.1", 0))
+        servidor.listen(1)
+        porta = servidor.getsockname()[1]
+        self._servidor = servidor
+        threading.Thread(target=self._aceitar_conexao, daemon=True).start()
         kwargs = {}
         if WINDOWS:
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         processo = subprocess.Popen(
-            [executavel, caminho_app],
+            [executavel, caminho_app, str(porta)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             **kwargs)
         self._iniciar(processo)
+
+    def _aceitar_conexao(self):
+        """Espera o Electron conectar no soquete de escuta.
+
+        15 s é folgado de propósito: o Electron só conecta depois de subir o
+        runtime do Chromium, que em máquina carregada pode não ser instantâneo.
+        Endereço de origem é conferido por segurança em profundidade — o
+        soquete já só escuta em `127.0.0.1`, mas nunca custa checar de novo
+        quem está do outro lado antes de tratar a conexão como o Electron."""
+        servidor = self._servidor
+        try:
+            servidor.settimeout(15.0)
+            conexao, endereco = servidor.accept()
+        except OSError:
+            return
+        if endereco[0] != "127.0.0.1":
+            sys.stderr.write(f"ponte: conexão recusada de {endereco!r} (não é loopback)\n")
+            conexao.close()
+            return
+        canal = conexao.makefile("wb")
+        with self._lock:
+            if self._fechado:
+                canal.close()
+                conexao.close()
+                return
+            self._conexao = conexao
+            self._canal_saida = canal
 
     def _iniciar(self, processo):
         """Liga as leituras de `stdout` e `stderr` num processo já subido.
@@ -299,26 +360,53 @@ class PonteElectron:
     def _escrever(self, msg: dict):
         linha = (json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8")
         with self._lock:
-            processo = self._processo
-            if processo is None or processo.stdin is None:
+            # Caminho real: o soquete aceito de `_aceitar_conexao`. Caminho
+            # de teste: nenhum soquete foi aberto (ninguém chamou `abrir()`
+            # de verdade), então cai no `processo.stdin` do dublê — é assim
+            # que a suíte inteira de testes desta ponte continua funcionando
+            # sem precisar subir soquete nenhum.
+            canal = self._canal_saida
+            if canal is None:
+                processo = self._processo
+                canal = processo.stdin if processo is not None else None
+            if canal is None:
                 return
             try:
-                processo.stdin.write(linha)
-                processo.stdin.flush()
+                canal.write(linha)
+                canal.flush()
             except (BrokenPipeError, OSError, ValueError) as e:
                 sys.stderr.write(f"ponte: falha ao escrever para o Electron: {e}\n")
 
     # ---- encerrar -------------------------------------------------------
 
     def fechar(self, espera: float = 3.0):
-        """Fecha o `stdin`, espera, `terminate()`, espera de novo, `kill()`.
+        """Fecha o canal de escrita (soquete ou `stdin` do dublê), o soquete
+        de escuta, espera, `terminate()`, espera de novo, `kill()`.
         Seguro chamar duas vezes."""
         with self._lock:
             if self._fechado:
                 return
             self._fechado = True
             processo = self._processo
-            if processo is not None:
+            canal = self._canal_saida
+            conexao = self._conexao
+            servidor = self._servidor
+            if canal is not None:
+                try:
+                    canal.close()
+                except (OSError, ValueError):
+                    pass
+            if conexao is not None:
+                try:
+                    conexao.close()
+                except OSError:
+                    pass
+            if servidor is not None:
+                try:
+                    servidor.close()
+                except OSError:
+                    pass
+            if canal is None and processo is not None:
                 try:
                     if processo.stdin is not None:
                         processo.stdin.close()

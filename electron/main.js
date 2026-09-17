@@ -2,9 +2,19 @@
 //
 // Este processo é só casca: janela e bandeja. Todo o cérebro (STT, plano,
 // trilhos de risco, execução) continua no processo Python-pai, que sobe este
-// Electron como filho (dervs_ponte_electron.py). A ponte entre os dois é uma
-// linha de JSON por vez: Python → Electron pelo stdin, Electron → Python pelo
-// stdout. O contrato completo está em
+// Electron como filho (dervs_ponte_electron.py). Electron → Python vai pelo
+// stdout (uma linha de JSON por vez). Python → Electron vai por um SOQUETE
+// TCP local (só 127.0.0.1, porta recebida como último argumento de linha de
+// comando), NÃO pelo stdin.
+//
+// Por quê: um app Electron (sem console, como todo app gráfico do Windows)
+// recebe um "fim de stdin" FALSO quase na hora, mesmo com o processo pai
+// vivo e escrevendo — limitação do Chromium/Electron no Windows, confirmada
+// em bancada em 17/09/2026 (ver o cabeçalho de dervs_ponte_electron.py para
+// o teste que provou isso). Depois desse "fim falso" o stdin também para de
+// entregar dado novo — não dá pra só ignorar o evento e seguir lendo.
+//
+// O contrato completo (os verbos, os campos) está em
 // docs/superpowers/plans/dervs-cara-nova.md, seção "Contrato compartilhado".
 //
 // REGRA DURA: nada além dos verbos do contrato pode ir para o stdout —
@@ -14,6 +24,7 @@
 
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } = require("electron");
 const path = require("path");
+const net = require("net");
 const readline = require("readline");
 
 const LIMITE_LINHA = 64 * 1024; // mesmo espírito do _LIMITE_LINHA de dervs_instancia.py
@@ -193,15 +204,30 @@ function tratarLinhaDoPython(linha) {
   }
 }
 
-function ligarStdin() {
-  const rl = readline.createInterface({ input: process.stdin, terminal: false });
-  rl.on("line", tratarLinhaDoPython);
-  // stdin fechado significa que o processo pai (Python) morreu — a lição do
-  // "neto órfão" (test_dervs_arvore_de_processos.py). Sem isto, o Electron
-  // fica vivo sozinho, sem cérebro, para sempre.
-  process.stdin.on("end", () => {
+function ligarCanalDoPython() {
+  // A porta é o ÚLTIMO argumento da linha de comando (o Python sempre manda
+  // assim em dervs_ponte_electron.py). Não usar um índice fixo de
+  // `process.argv` porque o Electron, rodando "sem empacotar" (apontando
+  // para uma pasta), pode inserir o próprio caminho do app em posições
+  // diferentes dependendo da versão.
+  const porta = Number(process.argv[process.argv.length - 1]);
+  if (!Number.isInteger(porta) || porta <= 0) {
+    console.error(`electron: porta do soquete do Python inválida: ${process.argv[process.argv.length - 1]}`);
+    return;
+  }
+  const soquete = net.createConnection({ host: "127.0.0.1", port: porta }, () => {
+    const rl = readline.createInterface({ input: soquete, terminal: false });
+    rl.on("line", tratarLinhaDoPython);
+  });
+  // O soquete fechar/dar erro significa que o processo pai (Python) morreu
+  // — a lição do "neto órfão" (test_dervs_arvore_de_processos.py). Sem
+  // isto, o Electron fica vivo sozinho, sem cérebro, para sempre.
+  soquete.on("close", () => {
     app.isQuitting = true;
     app.quit();
+  });
+  soquete.on("error", (erro) => {
+    console.error(`electron: soquete com o Python deu erro: ${erro.message}`);
   });
 }
 
@@ -223,7 +249,7 @@ ipcMain.on("dervs:responder-plano", (_evento, dado) => {
 app.whenReady().then(() => {
   criarJanela();
   montarBandeja();
-  ligarStdin();
+  ligarCanalDoPython();
 });
 
 // window-all-closed NÃO encerra o app — de propósito, não é o padrão do
