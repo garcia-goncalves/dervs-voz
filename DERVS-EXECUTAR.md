@@ -1,8 +1,11 @@
 # DERVS — o Executar
 
-O DERVS é um selo flutuante que grava sua voz, transcreve offline (Whisper) e
-te dá três ações. Este documento é sobre a terceira, o **Executar** — a conversa
-que entende o que você quer e faz, sempre com confirmação.
+O DERVS grava sua voz, transcreve offline (Whisper) e te dá três ações. No
+Windows a tela é hoje o HUD Electron (`dervs_electron.py`, ponto de entrada
+desde 16/09/2026 — era o selo flutuante do Qt, `dervs.py`, que continua no
+disco como caminho de volta mas não é mais o padrão). Este documento é sobre a
+terceira ação, o **Executar** — a conversa que entende o que você quer e faz,
+sempre com confirmação.
 
 ## As três ações
 
@@ -216,7 +219,8 @@ E instantânea é uma placa de vídeo (GPU) — que esta máquina não tem.
 
 | Arquivo | Função |
 |---|---|
-| `dervs.py` | A tela: selo, conversa, cartões de confirmação, as três ações. |
+| `dervs.py` | A `PopUp` Qt original — hoje usada como motor invisível por `dervs_electron.py` (ver `dervs_electron.py`, classe `Motor`), não mais como a tela visível. |
+| `dervs_electron.py` | O ponto de entrada padrão no Windows: sobe o Qt invisível e a janela HUD do Electron, e faz a ponte entre os dois. |
 | `dervs_brain.py` | O cérebro: conversa com o `claude` e devolve uma ficha estruturada (pergunta/plano). |
 | `dervs_safety.py` | A rede de segurança: a palavra final sobre o risco de cada comando. |
 | `dervs_exec.py` | O executor: roda o comando e traz a prova (código + saída). |
@@ -233,7 +237,7 @@ destrutivo e alvo de rede sempre no topo; desconhecido sempre confirma), o
 parsing do cérebro, a detecção de fim de fala, a validação da config e a lógica
 do navegador autônomo (montar o estado da página, normalizar a ação, reconhecer
 o Chrome travado, executar uma ação com página falsa) e o enriquecimento de lead
-(validar domínio, agregar eventos do bbot, passivo≠ativo). Hoje: **543 testes verdes**.
+(validar domínio, agregar eventos do bbot, passivo≠ativo). Hoje: **606 testes verdes**.
 
 ## Navegador autônomo — clicar e digitar sozinho no seu Chrome
 
