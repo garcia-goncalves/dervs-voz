@@ -1,0 +1,293 @@
+/* estilo.css — HUD do DERVS (Direção E: núcleo + anéis, cor única ciano).
+   Tokens exatos vêm de docs/esteira/dervs-cara-nova/design.md — não inventar
+   nenhum. Raio de borda reto (0-2px) em tudo; nenhuma sombra de UI — o único
+   brilho é o do núcleo, desenhado no canvas (hud.js). */
+
+@font-face {
+  font-family: "Orbitron";
+  src: url("fontes/orbitron-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Share Tech Mono";
+  src: url("fontes/share-tech-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: #050810;
+  --painel: #0A1220;
+  --acento: #00E5FF;
+  --acento-fraco: #0A6E82;
+  --nucleo-quente: #FFFFFF;
+  --texto-primario: #D9F6FF;
+  --texto-secundario: #5C8A99;
+  --erro: #FF3B3B;
+
+  --fonte-display: "Orbitron", sans-serif;
+  --fonte-tecnica: "Share Tech Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg);
+  background-image:
+    repeating-linear-gradient(0deg, rgba(0, 229, 255, .025) 0px, rgba(0, 229, 255, .025) 1px, transparent 1px, transparent 26px),
+    repeating-linear-gradient(90deg, rgba(0, 229, 255, .025) 0px, rgba(0, 229, 255, .025) 1px, transparent 1px, transparent 26px);
+  color: var(--texto-primario);
+  font-family: var(--fonte-tecnica);
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 16px;
+  overflow: hidden;
+}
+
+/* Cantos técnicos — referência de HUD/mira, substitui moldura decorativa. */
+.cantos {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.canto {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+}
+
+.canto-tl { top: 8px; left: 8px; border-top: 2px solid var(--acento); border-left: 2px solid var(--acento); }
+.canto-tr { top: 8px; right: 8px; border-top: 2px solid var(--acento); border-right: 2px solid var(--acento); }
+.canto-bl { bottom: 8px; left: 8px; border-bottom: 2px solid var(--acento); border-left: 2px solid var(--acento); }
+.canto-br { bottom: 8px; right: 8px; border-bottom: 2px solid var(--acento); border-right: 2px solid var(--acento); }
+
+.topo {
+  width: 100%;
+  text-align: center;
+}
+
+.nome {
+  margin: 4px 0 0 0;
+  font-family: var(--fonte-display);
+  font-weight: 700;
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--texto-primario);
+}
+
+.hud {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.rotulo-estado {
+  margin: 0;
+  min-height: 1.4em;
+  font-family: var(--fonte-display);
+  font-weight: 700;
+  font-size: 22px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--acento);
+}
+
+.rotulo-estado[data-erro="1"] {
+  color: var(--erro);
+}
+
+.nucleo-area {
+  position: relative;
+  width: min(320px, 70vw);
+  aspect-ratio: 1 / 1;
+}
+
+#canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.leitura-tecnica {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  margin: 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 10px;
+  letter-spacing: .05em;
+  color: var(--texto-secundario);
+}
+
+.conversa {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fala {
+  margin: 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--texto-primario);
+  word-break: break-word;
+}
+
+.fala-rotulo {
+  color: var(--texto-secundario);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-right: 6px;
+}
+
+.cartao {
+  width: 100%;
+  max-width: 380px;
+  background: var(--painel);
+  border: 2px solid var(--acento-fraco);
+  border-radius: 2px;
+  padding: 12px;
+  display: flex;
+  gap: 10px;
+}
+
+.cartao-erro {
+  border-color: var(--erro);
+  align-items: flex-start;
+}
+
+.icone-erro {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+
+.cartao-erro-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cartao-erro-frase {
+  margin: 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 14px;
+  color: var(--texto-primario);
+}
+
+.cartao-erro-apoio {
+  margin: 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 13px;
+  color: var(--texto-secundario);
+}
+
+.cartao-plano {
+  flex-direction: column;
+}
+
+.cartao-plano-pergunta {
+  margin: 0 0 8px 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 14px;
+  color: var(--texto-primario);
+}
+
+.cartao-plano-passos {
+  margin: 0 0 10px 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cartao-plano-passos li {
+  font-family: var(--fonte-tecnica);
+  font-size: 13px;
+  color: var(--texto-primario);
+}
+
+.cartao-plano-passos li[data-nivel="destrutivo"] {
+  color: var(--erro);
+}
+
+.cartao-plano-botoes {
+  display: flex;
+  gap: 10px;
+}
+
+.botao {
+  flex: 1;
+  font-family: var(--fonte-tecnica);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 8px 12px;
+  border-radius: 2px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--texto-primario);
+}
+
+.botao-confirmar {
+  border: 2px solid var(--acento);
+}
+
+.botao-confirmar:hover,
+.botao-confirmar:focus-visible {
+  background: var(--acento-fraco);
+}
+
+.botao-cancelar {
+  border: 2px solid var(--erro);
+}
+
+.botao-cancelar:hover,
+.botao-cancelar:focus-visible {
+  background: var(--erro);
+  color: var(--bg);
+}
+
+/* Em 360px de largura (mínimo da janela) tudo continua legível: o canvas
+   encolhe proporcionalmente e rótulo/leitura técnica ficam ancorados nas
+   bordas — nada depende de uma grade de múltiplas colunas. */
+@media (max-width: 380px) {
+  body {
+    padding: 16px 10px;
+    gap: 8px;
+  }
+
+  .nucleo-area {
+    width: min(260px, 78vw);
+  }
+
+  .nome {
+    font-size: 20px;
+  }
+
+  .rotulo-estado {
+    font-size: 18px;
+  }
+}
