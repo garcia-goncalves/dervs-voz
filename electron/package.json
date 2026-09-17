@@ -1,0 +1,13 @@
+{
+  "name": "dervs",
+  "version": "1.0.0",
+  "description": "Casca Electron do DERVS — janela e bandeja; o cérebro continua em Python.",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "33.2.1"
+  }
+}
