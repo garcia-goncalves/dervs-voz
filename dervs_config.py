@@ -178,6 +178,14 @@ PADRAO = {
     # Modelo que decide cada clique. Vazio = usa o mesmo do cérebro (o mais
     # barato). Suba só se a navegação exigir mais esperteza.
     "navegador_modelo": "",
+
+    # --- Painel/HUD (fase 1 da esteira dervs-painel-completo) ---
+    # Endereço do outro projeto do dono, "DERVS App" (garcia-goncalves/dervs,
+    # o painel de segurança/monitoramento dos projetos dele) — o botão "Abrir
+    # DERVS App" do HUD abre isto no navegador. Só ABRE a página; nenhuma
+    # outra integração (login, comando, cofre) existe nesta fase — ver
+    # docs/esteira/dervs-painel-completo/briefing.md, "fora_de_escopo".
+    "dervs_app_url": "http://localhost:4777",
 }
 
 
@@ -239,6 +247,12 @@ def _validar(conf: dict) -> dict:
         conf["navegador_perfil_nome"] = PADRAO["navegador_perfil_nome"]
     if not isinstance(conf.get("navegador_modelo"), str):
         conf["navegador_modelo"] = PADRAO["navegador_modelo"]
+    url = conf.get("dervs_app_url")
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        # nunca deixa passar algo que `shell.openExternal` (main.js) possa
+        # tratar como caminho de arquivo local ou outro protocolo — o botão
+        # só serve para abrir uma página web.
+        conf["dervs_app_url"] = PADRAO["dervs_app_url"]
     return conf
 
 

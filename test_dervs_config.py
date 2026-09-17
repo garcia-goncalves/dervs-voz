@@ -190,3 +190,32 @@ def test_gravar_nao_deixa_arquivo_temporario_para_tras(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "CONFIG_DIR", str(tmp_path))
     assert cfg.gravar("escuta_ao_abrir", False) is True
     assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+# ---- dervs_app_url (botão "Abrir DERVS App" do HUD) ----
+
+def test_dervs_app_url_padrao():
+    assert cfg.PADRAO["dervs_app_url"] == "http://localhost:4777"
+
+
+def test_dervs_app_url_customizada_e_aceita():
+    c = cfg._validar({**cfg.PADRAO, "dervs_app_url": "http://localhost:9000"})
+    assert c["dervs_app_url"] == "http://localhost:9000"
+
+
+def test_dervs_app_url_sem_protocolo_cai_no_padrao():
+    c = cfg._validar({**cfg.PADRAO, "dervs_app_url": "localhost:4777"})
+    assert c["dervs_app_url"] == cfg.PADRAO["dervs_app_url"]
+
+
+def test_dervs_app_url_caminho_de_arquivo_cai_no_padrao():
+    # nunca pode virar "file://" nem caminho local — só página web.
+    c = cfg._validar({**cfg.PADRAO, "dervs_app_url": "file:///C:/Windows/system.ini"})
+    assert c["dervs_app_url"] == cfg.PADRAO["dervs_app_url"]
+
+
+def test_dervs_app_url_vazia_ou_nao_texto_cai_no_padrao():
+    c = cfg._validar({**cfg.PADRAO, "dervs_app_url": ""})
+    assert c["dervs_app_url"] == cfg.PADRAO["dervs_app_url"]
+    c = cfg._validar({**cfg.PADRAO, "dervs_app_url": None})
+    assert c["dervs_app_url"] == cfg.PADRAO["dervs_app_url"]

@@ -144,6 +144,22 @@ def test_enviar_mostrar_nao_tem_campo_nenhum():
     assert dado == {"verbo": "mostrar"}
 
 
+def test_enviar_sistema_manda_cpu_ram_disco():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_sistema(cpu=12.3, ram=45.6, disco_livre_gb=100.0, disco_total_gb=500.0)
+    dado = json.loads(_linhas_escritas(processo)[0])
+    assert dado == {"verbo": "sistema", "cpu": 12.3, "ram": 45.6,
+                     "disco_livre_gb": 100.0, "disco_total_gb": 500.0}
+
+
+def test_enviar_sistema_antes_de_pronto_nao_manda_nada():
+    p, processo = _nova_ponte()
+    # sem chamar `_despachar_guardado()` — a janela ainda não avisou "pronto"
+    p.enviar_sistema(cpu=1.0, ram=1.0, disco_livre_gb=1.0, disco_total_gb=1.0)
+    assert _linhas_escritas(processo) == []
+
+
 # ---- só os campos do contrato saem na linha -----------------------------
 
 def test_texto_parecido_com_chave_nao_vaza_campo_extra():
@@ -327,3 +343,56 @@ def test_abrir_sem_electron_instalado_levanta_erro_em_portugues(tmp_path):
     with pytest.raises(FileNotFoundError) as excinfo:
         p.abrir(str(tmp_path), executavel=executavel_inexistente)
     assert "npm install" in str(excinfo.value)
+
+
+def test_abrir_com_env_extra_repassa_ao_subprocesso(tmp_path, monkeypatch):
+    """`env_extra` (ex.: DERVS_APP_URL) precisa chegar ao Electron por cima do
+    ambiente herdado, sem apagar o resto (ex.: PATH) — ver `dervs_electron.py`."""
+    executavel_de_mentira = tmp_path / "electron.exe"
+    executavel_de_mentira.write_bytes(b"")
+
+    chamadas = []
+
+    class PopenFalso(ProcessoFalso):
+        def __init__(self, args, **kwargs):
+            super().__init__()
+            chamadas.append((args, kwargs))
+
+    monkeypatch.setenv("UMA_VARIAVEL_HERDADA", "valor-herdado")
+    monkeypatch.setattr(ponte_mod.subprocess, "Popen", PopenFalso)
+
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None,
+                                 ao_plano=lambda r, a=False, c=None: None,
+                                 ao_pronto=lambda: None)
+    p.abrir(str(tmp_path), executavel=str(executavel_de_mentira),
+            env_extra={"DERVS_APP_URL": "http://localhost:4777"})
+
+    assert len(chamadas) == 1
+    _, kwargs = chamadas[0]
+    assert kwargs["env"]["DERVS_APP_URL"] == "http://localhost:4777"
+    assert kwargs["env"]["UMA_VARIAVEL_HERDADA"] == "valor-herdado"
+
+
+def test_abrir_sem_env_extra_nao_passa_env_nenhum(tmp_path, monkeypatch):
+    """Sem `env_extra`, o `Popen` não recebe `env` — o filho herda o ambiente
+    do pai do jeito padrão do `subprocess`, como sempre foi."""
+    executavel_de_mentira = tmp_path / "electron.exe"
+    executavel_de_mentira.write_bytes(b"")
+
+    chamadas = []
+
+    class PopenFalso(ProcessoFalso):
+        def __init__(self, args, **kwargs):
+            super().__init__()
+            chamadas.append((args, kwargs))
+
+    monkeypatch.setattr(ponte_mod.subprocess, "Popen", PopenFalso)
+
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None,
+                                 ao_plano=lambda r, a=False, c=None: None,
+                                 ao_pronto=lambda: None)
+    p.abrir(str(tmp_path), executavel=str(executavel_de_mentira))
+
+    assert len(chamadas) == 1
+    _, kwargs = chamadas[0]
+    assert "env" not in kwargs

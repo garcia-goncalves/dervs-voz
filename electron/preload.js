@@ -19,6 +19,14 @@ contextBridge.exposeInMainWorld("dervs", {
   aoVolume: aoCanal("dervs:volume"),
   aoFala: aoCanal("dervs:fala"),
   aoPlano: aoCanal("dervs:plano"),
+  // Extensão do protocolo (fase 1 da esteira dervs-painel-completo): CPU/RAM/
+  // disco reais, mandados a cada ~2s — ver dervs_sistema.py.
+  aoSistema: aoCanal("dervs:sistema"),
+  // Botão "Abrir DERVS App": só manda o pedido para o processo principal
+  // abrir a URL no navegador — o renderer não tem `shell` nem rede.
+  abrirAppDervs: () => {
+    ipcRenderer.send("dervs:abrir-app-dervs");
+  },
   // `autorizado` é extensão do protocolo (ver dervs_ponte_electron.py,
   // cabeçalho): reflete a caixa "Tenho autorização" do cartão de passo.
   // Omitido, vira `false` — nunca destrava um passo que pede autorização

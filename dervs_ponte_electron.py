@@ -49,6 +49,11 @@ Verbos Python → Electron (só estes cinco):
             Consumidor que só lê `rotulo`/`nivel` continua funcionando sem
             mudar nada.
   mostrar {}                          — traz a janela para frente.
+  sistema {"cpu", "ram", "disco_livre_gb", "disco_total_gb"} — extensão do
+            protocolo (fase 1 da esteira `dervs-painel-completo`): leitura
+            real da máquina, mandada a cada ~2s por `dervs_sistema.py`. Ausente
+            (nunca mandado) enquanto `psutil` não estiver instalado — o painel
+            de sistema do HUD some em silêncio, nada mais quebra.
 
 Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
   pronto  — a janela carregou. Antes disso, `estado` e `volume` ficam
@@ -140,7 +145,7 @@ class PonteElectron:
 
     # ---- subir o filho -----------------------------------------------
 
-    def abrir(self, caminho_app, executavel=None):
+    def abrir(self, caminho_app, executavel=None, env_extra=None):
         """Sobe o Electron apontando para `caminho_app` (a pasta com o
         `package.json`/`main.js`). Levanta `FileNotFoundError` se o Electron
         não estiver instalado — nunca sobe um DERVS invisível calado.
@@ -148,7 +153,14 @@ class PonteElectron:
         Antes de subir o filho, abre o soquete de escuta (só `127.0.0.1`)
         que vai carregar a direção Python → Electron (ver o cabeçalho do
         arquivo para o porquê de não ser o `stdin`) e passa a porta como
-        último argumento de linha de comando."""
+        último argumento de linha de comando.
+
+        `env_extra` (dict opcional) entra por cima do ambiente herdado do
+        processo pai — hoje só carrega `DERVS_APP_URL` (ver `dervs_electron.py`),
+        a URL do botão "Abrir DERVS App". Variável de ambiente, não argumento
+        de linha de comando, de propósito: `main.js` já lê o ÚLTIMO argumento
+        como a porta do soquete (comentário em `main.js`, `ligarCanalDoPython`)
+        — um argumento a mais quebraria essa convenção."""
         executavel = executavel or _EXECUTAVEL_PADRAO
         if not os.path.isfile(executavel):
             raise FileNotFoundError(
@@ -163,6 +175,10 @@ class PonteElectron:
         kwargs = {}
         if WINDOWS:
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        if env_extra:
+            ambiente = dict(os.environ)
+            ambiente.update(env_extra)
+            kwargs["env"] = ambiente
         processo = subprocess.Popen(
             [executavel, caminho_app, str(porta)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -356,6 +372,20 @@ class PonteElectron:
 
     def enviar_mostrar(self):
         self._escrever({"verbo": "mostrar"})
+
+    def enviar_sistema(self, cpu, ram, disco_livre_gb, disco_total_gb):
+        """CPU/RAM/disco reais desta máquina (ver `dervs_sistema.py`). Só
+        manda depois do `pronto` — diferente de `estado`/`volume`, não guarda
+        o último valor para reenviar depois: a próxima leitura (a cada ~2s)
+        chega sozinha, então não vale a pena guardar um valor que pode já
+        estar velho quando a janela finalmente carregar."""
+        with self._lock:
+            if not self._pronto:
+                return
+        self._escrever({
+            "verbo": "sistema", "cpu": cpu, "ram": ram,
+            "disco_livre_gb": disco_livre_gb, "disco_total_gb": disco_total_gb,
+        })
 
     def _escrever(self, msg: dict):
         linha = (json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8")

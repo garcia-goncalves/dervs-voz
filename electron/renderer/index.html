@@ -18,7 +18,9 @@
   </div>
 
   <header class="topo">
+    <p class="relogio" id="relogio" aria-label="Hora atual">--:--:--</p>
     <h1 class="nome">DERVS</h1>
+    <p class="data" id="data-atual" aria-label="Data de hoje"></p>
   </header>
 
   <main class="hud">
@@ -28,6 +30,24 @@
       <p class="leitura-tecnica" id="leitura-amp">AMP 0.00</p>
     </div>
   </main>
+
+  <!-- Painel de sistema — dado real desta máquina (dervs_sistema.py), não
+       decoração. Some sozinho (hidden) enquanto nenhuma leitura chegou —
+       nunca mostra "0%" inventado antes do primeiro dado real. -->
+  <section class="paineis-sistema" id="paineis-sistema" aria-label="Estado desta máquina" hidden>
+    <div class="painel-dado">
+      <span class="painel-dado-rotulo">CPU</span>
+      <span class="painel-dado-valor" id="sistema-cpu">--%</span>
+    </div>
+    <div class="painel-dado">
+      <span class="painel-dado-rotulo">RAM</span>
+      <span class="painel-dado-valor" id="sistema-ram">--%</span>
+    </div>
+    <div class="painel-dado">
+      <span class="painel-dado-rotulo">DISCO</span>
+      <span class="painel-dado-valor" id="sistema-disco">-- / -- GB</span>
+    </div>
+  </section>
 
   <section class="conversa" id="conversa" aria-live="polite">
     <p class="fala fala-dono" id="fala-dono" hidden>
@@ -65,6 +85,13 @@
       <button type="button" id="botao-cancelar" class="botao botao-cancelar">Cancelar</button>
     </div>
   </section>
+
+  <!-- Fase 1 da esteira dervs-painel-completo: só ABRE a URL no navegador
+       (main.js, shell.openExternal) — nenhuma outra integração com o outro
+       projeto (login, comando, cofre) existe nesta entrega. -->
+  <button type="button" id="botao-abrir-app-dervs" class="botao botao-abrir-app-dervs">
+    Abrir DERVS App
+  </button>
 
   <script src="hud.js"></script>
 </body>

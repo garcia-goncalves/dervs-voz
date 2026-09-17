@@ -116,6 +116,7 @@ primeiro boot (`dervs_config.py`):
 | `motor` | kokoro | motor de voz: `kokoro` (humana, padrão), `piper` (sintética, reserva) ou `xtts` (humana, lenta) |
 | `voz_kokoro` | pm_santa | voz do Kokoro: `pm_santa` (masculina grave), `pm_alex` (masculina) ou `pf_dora` (feminina) |
 | `voz` | jeff | voz do Piper (só se `motor` = piper): `jeff`, `cadu` ou `faber` |
+| `dervs_app_url` | http://localhost:4777 | URL do outro projeto do dono ("DERVS App") que o botão "Abrir DERVS App" do HUD abre no navegador — só abre, nenhuma outra integração ainda |
 
 Config faltando ou torta **cai no padrão** em silêncio — nunca derruba a voz.
 Mudou o arquivo? Reinicie: `systemctl --user restart dervs`.
@@ -229,6 +230,7 @@ E instantânea é uma placa de vídeo (GPU) — que esta máquina não tem.
 | `dervs_tts.py` | A voz: fala em português com o Piper, offline. |
 | `dervs_listen.py` | A escuta contínua: detecta início/fim da fala pela energia do áudio. |
 | `dervs_stt_daemon.py` | Os ouvidos: transcreve sua fala offline com o Whisper. |
+| `dervs_sistema.py` | O painel de sistema do HUD: lê CPU/RAM/disco reais (`psutil`) a cada ~2s e manda pela ponte. Some em silêncio se `psutil` não estiver instalado. |
 
 ## Testes
 
@@ -237,7 +239,7 @@ destrutivo e alvo de rede sempre no topo; desconhecido sempre confirma), o
 parsing do cérebro, a detecção de fim de fala, a validação da config e a lógica
 do navegador autônomo (montar o estado da página, normalizar a ação, reconhecer
 o Chrome travado, executar uma ação com página falsa) e o enriquecimento de lead
-(validar domínio, agregar eventos do bbot, passivo≠ativo). Hoje: **606 testes verdes**.
+(validar domínio, agregar eventos do bbot, passivo≠ativo). Hoje: **624 testes verdes**.
 
 ## Navegador autônomo — clicar e digitar sozinho no seu Chrome
 

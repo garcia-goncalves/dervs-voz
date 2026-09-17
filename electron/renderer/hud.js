@@ -67,6 +67,14 @@
   const botaoConfirmar = document.getElementById("botao-confirmar");
   const botaoCancelar = document.getElementById("botao-cancelar");
 
+  const elRelogio = document.getElementById("relogio");
+  const elData = document.getElementById("data-atual");
+  const elPaineisSistema = document.getElementById("paineis-sistema");
+  const elSistemaCpu = document.getElementById("sistema-cpu");
+  const elSistemaRam = document.getElementById("sistema-ram");
+  const elSistemaDisco = document.getElementById("sistema-disco");
+  const botaoAbrirAppDervs = document.getElementById("botao-abrir-app-dervs");
+
   // Estado do cartão de plano em relação à caixa "tenho autorização" — só o
   // clique em Confirmar lê isto, não há validação em tempo real do lado de
   // cá (a checagem de verdade é sempre do lado Python).
@@ -116,19 +124,32 @@
     return hud.estado === "erro" ? CORES.erro : CORES.acento;
   }
 
+  // Acessibilidade (guia de CSS moderno consultado antes desta tela, seção
+  // "Transitions & animations"): quem pede menos movimento no sistema ainda
+  // precisa ver "o sistema está vivo" (design.md), só que sem o giro cheio —
+  // por isso o fator reduz bastante em vez de zerar.
+  const prefereMenosMovimento =
+    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const FATOR_MOVIMENTO = prefereMenosMovimento ? 0.15 : 1;
+
   function velocidadeAlvo() {
+    let base;
     switch (hud.estado) {
       case "ouvindo":
       case "falando":
-        return 0.6 + hud.volumeSuave * 3.2;
+        base = 0.6 + hud.volumeSuave * 3.2;
+        break;
       case "pensando":
-        return 1.1;
+        base = 1.1;
+        break;
       case "erro":
-        return 0.08;
+        base = 0.08;
+        break;
       case "ocioso":
       default:
-        return 0.18;
+        base = 0.18;
     }
+    return base * FATOR_MOVIMENTO;
   }
 
   function desenhar(agora, deltaS) {
@@ -401,16 +422,52 @@
     window.dervs.responderPlano("cancelar", false, cartaoAtual);
   });
 
+  // --- relógio e data — só JS local, não precisa do Python -----------------
+
+  const FORMATADOR_HORA = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  });
+  const FORMATADOR_DATA = new Intl.DateTimeFormat("pt-BR", {
+    weekday: "short", day: "2-digit", month: "short",
+  });
+
+  function atualizarRelogio() {
+    const agora = new Date();
+    elRelogio.textContent = FORMATADOR_HORA.format(agora);
+    elData.textContent = FORMATADOR_DATA.format(agora).replace(".", "");
+  }
+
+  // --- painel de sistema (CPU/RAM/disco reais) ------------------------------
+  // Fase 1 da esteira dervs-painel-completo. Some (hidden) até a primeira
+  // leitura real chegar de dervs_sistema.py — nunca mostra número inventado.
+
+  function aoSistema({ cpu, ram, discoLivreGb, discoTotalGb } = {}) {
+    if ([cpu, ram, discoLivreGb, discoTotalGb].some((v) => typeof v !== "number")) return;
+    elSistemaCpu.textContent = `${cpu.toFixed(0)}%`;
+    elSistemaRam.textContent = `${ram.toFixed(0)}%`;
+    elSistemaDisco.textContent = `${discoLivreGb.toFixed(0)}/${discoTotalGb.toFixed(0)} GB`;
+    elPaineisSistema.hidden = false;
+  }
+
+  // --- botão "Abrir DERVS App" ----------------------------------------------
+
+  botaoAbrirAppDervs.addEventListener("click", () => {
+    window.dervs.abrirAppDervs();
+  });
+
   // --- ligação com a ponte (window.dervs, exposta pelo preload.js) ---------
 
   window.dervs.aoEstado(aoEstado);
   window.dervs.aoVolume(aoVolume);
   window.dervs.aoFala(aoFala);
   window.dervs.aoPlano(aoPlano);
+  window.dervs.aoSistema(aoSistema);
 
   aplicarRotuloEstado();
   aplicarLeituraAmp();
   ajustarCanvas();
+  atualizarRelogio();
+  setInterval(atualizarRelogio, 1000);
 
   if (!document.hidden) {
     iniciarLaco();

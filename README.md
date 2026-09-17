@@ -16,6 +16,17 @@ sites, roda comandos). Fala de volta com voz humana.
 selo flutuante; hoje o Qt continua vivo por baixo (motor invisível, ver seção
 abaixo), mas quem aparece na tela é sempre o HUD do Electron.
 
+**Desde 17/09/2026 (fase 1 de `docs/esteira/dervs-painel-completo/`) o HUD é um
+widget de desktop de verdade:** janela transparente (o desktop atrás aparece
+por baixo do tom ciano), sempre visível por cima das outras janelas, ancorada
+no canto superior direito da tela, com relógio/data ao vivo e o uso real de
+CPU/RAM/disco desta máquina (`dervs_sistema.py`, via `psutil`) — e um botão
+"Abrir DERVS App" que abre o outro projeto do dono
+([`garcia-goncalves/dervs`](https://github.com/garcia-goncalves/dervs)) no
+navegador. Nesta fase o botão só ABRE a página; nenhuma outra integração
+(login, comando, cofre) existe ainda — ver `docs/esteira/dervs-painel-completo/
+briefing.md`, "fora_de_escopo".
+
 Detalhe completo em **[DERVS-EXECUTAR.md](DERVS-EXECUTAR.md)**.
 
 ## A espinha (2026-09-01)
@@ -50,7 +61,7 @@ No Windows, do diretório do projeto:
 dervs-venv\Scripts\python.exe dervs_electron.py             # abre o DERVS (HUD Electron)
 dervs-venv\Scripts\python.exe dervs_transcrever.py [audio]  # audio -> texto
 dervs-venv\Scripts\python.exe scripts\instalar_atalho.py    # icone + atalhos
-dervs-venv\Scripts\python.exe -m pytest -q                  # testes (606 verdes)
+dervs-venv\Scripts\python.exe -m pytest -q                  # testes (624 verdes)
 dervs-venv\Scripts\python.exe amostras_de_voz.py            # amostras das 3 vozes
 ```
 
@@ -91,7 +102,7 @@ Casca da janela nova, separada do cérebro Python de propósito:
 
 | Arquivo | Função |
 |---|---|
-| `electron/main.js` | processo principal: cria a janela e a bandeja, fala com o Python por stdin/stdout |
+| `electron/main.js` | processo principal: cria a janela (transparente, sempre por cima, ancorada no canto) e a bandeja, fala com o Python por stdin/stdout |
 | `electron/preload.js` | ponte segura entre a janela (renderer) e o `main.js` |
 | `electron/renderer/` | HTML/CSS/JS do HUD — `index.html`, `estilo.css`, `hud.js`, e as fontes empacotadas localmente |
 | `electron/package.json` | fixa a versão do Electron (`devDependencies`); fonte da verdade da dependência JS |
@@ -108,8 +119,10 @@ caminho: `python -c "import dervs_config as c; print(c.CONFIG_PATH)"`.
 
 Chaves: `stt`, `stt_openai_modelo`, `porteiro`, `porteiro_modelo`, `cerebro`,
 `cerebro_openai_modelo`, `motor`, `voz_kokoro`, `voz`, `voz_velocidade`,
-`janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir`, e as do navegador. Valor inválido cai
-no padrão em vez de derrubar o app (`_validar`). Mudou → reinicie.
+`janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir`, `dervs_app_url`
+(URL que o botão "Abrir DERVS App" do HUD abre — padrão `http://localhost:4777`),
+e as do navegador. Valor inválido cai no padrão em vez de derrubar o app
+(`_validar`). Mudou → reinicie.
 
 **O HUD Electron não tem botão de liga/desliga o microfone na tela** — o Qt
 tinha; esta rodada tirou. Hoje só dá para desligar a escuta saindo do DERVS ou

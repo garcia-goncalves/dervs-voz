@@ -45,5 +45,8 @@ faster-whisper==1.2.1
 # --- a voz do DERVS ---
 kokoro-onnx==0.6.1
 
+# --- painel do HUD (CPU/RAM/disco reais, dervs_sistema.py) ---
+psutil==7.2.2
+
 # --- testes ---
 pytest==9.1.1

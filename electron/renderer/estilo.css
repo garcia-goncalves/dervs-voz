@@ -29,6 +29,16 @@
   --texto-secundario: #5C8A99;
   --erro: #FF3B3B;
 
+  /* Fase 1 da esteira dervs-painel-completo: o "vidro" do widget. Quem borra
+     o DESKTOP de verdade é o material nativo do Windows (main.js,
+     `backgroundMaterial: "acrylic"`, Windows 11 22H2+) — este tom aqui só dá
+     a cor ciano por cima, por isso o alfa é baixo (deixa o acrílico nativo
+     aparecer). Em Windows sem suporte a acrylic, este tom sozinho ainda
+     garante contraste suficiente para ler o texto. Um token só, não uma cor
+     nova: continua sendo --bg, só que com alfa. */
+  --vidro-bg: rgba(5, 8, 16, .46);
+  --vidro-painel: rgba(10, 18, 32, .42);
+
   --fonte-display: "Orbitron", sans-serif;
   --fonte-tecnica: "Share Tech Mono", monospace;
 }
@@ -57,19 +67,36 @@ html, body {
 }
 
 body {
-  background-color: var(--bg);
+  /* Vidro fosco de verdade: a janela do Electron é transparent:true
+     (main.js) — este fundo semitransparente + blur é o que faz o desktop
+     por trás aparecer borrado, "espelhado", em vez de um retângulo opaco.
+     Sem backdrop-filter (navegador/SO antigo), body cai no --vidro-bg sólido
+     o bastante para o texto continuar legível — nunca fica ilegível. */
+  background-color: var(--vidro-bg);
   background-image:
     repeating-linear-gradient(0deg, rgba(0, 229, 255, .025) 0px, rgba(0, 229, 255, .025) 1px, transparent 1px, transparent 26px),
     repeating-linear-gradient(90deg, rgba(0, 229, 255, .025) 0px, rgba(0, 229, 255, .025) 1px, transparent 1px, transparent 26px);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
   color: var(--texto-primario);
   font-family: var(--fonte-tecnica);
   min-width: 360px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 20px 16px;
+  gap: 10px;
+  padding: 18px 16px;
   overflow: hidden;
+  /* Área de arraste padrão: a janela não tem moldura do Windows (frame:
+     false), então o corpo inteiro vira "pega e arrasta" — os elementos
+     interativos (botões, caixa) recusam explicitamente, abaixo. */
+  -webkit-app-region: drag;
+}
+
+button,
+input,
+label {
+  -webkit-app-region: no-drag;
 }
 
 /* Cantos técnicos — referência de HUD/mira, substitui moldura decorativa. */
@@ -93,16 +120,42 @@ body {
 .topo {
   width: 100%;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
 .nome {
-  margin: 4px 0 0 0;
+  margin: 2px 0;
   font-family: var(--fonte-display);
   font-weight: 700;
   font-size: 24px;
   text-transform: uppercase;
   letter-spacing: .1em;
   color: var(--texto-primario);
+}
+
+/* Relógio e data — dado real (JS local, sem precisar do Python), fase 1 da
+   esteira dervs-painel-completo. Mesma linguagem visual da leitura técnica
+   (AMP) que já existia: Share Tech Mono, discreto, nunca competindo com o
+   núcleo pela atenção. */
+.relogio {
+  margin: 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 20px;
+  letter-spacing: .08em;
+  color: var(--acento);
+  font-variant-numeric: tabular-nums;
+}
+
+.data {
+  margin: 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--texto-secundario);
 }
 
 .hud {
@@ -149,6 +202,42 @@ body {
   font-size: 10px;
   letter-spacing: .05em;
   color: var(--texto-secundario);
+}
+
+/* Painel de sistema — CPU/RAM/disco reais (dervs_sistema.py), fase 1 da
+   esteira dervs-painel-completo. Três blocos de vidro, iguais entre si, sem
+   nenhuma cor além do token de marca — a diferença entre eles é só o rótulo
+   e o número, igual às leituras de instrumento das referências do dono. */
+.paineis-sistema {
+  width: 100%;
+  max-width: 380px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.painel-dado {
+  background: var(--vidro-painel);
+  border: 1px solid var(--acento-fraco);
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.painel-dado-rotulo {
+  font-family: var(--fonte-tecnica);
+  font-size: 10px;
+  letter-spacing: .1em;
+  color: var(--texto-secundario);
+}
+
+.painel-dado-valor {
+  font-family: var(--fonte-tecnica);
+  font-size: 15px;
+  color: var(--acento);
+  font-variant-numeric: tabular-nums;
 }
 
 .conversa {
@@ -310,6 +399,30 @@ body {
   color: var(--bg);
 }
 
+/* Botão "Abrir DERVS App" — sempre visível (não é um cartão condicional como
+   os de plano/erro), única ação de clique do painel fora do fluxo de voz.
+   Mesma família visual do .botao, ancorado no rodapé da janela. */
+.botao-abrir-app-dervs {
+  width: 100%;
+  max-width: 380px;
+  margin-top: 2px;
+  border: 2px solid var(--acento-fraco);
+  background: var(--vidro-painel);
+  color: var(--texto-secundario);
+  font-family: var(--fonte-tecnica);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.botao-abrir-app-dervs:hover,
+.botao-abrir-app-dervs:focus-visible {
+  border-color: var(--acento);
+  color: var(--acento);
+}
+
 /* Em 360px de largura (mínimo da janela) tudo continua legível: o canvas
    encolhe proporcionalmente e rótulo/leitura técnica ficam ancorados nas
    bordas — nada depende de uma grade de múltiplas colunas. */
@@ -329,5 +442,24 @@ body {
 
   .rotulo-estado {
     font-size: 18px;
+  }
+
+  .relogio {
+    font-size: 17px;
+  }
+
+  .painel-dado-valor {
+    font-size: 13px;
+  }
+}
+
+/* Acessibilidade: quem pede menos movimento continua vendo o sistema "vivo"
+   (o núcleo pulsa, ver hud.js), mas os anéis param de girar em vez de só
+   ficarem mais devagar — hud.js lê este mesmo media query em JS para decidir
+   a velocidade-alvo, e este bloco aqui é só a documentação do contrato. */
+@media (prefers-reduced-motion: reduce) {
+  .painel-dado,
+  .botao-abrir-app-dervs {
+    transition: none;
   }
 }

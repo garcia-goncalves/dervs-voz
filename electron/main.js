@@ -22,10 +22,24 @@
 // protocolo. Diagnóstico só com console.error (vai para o stderr, que o
 // Python relê e reescreve com prefixo "electron:").
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } = require("electron");
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, shell } = require("electron");
 const path = require("path");
 const net = require("net");
 const readline = require("readline");
+
+// URL do outro projeto do dono ("DERVS App", garcia-goncalves/dervs) que o
+// botão "Abrir DERVS App" do HUD abre no navegador — nunca navegado DENTRO
+// desta janela (CSP do renderer já proíbe isso, ver index.html). Chega por
+// variável de ambiente, passada pelo processo Python pai (dervs_electron.py,
+// que lê de dervs_config.py) — não por argumento de linha de comando, para
+// não colidir com a convenção de "porta é sempre o último argv" (ver
+// ligarCanalDoPython, abaixo).
+const URL_DERVS_APP_PADRAO = "http://localhost:4777";
+function urlDoDervsApp() {
+  const v = process.env.DERVS_APP_URL;
+  return typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"))
+    ? v : URL_DERVS_APP_PADRAO;
+}
 
 const LIMITE_LINHA = 64 * 1024; // mesmo espírito do _LIMITE_LINHA de dervs_instancia.py
 
@@ -45,13 +59,50 @@ function enviarAoPython(objeto) {
   process.stdout.write(JSON.stringify(objeto) + "\n");
 }
 
+// Onde o widget nasce: ancorado no canto superior direito da tela principal,
+// como os HUDs de referência do dono (Rainmeter/JARVIS) — nunca centralizado,
+// para não competir com a janela em que ele está trabalhando (design.md,
+// "contradicoes_resolvidas" da esteira dervs-painel-completo).
+const LARGURA = 420;
+const ALTURA = 560;
+const MARGEM_CANTO = 24;
+
+function posicaoDeCanto() {
+  const area = screen.getPrimaryDisplay().workArea;
+  return {
+    x: area.x + area.width - LARGURA - MARGEM_CANTO,
+    y: area.y + MARGEM_CANTO,
+  };
+}
+
 function criarJanela() {
+  const { x, y } = posicaoDeCanto();
   janela = new BrowserWindow({
-    width: 420,
-    height: 560,
+    width: LARGURA,
+    height: ALTURA,
+    x,
+    y,
     minWidth: 360,
     frame: false,
-    backgroundColor: "#050810",
+    // Fundo de vidro: transparente de verdade (não um cinza escuro) — o
+    // desktop atrás da janela aparece por baixo do tom ciano translúcido do
+    // CSS (estilo.css, --vidro-bg). TESTADO em bancada em 17/09/2026: NÃO
+    // ligar `backgroundMaterial: "acrylic"` aqui — nesta versão do Electron
+    // (33.2.1) ele CONFLITA com `transparent: true` e a janela volta a
+    // ficar opaca de verdade (comprovado com um teste de cor: um fundo
+    // vermelho a 30% de opacidade apareceu SÓLIDO com os dois juntos, e
+    // translúcido de verdade sem `backgroundMaterial`). Sem ele, sobra
+    // "vidro liso" (sem borrão do que está atrás) em vez de "vidro fosco"
+    // — aceitável: o pedido do dono era "transparente/espelhado", que isto
+    // cumpre; o borrão de verdade fica para quando o Electron tratar bem
+    // essa combinação (ver GitHub electron/electron#38532).
+    transparent: true,
+    backgroundColor: "#00000000",
+    // Sempre visível por cima de outras janelas — resolve o "sumiço atrás
+    // do VS Code/navegador" que fazia o dono achar o DERVS morto. Nível
+    // "screen-saver" fica acima até de outras janelas alwaysOnTop comuns,
+    // igual a um widget de desktop de verdade.
+    alwaysOnTop: true,
     show: false,
     icon: path.join(__dirname, "assets", "bandeja-32.png"),
     webPreferences: {
@@ -61,6 +112,11 @@ function criarJanela() {
       sandbox: true,
     },
   });
+  janela.setAlwaysOnTop(true, "screen-saver");
+  // Aparece em todo espaço de trabalho do Windows (não só o de quando abriu)
+  // — mesmo espírito do alwaysOnTop: um widget não deveria sumir ao trocar
+  // de área de trabalho virtual.
+  janela.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   janela.loadFile(path.join(__dirname, "renderer", "index.html"));
 
@@ -199,6 +255,23 @@ function tratarLinhaDoPython(linha) {
       // pelo renderer — é ação do processo principal sobre a janela.
       mostrarJanela();
       break;
+    case "sistema":
+      // Extensão do protocolo (fase 1 da esteira dervs-painel-completo):
+      // CPU/RAM/disco reais, mandados por dervs_sistema.py a cada ~2s.
+      // Campo faltando ou não numérico: ignora a mensagem inteira (nunca
+      // manda dado pela metade para o painel desenhar).
+      if (["cpu", "ram", "disco_livre_gb", "disco_total_gb"].every(
+        (campo) => typeof mensagem[campo] === "number")) {
+        janela.webContents.send("dervs:sistema", {
+          cpu: mensagem.cpu,
+          ram: mensagem.ram,
+          discoLivreGb: mensagem.disco_livre_gb,
+          discoTotalGb: mensagem.disco_total_gb,
+        });
+      } else {
+        console.error("electron: verbo sistema com campo faltando/invalido, ignorado");
+      }
+      break;
     default:
       console.error(`electron: verbo desconhecido do Python, ignorado: ${String(verbo)}`);
   }
@@ -244,6 +317,16 @@ ipcMain.on("dervs:responder-plano", (_evento, dado) => {
     return;
   }
   enviarAoPython({ verbo: "plano", resposta, autorizado, cartao_id: cartaoId });
+});
+
+// Botão "Abrir DERVS App" do HUD — só ABRE a URL no navegador padrão do
+// dono, nunca navega dentro desta janela (fase 1 da esteira
+// dervs-painel-completo; a integração de verdade com o outro projeto é fase
+// 2, combinada à parte). `shell.openExternal` é o único jeito seguro: o
+// renderer não tem `require`, rede nem `window.open` (CSP + contextIsolation
+// + setWindowOpenHandler já bloqueiam isso).
+ipcMain.on("dervs:abrir-app-dervs", () => {
+  shell.openExternal(urlDoDervsApp());
 });
 
 app.whenReady().then(() => {

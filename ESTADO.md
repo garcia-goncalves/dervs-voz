@@ -3,7 +3,7 @@
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 17/09/2026. **606 testes verdes** no ambiente do
+Última verificação: 17/09/2026. **624 testes verdes** no ambiente do
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
@@ -15,12 +15,45 @@ quem desenha a tela mudou. O ponto de entrada padrão passou a ser
 `dervs_electron.py` (era `dervs.py`); `dervs.py` continua no disco e ainda
 abre se chamado na mão, mas não é mais o que o atalho usa.
 
+**Segunda rodada no mesmo dia (17/09/2026) — fase 1 de "painel completo":**
+o dono relatou o HUD "quebrado/sem botão" — na prática a janela estava viva,
+mas ficava escondida atrás de outras janelas sem nenhum aviso, e a tela era
+bem mais pobre do que a referência JARVIS/Rainmeter que ele mandou. Depois de
+duas perguntas de escopo (registradas em
+`docs/esteira/dervs-painel-completo/briefing.md`), esta rodada entregou:
+
+- Janela **sempre visível por cima** das outras (`alwaysOnTop`, nível
+  "screen-saver") e **ancorada no canto superior direito** da tela, como um
+  widget de desktop — resolve o "sumiço" que parecia o app morto.
+- Janela **transparente de verdade** (`transparent: true`) — o desktop atrás
+  aparece por baixo do tom ciano. **Achado técnico, testado em bancada:**
+  `backgroundMaterial: "acrylic"` (o material nativo do Windows 11 que
+  borraria o desktop de verdade) **conflita** com `transparent: true` nesta
+  versão do Electron (33.2.1) e deixa a janela OPACA — por isso ele foi
+  deixado de fora, de propósito (comentário em `electron/main.js`). O efeito
+  hoje é "vidro liso" (transparente, sem borrão), não "vidro fosco" — mais
+  simples que o pedido original, mas funcional.
+- **Relógio e data ao vivo**, e um **painel com CPU/RAM/disco reais** desta
+  máquina (`dervs_sistema.py`, biblioteca `psutil`, nova dependência em
+  `requirements.txt`) — atualiza a cada ~2s pela mesma ponte que já existia.
+- Botão **"Abrir DERVS App"**, que abre `http://localhost:4777` (configurável
+  em `dervs_app_url`) no navegador — só isso; a integração de verdade com o
+  outro projeto do dono (`garcia-goncalves/dervs`) ficou combinada como fase 2,
+  separada, porque mexe em login/cofre daquele projeto.
+- 18 testes novos/atualizados (`test_dervs_sistema.py`,
+  `test_dervs_ponte_electron.py`, `test_dervs_config.py`,
+  `test_dervs_electron_entrada.py`); suíte inteira em 624 verdes.
+- Testado ao vivo: app reaberto do zero, janela fotografada (com e sem outras
+  janelas por cima), relógio/CPU/RAM variando de verdade entre capturas,
+  clique real no botão novo sem derrubar o app.
+
 **Pendência que NÃO foi fechada nesta rodada e precisa do dono presente:** a
 Etapa 12 do plano (demonstração ao vivo com voz real e medição de CPU) ainda
 não aconteceu. Nada aqui foi testado com a voz do dono, e não há número de CPU
-medido ao vivo para o HUD novo — só o que os 606 testes automatizados cobrem.
-Não confunda "testes passam" com "demonstrado funcionando com voz real": são
-coisas diferentes, e a segunda ainda está pendente.
+medido ao vivo enquanto ele fala — só o que os 624 testes automatizados
+cobrem e o que foi visto ao vivo sem áudio (ver acima). Não confunda "testes
+passam" com "demonstrado funcionando com voz real": são coisas diferentes, e
+a segunda ainda está pendente.
 
 ---
 
@@ -29,6 +62,10 @@ coisas diferentes, e a segunda ainda está pendente.
 | Parte | Estado | Onde roda | Custo |
 |---|---|---|---|
 | O HUD (janela Electron ciano/preto, novo desde 16/09) | **funciona** | sua máquina | zero |
+| Janela sempre visível por cima, ancorada no canto (novo 17/09) | **funciona** | sua máquina | zero |
+| Janela transparente (novo 17/09 — sem o borrão do desktop, ver acima) | **funciona** | sua máquina | zero |
+| Relógio/data e painel CPU/RAM/disco reais (novo 17/09) | **funciona** | sua máquina | zero |
+| Botão "Abrir DERVS App" (novo 17/09 — só abre, sem integração ainda) | **funciona** | sua máquina | zero |
 | Abrir por atalho (Área de Trabalho e menu Iniciar, agora abre `dervs_electron.py`) | **funciona** | sua máquina | zero |
 | Um DERVS só de cada vez (o 2º clique traz de volta o 1º) | **funciona** | sua máquina | zero |
 | Porteiro — "isso foi comigo?" | **funciona** | sua máquina | zero |

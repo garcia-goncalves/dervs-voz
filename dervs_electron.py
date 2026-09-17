@@ -25,13 +25,16 @@ valendo, e nenhuma correção do `ESTADO.md` é jogada fora.
 import os
 import signal
 import sys
+import threading
 
 from PyQt6 import QtWidgets
 
 import dervs
+import dervs_config as config
 import dervs_instancia as instancia
 import dervs_registro as registro
 import dervs_safety as seg
+import dervs_sistema as sistema
 from dervs_ponte_electron import PonteElectron
 
 CAMINHO_ELECTRON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electron")
@@ -397,10 +400,12 @@ def _confirmar_do_electron(motor: Motor, autorizado: bool):
         motor.ponte.enviar_plano([], "reversivel", "")
 
 
-def _encerrar(motor: Motor, ponte: PonteElectron, posse):
+def _encerrar(motor: Motor, ponte: PonteElectron, posse, parar_sistema: threading.Event):
     """O que o fechamento do app faz: desliga tudo o que a `PopUp` deixou de
     pé (`dervs.encerrar_tudo`, a mesma função de sempre — nada reescrito),
-    fecha o processo do Electron, e libera a trava de instância única."""
+    para a thread do painel de sistema, fecha o processo do Electron, e libera
+    a trava de instância única."""
+    parar_sistema.set()
     dervs.encerrar_tudo(motor)
     ponte.fechar()
     posse.soltar()
@@ -443,8 +448,9 @@ def main():
     ao_plano_alvo.append(_construir_ao_plano(motor))
     ponte_alvo.append(_construir_me_chamaram(ponte))
 
+    conf = config.carregar()
     try:
-        ponte.abrir(CAMINHO_ELECTRON)
+        ponte.abrir(CAMINHO_ELECTRON, env_extra={"DERVS_APP_URL": conf["dervs_app_url"]})
     except FileNotFoundError as e:
         sys.stderr.write("dervs: %s\n" % e)
         sys.stderr.flush()
@@ -452,7 +458,13 @@ def main():
         posse.soltar()
         sys.exit(1)
 
-    app.aboutToQuit.connect(lambda: _encerrar(motor, ponte, posse))
+    # Painel de sistema (CPU/RAM/disco reais, fase 1 da esteira
+    # dervs-painel-completo): thread própria, à parte da `Escuta`/`Voz`, que
+    # nunca deveria esperar por elas nem ser bloqueada por elas.
+    parar_sistema = threading.Event()
+    sistema.iniciar_loop_sistema(ponte, parar_sistema)
+
+    app.aboutToQuit.connect(lambda: _encerrar(motor, ponte, posse, parar_sistema))
     app.exec()
 
 

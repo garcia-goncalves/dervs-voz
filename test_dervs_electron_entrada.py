@@ -327,12 +327,14 @@ def test_encerrar_desliga_o_motor_fecha_a_ponte_e_solta_a_posse(motor, monkeypat
                         lambda alvo: chamadas.append(alvo))
     ponte = motor.ponte
     posse = PosseFalsa()
+    parar_sistema = threading.Event()
 
-    dervs_electron._encerrar(motor, ponte, posse)
+    dervs_electron._encerrar(motor, ponte, posse, parar_sistema)
 
     assert chamadas == [motor]
     assert ponte.fechada is True
     assert posse.solta is True
+    assert parar_sistema.is_set(), "encerrar tem de parar a thread do painel de sistema"
 
 
 # ---- a trava de instância é a de dervs_instancia.py, reusada --------------
