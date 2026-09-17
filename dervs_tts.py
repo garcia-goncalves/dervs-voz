@@ -31,6 +31,7 @@ import wave
 import json
 
 import dervs_config
+import dervs_nivel
 import dervs_processos as processos
 
 HOME = os.path.expanduser("~")
@@ -250,6 +251,7 @@ class Voz:
         self._kokoro_morto = False         # daemon Kokoro falhou → cai no Piper
         self._gerando = False              # true enquanto sintetiza, mesmo sem processo próprio
         self._evento_atual = None          # threading.Event da fala em andamento (p/ calar())
+        self.ao_nivel = None                # quem quiser ver a onda enquanto o DERVS fala liga isto aqui
         self._lock = threading.Lock()          # guarda _play/_synth (calar() precisa ser instantâneo)
         self._lock_piper = threading.Lock()    # serializa a conversa com o daemon do Piper
         self._lock_kokoro = threading.Lock()   # serializa a conversa com o daemon do Kokoro
@@ -607,7 +609,43 @@ class Voz:
             play = self._play
         if play is None:
             return
+        if self.ao_nivel is not None:
+            self._acompanhar_nivel(wav, play)
         play.wait()
+
+    def _acompanhar_nivel(self, wav, play):
+        """Sobe uma thread que alimenta `self.ao_nivel` com o nível da fala
+        enquanto `play` toca `wav`, parando assim que `play.poll()` deixar de
+        ser None (fim natural ou barge-in via calar()). Envelope vazio (wav
+        estranho) não sobe thread nenhuma — comportamento de hoje intacto."""
+        niveis = dervs_nivel.envelope_do_wav(wav, passo_ms=30)
+        if not niveis:
+            return
+        ao_nivel = self.ao_nivel
+        passo_s = 30 / 1000.0
+
+        def rodar():
+            try:
+                inicio = time.monotonic()
+                for i, nivel in enumerate(niveis):
+                    if play.poll() is not None:
+                        break
+                    alvo = inicio + (i + 1) * passo_s
+                    espera = alvo - time.monotonic()
+                    if espera > 0:
+                        time.sleep(espera)
+                    if play.poll() is not None:
+                        break
+                    ao_nivel(nivel)
+            except Exception as erro:
+                sys.stderr.write(f"dervs_tts: erro ao acompanhar o nível da fala: {erro}\n")
+            finally:
+                try:
+                    ao_nivel(0.0)
+                except Exception as erro:
+                    sys.stderr.write(f"dervs_tts: erro ao zerar o nível da fala: {erro}\n")
+
+        threading.Thread(target=rodar, daemon=True).start()
 
 
 if __name__ == "__main__":
