@@ -60,8 +60,17 @@
   const elCartaoPlano = document.getElementById("cartao-plano");
   const elCartaoPlanoPergunta = document.getElementById("cartao-plano-pergunta");
   const elCartaoPlanoPassos = document.getElementById("cartao-plano-passos");
+  const elCartaoPlanoComando = document.getElementById("cartao-plano-comando");
+  const elCartaoAutorizacaoEnvolucro = document.getElementById("cartao-plano-autorizacao-envolucro");
+  const elCartaoAutorizacaoCaixa = document.getElementById("cartao-plano-autorizacao-caixa");
+  const elCartaoAutorizacaoTexto = document.getElementById("cartao-plano-autorizacao-texto");
   const botaoConfirmar = document.getElementById("botao-confirmar");
   const botaoCancelar = document.getElementById("botao-cancelar");
+
+  // Estado do cartão de plano em relação à caixa "tenho autorização" — só o
+  // clique em Confirmar lê isto, não há validação em tempo real do lado de
+  // cá (a checagem de verdade é sempre do lado Python).
+  let cartaoPrecisaAutorizacao = false;
 
   // --- canvas responsivo ----------------------------------------------------
   // O elemento encolhe por CSS (width/height: 100% do .nucleo-area); aqui só
@@ -304,6 +313,11 @@
     if (lista.length === 0) {
       elCartaoPlano.hidden = true;
       elCartaoPlanoPassos.textContent = "";
+      elCartaoPlanoComando.hidden = true;
+      elCartaoPlanoComando.textContent = "";
+      elCartaoAutorizacaoEnvolucro.hidden = true;
+      elCartaoAutorizacaoCaixa.checked = false;
+      cartaoPrecisaAutorizacao = false;
       return;
     }
 
@@ -322,15 +336,49 @@
       elCartaoPlanoPassos.appendChild(li);
     }
 
+    // Extensão do protocolo (ver dervs_ponte_electron.py, cabeçalho): um
+    // cartão de PASSO ÚNICO (risco de um passo destrutivo dentro do plano)
+    // também traz `comando`, `precisa_autorizacao`, `texto_autorizacao` e
+    // `dupla_confirmacao`. O cartão do PLANO inteiro (vários passos, só
+    // rotulo/nivel) não tem esses campos — por isso só o passo único é
+    // considerado aqui.
+    const passoUnico = lista.length === 1 ? lista[0] : null;
+
+    if (passoUnico && typeof passoUnico.comando === "string" && passoUnico.comando) {
+      elCartaoPlanoComando.textContent = passoUnico.comando;
+      elCartaoPlanoComando.hidden = false;
+    } else {
+      elCartaoPlanoComando.textContent = "";
+      elCartaoPlanoComando.hidden = true;
+    }
+
+    cartaoPrecisaAutorizacao = !!(passoUnico && passoUnico.precisa_autorizacao);
+    if (cartaoPrecisaAutorizacao) {
+      elCartaoAutorizacaoTexto.textContent =
+        typeof passoUnico.texto_autorizacao === "string" && passoUnico.texto_autorizacao
+          ? passoUnico.texto_autorizacao
+          : "Tenho autorização (é meu, laboratório, ou por escrito)";
+      elCartaoAutorizacaoCaixa.checked = false;
+      elCartaoAutorizacaoEnvolucro.hidden = false;
+    } else {
+      elCartaoAutorizacaoEnvolucro.hidden = true;
+      elCartaoAutorizacaoCaixa.checked = false;
+    }
+
     elCartaoPlano.hidden = false;
   }
 
   botaoConfirmar.addEventListener("click", () => {
-    window.dervs.responderPlano("confirmar");
+    // Passo que pede autorização e a caixa não está marcada: não manda —
+    // o Python não deveria receber um "confirmar" sem autorização real, e a
+    // checagem de verdade é sempre do lado de lá, mas não faz sentido nem
+    // tentar mandar sem a caixa marcada.
+    if (cartaoPrecisaAutorizacao && !elCartaoAutorizacaoCaixa.checked) return;
+    window.dervs.responderPlano("confirmar", elCartaoAutorizacaoCaixa.checked);
   });
 
   botaoCancelar.addEventListener("click", () => {
-    window.dervs.responderPlano("cancelar");
+    window.dervs.responderPlano("cancelar", false);
   });
 
   // --- ligação com a ponte (window.dervs, exposta pelo preload.js) ---------

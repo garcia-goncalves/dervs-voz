@@ -172,12 +172,78 @@ class Motor(dervs.PopUp):
         super().cancelar_plano()
         self.ponte.enviar_plano([], "reversivel", "")
 
+    def confirmar_plano_ok(self, por_voz=False):
+        aguardando_antes = self._aguardando_ok
+        super().confirmar_plano_ok(por_voz)
+        if aguardando_antes and not self._aguardando_ok:
+            # o Qt já escondeu a barra aqui (`self.barra.hide()`, dentro do
+            # `confirmar_plano_ok` original) — sem isto o cartão do plano
+            # inteiro fica preso na tela do Electron até o próximo passo
+            # destrutivo (ou o fim do plano) mandar um cartão novo por cima.
+            self.ponte.enviar_plano([], "reversivel", "")
+
     def _processar_passo(self):
         super()._processar_passo()
         if not self.plano:
             # ou o plano acabou (passo_i chegou ao fim) ou nunca havia um —
             # nos dois casos o cartão, se estava aberto, tem de sumir.
             self.ponte.enviar_plano([], "reversivel", "")
+
+    # ---- passo destrutivo: o cartão de risco também precisa ir pela ponte ----
+    # BUG DE SEGURANÇA corrigido aqui: `_mostrar_cartao` (herdado de `PopUp`,
+    # `dervs.py:1345`) só escrevia nos widgets Qt escondidos — o Electron
+    # nunca era avisado, o dono nunca via o cartão, e o plano travava em
+    # silêncio no primeiro passo destrutivo. Ver relato desta etapa.
+    def _mostrar_cartao(self, passo, d):
+        super()._mostrar_cartao(passo, d)     # mantém o Qt invisível intacto
+        self._enviar_cartao_do_passo(passo, d, segunda_vez=False)
+
+    def _enviar_cartao_do_passo(self, passo, d, segunda_vez: bool):
+        """Extensão do contrato da ponte (ver `dervs_ponte_electron.py`,
+        cabeçalho "Verbos Python → Electron"): o verbo `plano` já existia
+        para o plano inteiro; aqui ele carrega um ÚNICO passo — o mesmo que
+        `PopUp._mostrar_cartao` desenha no cartão Qt — com os campos extras
+        que faltavam no contrato original: `comando`, `precisa_autorizacao`,
+        `texto_autorizacao` e `dupla_confirmacao`.
+        """
+        n = self.passo_i + 1
+        total = len(self.plano)
+        rotulo = f"Passo {n} de {total}: {passo.get('descricao', '')}"
+        if d["motivos"]:
+            rotulo += "\n(" + "; ".join(d["motivos"]) + ")"
+        le_segredo = d.get("le_segredo", False)
+        texto_autorizacao = (
+            "Confirmo: pode ler esse arquivo de segredo" if le_segredo
+            else "Tenho autorização (é meu, laboratório, ou por escrito)")
+        pergunta = ("Tem certeza? Clique confirmar de novo para rodar"
+                    if segunda_vez else "Confirma esse passo?")
+        passo_ponte = {
+            "rotulo": rotulo,
+            "nivel": _nivel_ponte(d["nivel"]),
+            "comando": passo.get("comando", ""),
+            "precisa_autorizacao": bool(d["precisa_autorizacao"]),
+            "texto_autorizacao": texto_autorizacao,
+            "dupla_confirmacao": bool(d["dupla_confirmacao"]),
+        }
+        self.ponte.enviar_plano([passo_ponte], _nivel_ponte(d["nivel"]), pergunta)
+
+    def _reenviar_cartao_2conf(self):
+        """Chamado depois do 1º clique do trilho de dupla confirmação
+        (`confirmar_passo` já rodou e só armou `self._2conf`, o passo não
+        avançou): o cartão volta com o mesmo passo, texto do 2º estágio."""
+        d = getattr(self, "_risco_atual", None)
+        if not d or self.passo_i >= len(self.plano):
+            return
+        self._enviar_cartao_do_passo(self.plano[self.passo_i], d, segunda_vez=True)
+
+    def _reavaliar_confirmar(self):
+        # No Qt isto habilita/desabilita o `b_confirmar` de verdade conforme
+        # a caixa de autorização (widget real, nunca mostrado). Aqui não há
+        # nada visível para reavaliar — a validação de "autorização marcada"
+        # acontece do lado do Electron (HUD) antes de mandar a resposta, e de
+        # novo do lado Python (a rede de segurança de verdade) em
+        # `_confirmar_do_electron`, mais abaixo.
+        pass
 
     # ---- o relógio de 500ms que já existe --------------------------------
     def atualizar(self):
@@ -232,16 +298,62 @@ def _construir_me_chamaram(ponte: PonteElectron):
 
 
 def _construir_ao_plano(motor: Motor):
-    """`confirmar` faz exatamente o que o botão "Confirmar e rodar" do Qt já
-    fazia (`motor.confirmar_passo`, que por sua vez chama `confirmar_plano_ok`
+    """`confirmar` faz o que o botão "Confirmar e rodar" do Qt já fazia
+    (`motor.confirmar_passo`, que por sua vez chama `confirmar_plano_ok`
     sozinho quando o que está pendente é o plano inteiro, não um passo) —
-    não há necessidade de duplicar aqui a decisão de qual dos dois chamar."""
-    def _ao_plano(resposta):
+    só que agora também precisa tratar `autorizado` (a caixa "Tenho
+    autorização", que só existe como widget Qt escondido) e o trilho de
+    dupla confirmação, que no Electron não tem um botão de verdade para
+    trocar de texto sozinho."""
+    def _ao_plano(resposta, autorizado=False):
         if resposta == "confirmar":
-            motor.confirmar_passo()
+            _confirmar_do_electron(motor, bool(autorizado))
         elif resposta == "cancelar":
             motor.cancelar_plano()
     return _ao_plano
+
+
+def _confirmar_do_electron(motor: Motor, autorizado: bool):
+    """A mesma decisão que `confirmar_passo()` (`dervs.py:1392`) toma com
+    `self.b_auth.isChecked()` — só que a caixa marcada agora vem da resposta
+    do Electron, não de um clique num widget visível.
+
+    `em_passo` é verdadeiro exatamente quando `confirmar_passo()` cairia no
+    ramo de PASSO (não no de plano inteiro): `_aguardando_ok` já é falso (o
+    plano inteiro já foi aprovado) e existe um `_risco_atual` pendente (um
+    passo destrutivo mostrou o cartão e está esperando o dono).
+    """
+    d = getattr(motor, "_risco_atual", None)
+    em_passo = (not motor._aguardando_ok) and d is not None
+    if not em_passo:
+        # aprovação do plano inteiro — `confirmar_passo()` chama
+        # `confirmar_plano_ok()` sozinho; `Motor.confirmar_plano_ok` já
+        # cuida de limpar o cartão da ponte.
+        motor.confirmar_passo()
+        return
+    if d.get("precisa_autorizacao") and not autorizado:
+        # o Electron não deveria ter deixado mandar sem a caixa marcada —
+        # esta checagem aqui é a rede de segurança de verdade, a mesma que
+        # o Qt faz com `b_auth.isChecked()` antes de rodar qualquer coisa.
+        return
+    if autorizado:
+        # simula a caixa marcada no widget Qt real (ainda existe, só está
+        # escondido) — `confirmar_passo()` original lê `b_auth.isChecked()`
+        # direto (`dervs.py:1409`), então isto reusa a validação original
+        # sem duplicar a lógica dela aqui.
+        motor.b_auth.setChecked(True)
+    ja_esperava_2conf = motor._2conf
+    motor.confirmar_passo()
+    if not ja_esperava_2conf and motor._2conf:
+        # 1º clique do trilho de dupla confirmação: `confirmar_passo()` só
+        # armou `self._2conf` e voltou — o passo não rodou. Reenvia o cartão
+        # com o texto do 2º estágio.
+        motor._reenviar_cartao_2conf()
+    else:
+        # o passo rodou de verdade (ou era o 2º clique) — tira o cartão da
+        # tela, o mesmo que o Qt faz com `self.barra.hide()` logo antes de
+        # `self._rodar_comando(...)`.
+        motor.ponte.enviar_plano([], "reversivel", "")
 
 
 def _encerrar(motor: Motor, ponte: PonteElectron, posse):
@@ -281,9 +393,9 @@ def main():
     # mexer em atributo privado da `PonteElectron`.
     ao_plano_alvo = []
 
-    def _ao_plano_inicial(resposta):
+    def _ao_plano_inicial(resposta, autorizado=False):
         if ao_plano_alvo:
-            ao_plano_alvo[0](resposta)
+            ao_plano_alvo[0](resposta, autorizado)
 
     ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial, ao_pronto=lambda: None)
     motor = Motor(ponte)

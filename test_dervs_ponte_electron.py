@@ -45,7 +45,7 @@ def _nova_ponte(linhas_de_saida: bytes = b"", ao_sair=None, ao_plano=None, ao_pr
     (a menos que o chamador queira testar o comportamento antes do `pronto`)."""
     p = ponte_mod.PonteElectron(
         ao_sair=ao_sair or (lambda: None),
-        ao_plano=ao_plano or (lambda resposta: None),
+        ao_plano=ao_plano or (lambda resposta, autorizado=False: None),
         ao_pronto=ao_pronto or (lambda: None))
     processo = ProcessoFalso(linhas_de_saida)
     p._iniciar(processo)
@@ -184,8 +184,16 @@ def test_resposta_de_plano_chama_ao_plano_com_confirmar():
     recebido = []
     p, processo = _nova_ponte(
         linhas_de_saida=b'{"verbo": "plano", "resposta": "confirmar"}\n',
-        ao_plano=lambda resposta: recebido.append(resposta))
-    assert _esperar(lambda: recebido == ["confirmar"])
+        ao_plano=lambda resposta, autorizado=False: recebido.append((resposta, autorizado)))
+    assert _esperar(lambda: recebido == [("confirmar", False)])
+
+
+def test_resposta_de_plano_manda_autorizado_quando_vem_true():
+    recebido = []
+    p, processo = _nova_ponte(
+        linhas_de_saida=b'{"verbo": "plano", "resposta": "confirmar", "autorizado": true}\n',
+        ao_plano=lambda resposta, autorizado=False: recebido.append((resposta, autorizado)))
+    assert _esperar(lambda: recebido == [("confirmar", True)])
 
 
 def test_verbo_sair_seguido_de_fechar_stdout_chama_ao_sair_uma_vez_so():
