@@ -37,6 +37,19 @@
   box-sizing: border-box;
 }
 
+/* Bug real, achado em bancada em 17/09/2026: o atributo HTML `hidden` só tem
+   `display: none` na folha de estilo padrão do navegador, com especificidade
+   baixa (seletor de atributo). Qualquer classe deste arquivo que declare
+   `display` (`.cartao`, `.cartao-plano-autorizacao`, `.cartao-plano-botoes`)
+   tem especificidade MAIOR e vence — o elemento fica visível mesmo com
+   `hidden` presente. Os cartões de erro e de plano apareciam vazios na tela
+   desde a abertura do app, sem nenhum erro ou plano de verdade ter
+   acontecido. Esta regra garante que `hidden` sempre vence, para qualquer
+   elemento, agora e no que vier a ser adicionado depois. */
+[hidden] {
+  display: none !important;
+}
+
 html, body {
   margin: 0;
   padding: 0;
