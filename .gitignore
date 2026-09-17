@@ -35,3 +35,6 @@ dervs-venv/
 # Pastas de trabalho temporarias dos agentes (nao versionar)
 .claude/worktrees/
 amostras_voz/
+
+# Dependencias do Electron (recriaveis via npm install)
+electron/node_modules/
