@@ -23,7 +23,12 @@ contextBridge.exposeInMainWorld("dervs", {
   // cabeçalho): reflete a caixa "Tenho autorização" do cartão de passo.
   // Omitido, vira `false` — nunca destrava um passo que pede autorização
   // sem ela ter sido marcada de verdade.
-  responderPlano: (resposta, autorizado = false) => {
-    ipcRenderer.send("dervs:responder-plano", { resposta, autorizado: Boolean(autorizado) });
+  // `cartaoId` é extensão do protocolo (correção de concorrência): o id do
+  // cartão que o HUD estava mostrando quando o clique saiu — sem ele, o
+  // Python não tem como descartar uma resposta duplicada/atrasada e rodar
+  // o passo errado (ver relato desta etapa, dervs_electron.py).
+  responderPlano: (resposta, autorizado = false, cartaoId = null) => {
+    ipcRenderer.send("dervs:responder-plano",
+      { resposta, autorizado: Boolean(autorizado), cartaoId });
   },
 });
