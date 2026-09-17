@@ -72,6 +72,11 @@
   // cá (a checagem de verdade é sempre do lado Python).
   let cartaoPrecisaAutorizacao = false;
 
+  // Identidade do cartão em tela (correção de concorrência — ver
+  // dervs_electron.py, `_construir_ao_plano`): mandado de volta junto com a
+  // resposta, para o Python descartar clique numa mensagem desatualizada.
+  let cartaoAtual = null;
+
   // --- canvas responsivo ----------------------------------------------------
   // O elemento encolhe por CSS (width/height: 100% do .nucleo-area); aqui só
   // ajustamos os pixels reais do canvas para acompanhar o devicePixelRatio e
@@ -308,7 +313,15 @@
 
   // --- cartão de plano ------------------------------------------------------
 
-  function aoPlano({ passos, nivel, pergunta } = {}) {
+  function aoPlano({ passos, nivel, pergunta, cartaoId } = {}) {
+    // Todo evento novo de cartão — inclusive o que limpa a tela — é o
+    // "próximo aoPlano" que reabilita os botões (complemento barato pedido
+    // pelo revisor: evita clique repetido na mesma janela de tempo, além
+    // da proteção por cartaoId).
+    botaoConfirmar.disabled = false;
+    botaoCancelar.disabled = false;
+    cartaoAtual = cartaoId !== undefined ? cartaoId : null;
+
     const lista = Array.isArray(passos) ? passos : [];
     if (lista.length === 0) {
       elCartaoPlano.hidden = true;
@@ -374,11 +387,18 @@
     // checagem de verdade é sempre do lado de lá, mas não faz sentido nem
     // tentar mandar sem a caixa marcada.
     if (cartaoPrecisaAutorizacao && !elCartaoAutorizacaoCaixa.checked) return;
-    window.dervs.responderPlano("confirmar", elCartaoAutorizacaoCaixa.checked);
+    // Desabilita assim que clicado — só reabilita no próximo aoPlano (ver
+    // acima). Evita clique repetido na mesma janela de tempo, complemento
+    // barato à proteção por cartaoId do lado Python.
+    botaoConfirmar.disabled = true;
+    botaoCancelar.disabled = true;
+    window.dervs.responderPlano("confirmar", elCartaoAutorizacaoCaixa.checked, cartaoAtual);
   });
 
   botaoCancelar.addEventListener("click", () => {
-    window.dervs.responderPlano("cancelar", false);
+    botaoConfirmar.disabled = true;
+    botaoCancelar.disabled = true;
+    window.dervs.responderPlano("cancelar", false, cartaoAtual);
   });
 
   // --- ligação com a ponte (window.dervs, exposta pelo preload.js) ---------

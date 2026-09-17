@@ -120,6 +120,14 @@ class Motor(dervs.PopUp):
     def __init__(self, ponte: PonteElectron):
         self.ponte = ponte
         self._ultimo_estado_enviado = None
+        # Identidade do cartão em trânsito (correção de concorrência — ver
+        # relato desta etapa): sem isto, uma resposta duplicada ou atrasada
+        # do Electron (duplo-clique cujas duas mensagens saem antes do
+        # cartão anterior sumir da tela) não tem como saber a qual cartão se
+        # refere. Contador incremental — suficiente aqui porque o único uso
+        # é descartar resposta desatualizada, não segurança criptográfica.
+        self._proximo_cartao_id = 0
+        self._cartao_pendente = None
         super().__init__()
         # Etapa 4: a `Voz` já sabe emitir o nível de amplitude enquanto fala,
         # se alguém ligar `ao_nivel`. Quem liga aqui é a ponte.
@@ -155,6 +163,15 @@ class Motor(dervs.PopUp):
         if ligar and self.escuta is not None:
             self.escuta.nivel.connect(self.ponte.enviar_volume)
 
+    # ---- identidade do cartão em trânsito --------------------------------
+    def _novo_cartao_id(self) -> int:
+        """Um id novo por cartão enviado que espera resposta — guardado em
+        `self._cartao_pendente` para `_confirmar_do_electron` descartar
+        resposta desatualizada (ver relato desta etapa)."""
+        self._proximo_cartao_id += 1
+        self._cartao_pendente = self._proximo_cartao_id
+        return self._proximo_cartao_id
+
     # ---- plano: mostra e limpa o cartão ---------------------------------
     def _confirmar_plano(self):
         super()._confirmar_plano()
@@ -166,7 +183,9 @@ class Motor(dervs.PopUp):
         pergunta = ("Vou fazer isto — dá um OK (ou diga 'ok') que eu executo:"
                     if n == 1 else
                     f"Vou fazer estes {n} passos — dá um OK (ou diga 'ok'):")
-        self.ponte.enviar_plano(passos, _nivel_ponte(self._plano_nivel_max), pergunta)
+        cartao_id = self._novo_cartao_id()
+        self.ponte.enviar_plano(passos, _nivel_ponte(self._plano_nivel_max),
+                                 pergunta, cartao_id=cartao_id)
 
     def cancelar_plano(self):
         super().cancelar_plano()
@@ -225,7 +244,9 @@ class Motor(dervs.PopUp):
             "texto_autorizacao": texto_autorizacao,
             "dupla_confirmacao": bool(d["dupla_confirmacao"]),
         }
-        self.ponte.enviar_plano([passo_ponte], _nivel_ponte(d["nivel"]), pergunta)
+        cartao_id = self._novo_cartao_id()
+        self.ponte.enviar_plano([passo_ponte], _nivel_ponte(d["nivel"]), pergunta,
+                                 cartao_id=cartao_id)
 
     def _reenviar_cartao_2conf(self):
         """Chamado depois do 1º clique do trilho de dupla confirmação
@@ -304,8 +325,28 @@ def _construir_ao_plano(motor: Motor):
     só que agora também precisa tratar `autorizado` (a caixa "Tenho
     autorização", que só existe como widget Qt escondido) e o trilho de
     dupla confirmação, que no Electron não tem um botão de verdade para
-    trocar de texto sozinho."""
-    def _ao_plano(resposta, autorizado=False):
+    trocar de texto sozinho.
+
+    BUG DE CONCORRÊNCIA corrigido aqui: no Qt, esconder a barra do cartão
+    era síncrono — widget escondido não recebe clique, então duplo-clique
+    rápido nunca disparava duas respostas para o mesmo cartão. No Electron,
+    "sumir o cartão anterior" é uma mensagem assíncrona que pode ainda não
+    ter chegado quando o próximo clique sai — duas respostas em trânsito
+    podiam rodar o passo errado, roubar uma das duas confirmações do
+    trilho de dupla confirmação, ou rodar o mesmo passo destrutivo duas
+    vezes (ver relato desta etapa, com reprodução dos três casos). A
+    correção: cada cartão enviado carrega um `cartao_id` novo
+    (`Motor._novo_cartao_id`); qualquer resposta cujo `cartao_id` não bata
+    exatamente com `motor._cartao_pendente` é uma mensagem desatualizada e
+    é ignorada em silêncio — não é erro, só não executa nada. Zerar
+    `_cartao_pendente` ANTES de decidir o que fazer com a resposta válida
+    também descarta uma segunda resposta duplicada da MESMA mensagem
+    original.
+    """
+    def _ao_plano(resposta, autorizado=False, cartao_id=None):
+        if motor._cartao_pendente is None or cartao_id != motor._cartao_pendente:
+            return   # resposta desatualizada — nenhum cartão espera por ela
+        motor._cartao_pendente = None
         if resposta == "confirmar":
             _confirmar_do_electron(motor, bool(autorizado))
         elif resposta == "cancelar":
@@ -393,9 +434,9 @@ def main():
     # mexer em atributo privado da `PonteElectron`.
     ao_plano_alvo = []
 
-    def _ao_plano_inicial(resposta, autorizado=False):
+    def _ao_plano_inicial(resposta, autorizado=False, cartao_id=None):
         if ao_plano_alvo:
-            ao_plano_alvo[0](resposta, autorizado)
+            ao_plano_alvo[0](resposta, autorizado, cartao_id)
 
     ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial, ao_pronto=lambda: None)
     motor = Motor(ponte)

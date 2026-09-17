@@ -177,6 +177,10 @@ function tratarLinhaDoPython(linha) {
         passos: Array.isArray(mensagem.passos) ? mensagem.passos : [],
         nivel: mensagem.nivel || "reversivel",
         pergunta: mensagem.pergunta || "",
+        // `cartao_id` é extensão do protocolo (correção de concorrência,
+        // ver dervs_ponte_electron.py) — repassado como veio, `null` quando
+        // ausente (cartão que não espera resposta, ex.: lista vazia).
+        cartaoId: "cartao_id" in mensagem ? mensagem.cartao_id : null,
       });
       break;
     case "mostrar":
@@ -202,16 +206,18 @@ function ligarStdin() {
 }
 
 // Resposta do cartão de plano vinda do renderer (via preload/contextBridge).
-// `dado` é `{ resposta, autorizado }` (preload.js atual); aceita também uma
-// string solta por compatibilidade com um preload mais velho.
+// `dado` é `{ resposta, autorizado, cartaoId }` (preload.js atual); aceita
+// também uma string solta por compatibilidade com um preload mais velho.
 ipcMain.on("dervs:responder-plano", (_evento, dado) => {
   const resposta = dado && typeof dado === "object" ? dado.resposta : dado;
   const autorizado = Boolean(dado && typeof dado === "object" && dado.autorizado);
+  const cartaoId = dado && typeof dado === "object" && "cartaoId" in dado
+    ? dado.cartaoId : null;
   if (resposta !== "confirmar" && resposta !== "cancelar") {
     console.error(`electron: resposta de plano inválida, ignorada: ${String(resposta)}`);
     return;
   }
-  enviarAoPython({ verbo: "plano", resposta, autorizado });
+  enviarAoPython({ verbo: "plano", resposta, autorizado, cartao_id: cartaoId });
 });
 
 app.whenReady().then(() => {

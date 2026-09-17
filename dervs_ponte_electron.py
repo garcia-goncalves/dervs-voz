@@ -16,14 +16,20 @@ Verbos Python → Electron (só estes cinco):
   estado  {"valor", "texto", "apoio"} — só quando o estado muda.
   volume  {"valor"}                   — 0.0 a 1.0, estrangulado (ver abaixo).
   fala    {"papel", "texto"}          — uma linha nova de conversa.
-  plano   {"passos", "nivel", "pergunta"} — lista vazia limpa o cartão.
-            Cada passo em `passos` traz `rotulo`/`nivel` (contrato
+  plano   {"passos", "nivel", "pergunta", "cartao_id"} — lista vazia limpa
+            o cartão. Cada passo em `passos` traz `rotulo`/`nivel` (contrato
             original); um cartão de PASSO ÚNICO (risco de um passo
             destrutivo dentro do plano, não o plano inteiro) também traz,
             por extensão do protocolo: `comando` (texto do comando),
             `precisa_autorizacao` (bool — toca rede de fora ou lê arquivo
             de segredo), `texto_autorizacao` (a frase certa para a caixa) e
             `dupla_confirmacao` (bool — exige dois "confirmar" seguidos).
+            `cartao_id` é extensão do protocolo (correção de concorrência):
+            identifica de forma única o cartão que espera resposta — sem
+            ele, duas mensagens de resposta em trânsito não dá para saber a
+            qual cartão cada uma se refere (ver `_confirmar_do_electron` em
+            `dervs_electron.py`). Ausente/`None` para cartões que não
+            esperam resposta (ex.: a lista vazia que limpa a tela).
             Consumidor que só lê `rotulo`/`nivel` continua funcionando sem
             mudar nada.
   mostrar {}                          — traz a janela para frente.
@@ -33,11 +39,15 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
             guardados (só o último de cada) e são despachados quando ele
             chega — o mesmo padrão do `READY` dos daemons.
   sair    — "Sair do DERVS" da bandeja.
-  plano   {"resposta": "confirmar" | "cancelar", "autorizado": bool} —
-            botão do cartão de plano. `autorizado` é extensão do
-            protocolo: reflete a caixa "Tenho autorização" marcada ou não
-            quando o cartão em tela é um passo com `precisa_autorizacao`;
-            ausente vira `False`.
+  plano   {"resposta": "confirmar" | "cancelar", "autorizado": bool,
+            "cartao_id"} — botão do cartão de plano. `autorizado` é
+            extensão do protocolo: reflete a caixa "Tenho autorização"
+            marcada ou não quando o cartão em tela é um passo com
+            `precisa_autorizacao`; qualquer valor que não seja o booleano
+            `True` vira `False` (checagem estrita — string "false" ou
+            outro valor truthy do JSON não destrava nada). `cartao_id` é
+            extensão do protocolo: ecoa o id do cartão a que esta resposta
+            se refere — quem decide se ainda vale é `dervs_electron.py`.
 
 Regras duras (valem para os dois lados da ponte, e este arquivo cumpre a
 parte do Python):
@@ -66,6 +76,8 @@ WINDOWS = sys.platform == "win32"
 
 _LIMITE_LINHA = 64 * 1024      # 64 KiB — linha maior que isso é descartada
 _LIMITE_TEXTO = 4000           # texto livre é cortado antes de ser enviado
+_LIMITE_PLANO = 60000          # caracteres — teto abaixo de _LIMITE_LINHA,
+                                # para sobrar folga para o resto do JSON
 _ESTRANGULA_SEG = 0.05         # 50 ms = no máximo 20 mensagens de volume/s
 
 _EXECUTAVEL_PADRAO = os.path.join(
@@ -89,6 +101,7 @@ class PonteElectron:
     """
 
     def __init__(self, ao_sair, ao_plano, ao_pronto):
+        """`ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`."""
         self._ao_sair = ao_sair
         self._ao_plano = ao_plano
         self._ao_pronto = ao_pronto
@@ -181,10 +194,17 @@ class PonteElectron:
                 return
             # `autorizado` é extensão do protocolo (ver cabeçalho, verbo
             # `plano` Electron → Python): a caixa "Tenho autorização"
-            # marcada ou não. Ausente/tipo errado vira `False` — nunca
-            # deixa passar sem marcar por acidente de protocolo.
-            autorizado = bool(dado.get("autorizado", False))
-            self._chamar(self._ao_plano, resposta, autorizado)
+            # marcada ou não. Checagem ESTRITA — só o booleano `True` de
+            # verdade destrava; `bool("false")` é `True` em Python, então
+            # qualquer outro valor truthy do JSON (string, lista não-vazia)
+            # não pode passar por essa porta.
+            autorizado = dado.get("autorizado") is True
+            # `cartao_id` é extensão do protocolo (correção de concorrência,
+            # ver cabeçalho): identifica a qual cartão esta resposta se
+            # refere. Repassado como veio (string ou número) — quem decide
+            # se ainda vale é `dervs_electron.py`.
+            cartao_id = dado.get("cartao_id")
+            self._chamar(self._ao_plano, resposta, autorizado, cartao_id)
         else:
             sys.stderr.write(f"ponte: verbo desconhecido vindo do Electron: {verbo!r}\n")
 
@@ -251,9 +271,27 @@ class PonteElectron:
     def enviar_fala(self, papel, texto):
         self._escrever({"verbo": "fala", "papel": papel, "texto": _cortar(texto)})
 
-    def enviar_plano(self, passos, nivel, pergunta):
-        self._escrever({"verbo": "plano", "passos": passos, "nivel": nivel,
-                         "pergunta": _cortar(pergunta)})
+    def enviar_plano(self, passos, nivel, pergunta, cartao_id=None):
+        msg = {"verbo": "plano", "passos": list(passos), "nivel": nivel,
+               "pergunta": _cortar(pergunta)}
+        if cartao_id is not None:
+            msg["cartao_id"] = cartao_id
+        # Teto de tamanho: sem isto, um plano grande o bastante estoura o
+        # `_LIMITE_LINHA` de 64 KiB (linha inteira descartada do lado do
+        # Electron, ver `_processar_linha`), reintroduzindo por outra porta
+        # o mesmo sintoma "cartão nunca aparece" que a `_cortar` de `pergunta`
+        # já resolve para o texto livre. Corta a lista de passos, mantendo
+        # os primeiros que couberem — nunca deixa a linha estourar em
+        # silêncio sem alternativa nenhuma chegando à tela.
+        total_original = len(msg["passos"])
+        while msg["passos"] and len(json.dumps(msg, ensure_ascii=False)) > _LIMITE_PLANO:
+            msg["passos"].pop()
+        if len(msg["passos"]) < total_original:
+            sys.stderr.write(
+                f"ponte: plano com {total_original} passos estourava "
+                f"{_LIMITE_PLANO} caracteres — cortado para "
+                f"{len(msg['passos'])} passo(s)\n")
+        self._escrever(msg)
 
     def enviar_mostrar(self):
         self._escrever({"verbo": "mostrar"})

@@ -44,8 +44,8 @@ class PonteFalsa:
     def enviar_fala(self, papel, texto):
         self.chamadas.append(("fala", papel, texto))
 
-    def enviar_plano(self, passos, nivel, pergunta):
-        self.chamadas.append(("plano", passos, nivel, pergunta))
+    def enviar_plano(self, passos, nivel, pergunta, cartao_id=None):
+        self.chamadas.append(("plano", passos, nivel, pergunta, cartao_id))
 
     def enviar_mostrar(self):
         self.chamadas.append(("mostrar",))
@@ -239,6 +239,76 @@ def test_passo_com_dupla_confirmacao_precisa_de_duas_respostas_confirmar(motor, 
 
     dervs_electron._confirmar_do_electron(motor, False)
     assert rodados == ["rm -rf /home/user/projeto"]
+
+
+# ---- identidade do cartão: a correção de concorrência (achado de segurança) -
+#
+# No Qt, esconder a barra do cartão era síncrono — widget escondido não
+# recebe clique, então duplo-clique rápido nunca disparava duas respostas
+# para o mesmo cartão. No Electron, "sumir o cartão anterior" é uma mensagem
+# assíncrona que pode ainda não ter chegado quando o próximo clique sai. Os
+# testes abaixo provam os dois cenários reproduzidos pelo revisor que o
+# `cartao_id` fecha: resposta atrasada/duplicada do MESMO cartão, e resposta
+# de um cartão JÁ SUPERADO por um cartão novo.
+
+def test_ao_plano_ignora_segunda_resposta_atrasada_ao_mesmo_cartao(motor, monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(motor, "confirmar_passo", lambda: chamadas.append("confirmar_passo"))
+    cartao_id = motor._novo_cartao_id()
+    ao_plano = dervs_electron._construir_ao_plano(motor)
+
+    # 1ª mensagem: aplicada.
+    ao_plano("confirmar", False, cartao_id)
+    assert chamadas == ["confirmar_passo"]
+
+    # 2ª mensagem: a mesma resposta original, que só chega depois (o duplo
+    # clique cujas duas mensagens saem antes do cartão sumir da tela) — o
+    # `_cartao_pendente` já foi zerado ao consumir a 1ª, então esta é
+    # ignorada em silêncio, sem rodar nada de novo.
+    ao_plano("confirmar", False, cartao_id)
+    assert chamadas == ["confirmar_passo"], (
+        "a 2ª resposta ao mesmo cartão rodou de novo — o bug de segurança voltou")
+
+
+def test_ao_plano_ignora_resposta_de_cartao_ja_superado_por_um_novo(motor, monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(motor, "confirmar_passo", lambda: chamadas.append("confirmar_passo"))
+    id_antigo = motor._novo_cartao_id()
+    id_novo = motor._novo_cartao_id()   # um cartão novo já foi mandado por cima
+    ao_plano = dervs_electron._construir_ao_plano(motor)
+
+    ao_plano("confirmar", False, id_antigo)
+    assert chamadas == [], "resposta de um cartão anterior, já superado, não podia rodar nada"
+
+    ao_plano("confirmar", False, id_novo)
+    assert chamadas == ["confirmar_passo"], "a resposta do cartão atual tinha de rodar"
+
+
+def test_ao_plano_ignora_resposta_sem_cartao_pendente(motor, monkeypatch):
+    # nenhum cartão foi enviado ainda (`_cartao_pendente` é None) — qualquer
+    # resposta que chegue é desatualizada por definição.
+    chamadas = []
+    monkeypatch.setattr(motor, "confirmar_passo", lambda: chamadas.append("confirmar_passo"))
+    ao_plano = dervs_electron._construir_ao_plano(motor)
+    ao_plano("confirmar", False, None)
+    assert chamadas == []
+
+
+def test_confirmar_plano_gera_cartao_id_novo_a_cada_chamada(motor):
+    motor.plano = [{"comando": "echo oi"}]
+    motor._confirmar_plano()
+    primeiro = motor._cartao_pendente
+    assert primeiro is not None
+
+    motor.plano = [{"comando": "echo de novo"}]
+    motor._confirmar_plano()
+    segundo = motor._cartao_pendente
+    assert segundo is not None
+    assert segundo != primeiro, "o segundo cartão tinha de ter um id diferente do primeiro"
+
+    planos = motor.ponte.de_tipo("plano")
+    assert planos[-2][4] == primeiro
+    assert planos[-1][4] == segundo
 
 
 # ---- sair: encerrar_tudo + posse.soltar() ----------------------------------
