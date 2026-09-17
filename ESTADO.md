@@ -199,20 +199,29 @@ A configuração `navegador_ligado` existia, era validada e até tinha teste —
 
 Em ordem de valor para você:
 
-### 4.0. A demonstração ao vivo do HUD novo — PENDENTE, precisa de você presente
+### 4.0. A demonstração ao vivo do HUD novo — PARCIAL, falta você falar perto do microfone
 
-**Isto NÃO foi verificado nesta rodada e não pode ser fingido.** A troca da
-tela para o HUD Electron (16–17/09/2026) foi provada pelos 606 testes
-automatizados, que cobrem a lógica — mas nenhum deles fala perto de um
-microfone de verdade. Continuam em aberto, sem data:
+**Atualizado em 17/09/2026, com medição real:**
 
-- ouvir você falar de verdade com o HUD novo na tela, do jeito que você usa no
-  dia a dia;
-- medir o consumo de CPU do HUD (Electron + o motor Qt invisível por baixo)
-  numa sessão real — não há nenhum número medido disso ainda.
+- **A janela abre e fica de pé — confirmado ao vivo, na sua máquina.** Achado
+  e corrigido um bug sério nessa mesma verificação: o Electron não conseguia
+  ficar aberto em NENHUM Windows (recebia um sinal falso de "o Python
+  morreu" quase na hora de subir — limitação do Chromium no Windows, não
+  defeito do projeto). Corrigido trocando a forma como o Python fala com o
+  Electron (de `stdin` para um soquete local, `127.0.0.1`). Depois da
+  correção: janela aberta, título "DERVS" visível, processos do Electron
+  (principal, GPU, renderização) todos de pé e respondendo.
+- **CPU medido de verdade, com a janela aberta e parada por 2 minutos:**
+  em média **21% de um núcleo** somando Python + todos os processos do
+  Electron — numa máquina com vários núcleos (Ryzen 7), isso é menos de 3%
+  da CPU total da máquina. Não foi comparado lado a lado com o app antigo
+  (`dervs.py`/Qt) nesta rodada — se um dia parecer pesado no dia a dia, o
+  primeiro lugar a olhar é o `requestAnimationFrame` do HUD (`hud.js`), que
+  desenha o núcleo e os anéis o tempo todo enquanto a janela está visível.
 
-Isso só acontece com você por perto, falando perto do microfone. Não é uma
-tarefa que se fecha sozinha.
+**Ainda em aberto, sem data — só acontece com você por perto:**
+- ouvir você falar de verdade perto do microfone e ver a onda reagir, do
+  jeito que você usa no dia a dia.
 
 ### 4.1. Os seus nomes próprios no vocabulário — depende de você
 
