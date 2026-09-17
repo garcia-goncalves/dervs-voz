@@ -45,7 +45,7 @@ def _nova_ponte(linhas_de_saida: bytes = b"", ao_sair=None, ao_plano=None, ao_pr
     (a menos que o chamador queira testar o comportamento antes do `pronto`)."""
     p = ponte_mod.PonteElectron(
         ao_sair=ao_sair or (lambda: None),
-        ao_plano=ao_plano or (lambda resposta: None),
+        ao_plano=ao_plano or (lambda resposta, autorizado=False, cartao_id=None: None),
         ao_pronto=ao_pronto or (lambda: None))
     processo = ProcessoFalso(linhas_de_saida)
     p._iniciar(processo)
@@ -104,6 +104,36 @@ def test_enviar_plano_manda_passos_nivel_pergunta():
     dado = json.loads(_linhas_escritas(processo)[0])
     assert dado == {"verbo": "plano", "passos": passos, "nivel": "destrutivo",
                      "pergunta": "confirma?"}
+
+
+def test_enviar_plano_com_cartao_id_manda_o_campo():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_plano([{"rotulo": "x", "nivel": "reversivel"}], "reversivel",
+                    "confirma?", cartao_id=7)
+    dado = json.loads(_linhas_escritas(processo)[0])
+    assert dado["cartao_id"] == 7
+
+
+def test_enviar_plano_sem_cartao_id_nao_manda_o_campo():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_plano([], "reversivel", "")
+    dado = json.loads(_linhas_escritas(processo)[0])
+    assert "cartao_id" not in dado
+
+
+def test_enviar_plano_gigante_e_cortado_em_vez_de_estourar_a_linha(capsys):
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    passos = [{"rotulo": "x" * 2000, "nivel": "reversivel"} for _ in range(100)]
+    p.enviar_plano(passos, "reversivel", "confirma?", cartao_id=1)
+    linha = _linhas_escritas(processo)[0]
+    assert len(linha) <= ponte_mod._LIMITE_LINHA
+    dado = json.loads(linha)
+    assert len(dado["passos"]) < len(passos)
+    assert dado["cartao_id"] == 1
+    assert "cortado" in capsys.readouterr().err
 
 
 def test_enviar_mostrar_nao_tem_campo_nenhum():
@@ -184,8 +214,54 @@ def test_resposta_de_plano_chama_ao_plano_com_confirmar():
     recebido = []
     p, processo = _nova_ponte(
         linhas_de_saida=b'{"verbo": "plano", "resposta": "confirmar"}\n',
-        ao_plano=lambda resposta: recebido.append(resposta))
-    assert _esperar(lambda: recebido == ["confirmar"])
+        ao_plano=lambda resposta, autorizado=False, cartao_id=None:
+            recebido.append((resposta, autorizado)))
+    assert _esperar(lambda: recebido == [("confirmar", False)])
+
+
+def test_resposta_de_plano_manda_autorizado_quando_vem_true():
+    recebido = []
+    p, processo = _nova_ponte(
+        linhas_de_saida=b'{"verbo": "plano", "resposta": "confirmar", "autorizado": true}\n',
+        ao_plano=lambda resposta, autorizado=False, cartao_id=None:
+            recebido.append((resposta, autorizado)))
+    assert _esperar(lambda: recebido == [("confirmar", True)])
+
+
+@pytest.mark.parametrize("valor_autorizado", ["false", "nao", [0], 0.0])
+def test_resposta_de_plano_com_autorizado_nao_booleano_vira_false(valor_autorizado):
+    # `bool("false")` é `True` em Python — a checagem tem de ser estrita
+    # (`is True`), senão qualquer valor truthy do JSON destrava o passo.
+    linha = (json.dumps({"verbo": "plano", "resposta": "confirmar",
+                          "autorizado": valor_autorizado}) + "\n").encode("utf-8")
+    recebido = []
+    p, processo = _nova_ponte(
+        linhas_de_saida=linha,
+        ao_plano=lambda resposta, autorizado=False, cartao_id=None:
+            recebido.append((resposta, autorizado)))
+    assert _esperar(lambda: recebido == [("confirmar", False)])
+
+
+def test_resposta_de_plano_repassa_o_cartao_id():
+    recebido = []
+    p, processo = _nova_ponte(
+        linhas_de_saida=b'{"verbo": "plano", "resposta": "confirmar", "cartao_id": 5}\n',
+        ao_plano=lambda resposta, autorizado=False, cartao_id=None:
+            recebido.append((resposta, autorizado, cartao_id)))
+    assert _esperar(lambda: recebido == [("confirmar", False, 5)])
+
+
+def test_verbo_sair_seguido_de_fechar_stdout_chama_ao_sair_uma_vez_so():
+    # a sequência real: o Electron manda "sair" e em seguida fecha o stdout
+    # (encerramento normal) — o `finally` de `_ler_saida` não pode chamar
+    # `ao_sair` de novo por cima do que o verbo já disparou.
+    chamado = []
+    p, processo = _nova_ponte(
+        linhas_de_saida=b'{"verbo": "sair"}\n',
+        ao_sair=lambda: chamado.append(True))
+    assert _esperar(lambda: len(chamado) >= 1)
+    time.sleep(0.2)   # dá tempo do finally (stdout fechado) rodar, se for rodar
+    assert len(chamado) == 1
 
 
 def test_stdout_fechar_chama_ao_sair():
@@ -211,7 +287,8 @@ def test_linha_gigante_e_descartada(capsys):
     recebido = []
     p, processo = _nova_ponte(
         linhas_de_saida=linha_gigante,
-        ao_plano=lambda resposta: recebido.append(resposta))
+        ao_plano=lambda resposta, autorizado=False, cartao_id=None:
+            recebido.append(resposta))
     time.sleep(0.3)
     assert recebido == []       # a linha nunca chegou a ser interpretada
     saida = capsys.readouterr().err
@@ -243,7 +320,8 @@ def test_fechar_fecha_o_stdin():
 # ---- abrir(): mensagem de erro quando falta o Electron -------------------
 
 def test_abrir_sem_electron_instalado_levanta_erro_em_portugues(tmp_path):
-    p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda r: None,
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None,
+                                 ao_plano=lambda r, a=False, c=None: None,
                                  ao_pronto=lambda: None)
     executavel_inexistente = str(tmp_path / "electron-que-nao-existe.exe")
     with pytest.raises(FileNotFoundError) as excinfo:

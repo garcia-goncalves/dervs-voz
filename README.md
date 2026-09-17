@@ -7,9 +7,14 @@
 > **Para quem só quer usar:** leia **[COMO-USAR.md](COMO-USAR.md)**, escrito sem
 > jargão. Este README é para quem vai mexer no código.
 
-Selo flutuante na bandeja. Você fala → transcreve → o cérebro entende e propõe um
-plano → você confirma → ele executa (abre apps, sites, roda comandos). Fala de
-volta com voz humana.
+HUD estilo painel de controle (identidade JARVIS, ciano/preto, com anéis
+girando e núcleo que reage à voz) na bandeja. Você fala → transcreve → o
+cérebro entende e propõe um plano → você confirma → ele executa (abre apps,
+sites, roda comandos). Fala de volta com voz humana.
+
+**A tela é Electron desde 16/09/2026** — antes era uma janela Qt visível com um
+selo flutuante; hoje o Qt continua vivo por baixo (motor invisível, ver seção
+abaixo), mas quem aparece na tela é sempre o HUD do Electron.
 
 Detalhe completo em **[DERVS-EXECUTAR.md](DERVS-EXECUTAR.md)**.
 
@@ -42,24 +47,58 @@ para o Picovoice Porcupine está documentado em `dervs_porteiro.py`.
 No Windows, do diretório do projeto:
 
 ```
-dervs-venv\Scripts\python.exe dervs.py                      # abre o DERVS
+dervs-venv\Scripts\python.exe dervs_electron.py             # abre o DERVS (HUD Electron)
 dervs-venv\Scripts\python.exe dervs_transcrever.py [audio]  # audio -> texto
 dervs-venv\Scripts\python.exe scripts\instalar_atalho.py    # icone + atalhos
-dervs-venv\Scripts\python.exe -m pytest -q                  # testes (543 verdes)
+dervs-venv\Scripts\python.exe -m pytest -q                  # testes (606 verdes)
 dervs-venv\Scripts\python.exe amostras_de_voz.py            # amostras das 3 vozes
 ```
 
+`dervs_electron.py` é o ponto de entrada padrão desde 16/09/2026 (era `dervs.py`
+até então). Ele sobe o Electron (pasta `electron/`) como janela — quem continua
+dono de tudo (trava de instância única, daemons, cérebro, trilhos de segurança)
+é o processo Python; só quem desenha a tela mudou. `dervs.py` continua no disco
+e continua abrindo se alguém chamar ele na mão (é o caminho de volta para a
+janela Qt antiga, mantido de propósito), mas não é mais o que o atalho abre.
+
+**Passo novo de montagem, uma vez só:**
+
+```
+cd electron
+npm install
+cd ..
+```
+
+Baixa o Electron (~150–300 MB) — precisa de internet na primeira vez. Sem isso
+`dervs_electron.py` não encontra o runtime do Electron e recusa abrir.
+
 O dono não usa terminal: para ele existem os atalhos **DERVS** e
 **DERVS - Transcrever audio** na Área de Trabalho e no menu Iniciar, criados por
-`scripts/instalar_atalho.py` (que também desenha o `dervs.ico` a partir do selo
-da janela). O atalho do app usa `pythonw.exe` para não abrir console junto; o da
-transcrição usa `python.exe` de propósito, porque ali o console **é** a interface
+`scripts/instalar_atalho.py` (que agora desenha o `dervs.ico` a partir do ícone
+HUD em `scripts/icone_hud.py`, e o atalho **DERVS** aponta para
+`dervs_electron.py`). O atalho do app usa `pythonw.exe` para não abrir console
+junto; o da transcrição usa `python.exe` de propósito, porque ali o console **é** a interface
 que mostra o andamento.
 
 Ainda **não** há serviço que suba sozinho no boot — está fora do escopo desta
 rodada, de propósito, até o comportamento estabilizar.
 
 No Linux (repositório irmão) o serviço continua sendo `systemctl --user`.
+
+## A pasta `electron/`
+
+Casca da janela nova, separada do cérebro Python de propósito:
+
+| Arquivo | Função |
+|---|---|
+| `electron/main.js` | processo principal: cria a janela e a bandeja, fala com o Python por stdin/stdout |
+| `electron/preload.js` | ponte segura entre a janela (renderer) e o `main.js` |
+| `electron/renderer/` | HTML/CSS/JS do HUD — `index.html`, `estilo.css`, `hud.js`, e as fontes empacotadas localmente |
+| `electron/package.json` | fixa a versão do Electron (`devDependencies`); fonte da verdade da dependência JS |
+
+A bandeja tem três itens: **Abrir DERVS**, **Recolher janela** e **Sair do
+DERVS**. Fechar pelo X só esconde a janela — quem encerra de fato é "Sair do
+DERVS" ou o processo Python-pai morrendo.
 
 ## Configuração
 
@@ -71,6 +110,10 @@ Chaves: `stt`, `stt_openai_modelo`, `porteiro`, `porteiro_modelo`, `cerebro`,
 `cerebro_openai_modelo`, `motor`, `voz_kokoro`, `voz`, `voz_velocidade`,
 `janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir`, e as do navegador. Valor inválido cai
 no padrão em vez de derrubar o app (`_validar`). Mudou → reinicie.
+
+**O HUD Electron não tem botão de liga/desliga o microfone na tela** — o Qt
+tinha; esta rodada tirou. Hoje só dá para desligar a escuta saindo do DERVS ou
+editando `escuta_ao_abrir` neste arquivo. Detalhe em `ESTADO.md`.
 
 ## Segredo
 

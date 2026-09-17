@@ -6,7 +6,7 @@ Por que existe: até 02/09/2026 o único jeito de abrir o DERVS era digitar
 terminal — na prática o app não tinha como ser aberto por ele.
 
 O que faz:
-  1. desenha `dervs.ico` a partir do MESMO selo que a janela usa (`dervs._selo`),
+  1. desenha `dervs.ico` a partir do ícone HUD/JARVIS (`scripts.icone_hud.pixmap`),
      em todos os tamanhos que o Windows pede (16 a 256);
   2. cria o atalho "DERVS" na Área de Trabalho e no menu Iniciar, apontando para
      o `pythonw.exe` do ambiente do projeto — `pythonw`, e não `python`, porque
@@ -24,6 +24,7 @@ import subprocess
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RAIZ)
+sys.path.insert(0, os.path.join(RAIZ, "scripts"))
 
 ICONE = os.path.join(RAIZ, "dervs.ico")
 
@@ -35,13 +36,13 @@ TAMANHOS = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
 
 
 def _png_de(px: int) -> bytes:
-    """Desenha o selo naquele tamanho e devolve os bytes de um PNG."""
+    """Desenha o ícone HUD naquele tamanho e devolve os bytes de um PNG."""
     from PyQt6 import QtCore
-    import dervs
+    import icone_hud
     buf = QtCore.QBuffer()
     buf.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
-    if not dervs._selo(px).save(buf, "PNG"):
-        raise SystemExit(f"não consegui desenhar o selo em {px}px")
+    if not icone_hud.pixmap(px).save(buf, "PNG"):
+        raise SystemExit(f"não consegui desenhar o ícone em {px}px")
     return bytes(buf.data())
 
 
@@ -103,7 +104,7 @@ def criar_atalho(destino: str, alvo: str, script: str, descricao: str) -> None:
 # a janela de console É a interface: é nela que aparece o andamento
 # ("pedaço 3 de 8") de um envio que pode levar minutos.
 ATALHOS = [
-    ("DERVS", "dervs.py", "pythonw.exe",
+    ("DERVS", "dervs_electron.py", "pythonw.exe",
      "DERVS - seu parceiro de voz"),
     ("DERVS - Transcrever audio", "dervs_transcrever.py", "python.exe",
      "Escolha um audio e receba o texto"),

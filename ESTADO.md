@@ -1,13 +1,26 @@
-# Estado do DERVS — 02/09/2026
+# Estado do DERVS — 17/09/2026
 
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 02/09/2026, noite. **543 testes verdes** no ambiente do
-projeto (`dervs-venv`), que é onde o DERVS de fato roda. No Python do sistema,
-496 verdes e 16 pulados — a diferença são os testes que precisam da biblioteca
-da janela (PyQt6), que só existe no ambiente do projeto. Nenhum erro de coleta
-nos dois, que é o que impede um arquivo quebrado de esconder a suíte inteira.
+Última verificação: 17/09/2026. **606 testes verdes** no ambiente do
+projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
+coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
+
+**A cara mudou nesta rodada (16–17/09/2026): a tela agora é um HUD Electron**
+(painel ciano/preto, estilo "painel de controle", com anéis girando e um
+núcleo que reage à voz), não mais a janela Qt com o selo dourado flutuante. O
+Qt continua rodando por baixo — motor invisível, ver `dervs_electron.py` — só
+quem desenha a tela mudou. O ponto de entrada padrão passou a ser
+`dervs_electron.py` (era `dervs.py`); `dervs.py` continua no disco e ainda
+abre se chamado na mão, mas não é mais o que o atalho usa.
+
+**Pendência que NÃO foi fechada nesta rodada e precisa do dono presente:** a
+Etapa 12 do plano (demonstração ao vivo com voz real e medição de CPU) ainda
+não aconteceu. Nada aqui foi testado com a voz do dono, e não há número de CPU
+medido ao vivo para o HUD novo — só o que os 606 testes automatizados cobrem.
+Não confunda "testes passam" com "demonstrado funcionando com voz real": são
+coisas diferentes, e a segunda ainda está pendente.
 
 ---
 
@@ -15,8 +28,8 @@ nos dois, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
 | Parte | Estado | Onde roda | Custo |
 |---|---|---|---|
-| A janela e o selo flutuante | **funciona** | sua máquina | zero |
-| Abrir por atalho (Área de Trabalho e menu Iniciar) | **funciona** | sua máquina | zero |
+| O HUD (janela Electron ciano/preto, novo desde 16/09) | **funciona** | sua máquina | zero |
+| Abrir por atalho (Área de Trabalho e menu Iniciar, agora abre `dervs_electron.py`) | **funciona** | sua máquina | zero |
 | Um DERVS só de cada vez (o 2º clique traz de volta o 1º) | **funciona** | sua máquina | zero |
 | Porteiro — "isso foi comigo?" | **funciona** | sua máquina | zero |
 | Transcrição precisa (fala → texto) | **funciona** | OpenAI | ~US$ 0,0045/min |
@@ -58,7 +71,27 @@ já está liberada para programas de área de trabalho.
 Se você ligar e ainda não funcionar, o DERVS agora **diz o motivo na tela** em
 vez de mostrar um campo vazio (item 3.1 abaixo).
 
-### 2.2. O navegador autônomo não funciona no Windows
+### 2.2. O microfone perdeu o botão de liga/desliga na tela — dito sem eufemismo
+
+**Consequência direta da troca de tela (16/09/2026): hoje não existe mais um
+botão no HUD para desligar o microfone.** A janela Qt antiga tinha o
+interruptor **🎙️ Ei DERVS** / **🔴 Ouvindo**; o HUD do Electron não tem — foi
+tirado, não é bug. Isso é algo que o dono podia fazer clicando na tela e hoje
+não pode mais.
+
+Hoje, com o DERVS aberto, o microfone fica ligado o tempo todo. As únicas
+formas de desligar são:
+
+- sair do DERVS (bandeja → "Sair do DERVS"); ou
+- editar `escuta_ao_abrir` para `false` em `%APPDATA%\dervs\config.json` e
+  reabrir (o padrão de fábrica é `true`).
+
+Não muda o que sai da máquina (o funil do porteiro continua intacto — nada vai
+para a nuvem antes do nome ser ouvido), só o controle fino de "escutar agora
+ou não" que existia na tela sumiu. Se isso incomodar, é trabalho de meia hora
+trazer o botão de volta ao HUD.
+
+### 2.3. O navegador autônomo não funciona no Windows
 
 O DERVS sabe pilotar o Chrome sozinho ("entra no meu Gmail e vê quantos não
 lidos"). Todo o código existe e está testado. **Mas o ambiente que ele precisa
@@ -166,6 +199,30 @@ A configuração `navegador_ligado` existia, era validada e até tinha teste —
 
 Em ordem de valor para você:
 
+### 4.0. A demonstração ao vivo do HUD novo — PARCIAL, falta você falar perto do microfone
+
+**Atualizado em 17/09/2026, com medição real:**
+
+- **A janela abre e fica de pé — confirmado ao vivo, na sua máquina.** Achado
+  e corrigido um bug sério nessa mesma verificação: o Electron não conseguia
+  ficar aberto em NENHUM Windows (recebia um sinal falso de "o Python
+  morreu" quase na hora de subir — limitação do Chromium no Windows, não
+  defeito do projeto). Corrigido trocando a forma como o Python fala com o
+  Electron (de `stdin` para um soquete local, `127.0.0.1`). Depois da
+  correção: janela aberta, título "DERVS" visível, processos do Electron
+  (principal, GPU, renderização) todos de pé e respondendo.
+- **CPU medido de verdade, com a janela aberta e parada por 2 minutos:**
+  em média **21% de um núcleo** somando Python + todos os processos do
+  Electron — numa máquina com vários núcleos (Ryzen 7), isso é menos de 3%
+  da CPU total da máquina. Não foi comparado lado a lado com o app antigo
+  (`dervs.py`/Qt) nesta rodada — se um dia parecer pesado no dia a dia, o
+  primeiro lugar a olhar é o `requestAnimationFrame` do HUD (`hud.js`), que
+  desenha o núcleo e os anéis o tempo todo enquanto a janela está visível.
+
+**Ainda em aberto, sem data — só acontece com você por perto:**
+- ouvir você falar de verdade perto do microfone e ver a onda reagir, do
+  jeito que você usa no dia a dia.
+
 ### 4.1. Os seus nomes próprios no vocabulário — depende de você
 
 **A maior melhoria que sobrou, e ela é barata.** Ficou provado por medição que
@@ -248,8 +305,13 @@ desta máquina. Agora está em `requirements.txt`:
 ```
 python -m venv dervs-venv
 dervs-venv\Scripts\python.exe -m pip install -r requirements.txt
+cd electron && npm install && cd ..
 dervs-venv\Scripts\python.exe scripts\instalar_atalho.py
 ```
+
+O passo `npm install` é novo (16/09/2026, com a tela Electron): baixa o
+Electron (~150–300 MB), precisa de internet, e sem ele `dervs_electron.py` não
+abre.
 
 Fica de fora, e precisa ser baixado à parte: o modelo da voz (`kokoro-model/`,
 ~350 MB) e a chave da OpenAI (que mora em `%APPDATA%\dervs\.env` e **nunca** vai

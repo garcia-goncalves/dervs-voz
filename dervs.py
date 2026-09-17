@@ -38,6 +38,7 @@ from dervs_listen import (Endpointer, Microfone, VigiaDeSilencio,
                           faxina_de_audio, salvar_wav, separar_chamada,
                           esta_mudo, motivo_do_silencio, FRAME_BYTES,
                           FRAME_AMOSTRAS, TAXA)
+import dervs_nivel
 
 HOME = os.path.expanduser("~")
 AQUI = os.path.dirname(os.path.abspath(__file__))
@@ -336,6 +337,8 @@ class Escuta(QtCore.QThread):
     # O microfone está aberto e entregando silêncio digital: ninguém vai
     # apertar nada para descobrir isso, então a escuta tem de gritar.
     mudo = QtCore.pyqtSignal()
+    # Nível do frame atual (0.0 a 1.0), para a onda do HUD desenhar.
+    nivel = QtCore.pyqtSignal(float)
 
     def __init__(self):
         super().__init__()
@@ -376,6 +379,7 @@ class Escuta(QtCore.QThread):
                         ep.aquecer(frame)
                         continue
                     estava_pausado = False
+                    self.nivel.emit(dervs_nivel.nivel_do_frame(frame))
                     pcm = ep.processar(frame)
                     if pcm:
                         caminho = os.path.join(

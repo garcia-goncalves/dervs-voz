@@ -10,8 +10,7 @@ decorado; todos podem ser copiados inteiros.
 **Dois cliques no ícone `DERVS`** — ele está na sua Área de Trabalho e também no
 menu Iniciar (aperte a tecla Windows e comece a digitar "DERVS").
 
-O ícone é o losango dourado com o ponto aceso, o mesmo selo que aparece dentro
-do app.
+O ícone é o mesmo desenho ciano/preto do HUD que aparece dentro do app.
 
 Não abre janela preta de terminal junto: o atalho usa o `pythonw`, que é a
 versão do Python que roda sem console.
@@ -55,20 +54,19 @@ invisível, disputando o seu microfone — e, sem "Sair", não havia como fechar
 nenhum. Depois de alguns cliques a máquina ficava com vários empilhados e o app
 parecia "bugado" ou "sumido". Era exatamente isso.
 
-## O selo sumiu da tela
+## A janela sumiu da tela
 
-O selo (o losango dourado) fica no **rodapé do meio da tela**, logo acima da
-barra de tarefas. Como ele é pequeno e escuro, no Windows 11 ele fica bem em
-cima dos ícones da barra — dá para não notar.
+Desde 16/09/2026 o DERVS não é mais o selo dourado pequeno — é uma janela HUD
+(painel ciano/preto, com anéis girando e um núcleo que reage à sua voz).
 
-Se não achar, duas saídas:
+Se ela sumir:
 
-1. **Dê dois cliques no ícone DERVS de novo.** Ele traz o selo de volta ao lugar
-   de origem, na frente de tudo.
-2. **Botão direito no ícone da bandeja → "Trazer o selo de volta".**
+1. **Dê dois cliques no ícone DERVS de novo**, ou clique no ícone da bandeja.
+   Ele traz a janela de volta para a frente.
+2. **Botão direito no ícone da bandeja → "Abrir DERVS".**
 
-Ele também **não sai mais da tela quando você arrasta**: antes dava para
-arrastá-lo até fora da área visível e ele sumia de vez.
+Fechar pelo X (ou Alt+F4) não encerra o DERVS — só esconde a janela, igual antes.
+Para fechar de verdade, é sempre **"Sair do DERVS"** no menu da bandeja.
 
 ## Transcrever um áudio seu (reunião, WhatsApp, entrevista)
 
@@ -113,20 +111,22 @@ minuto). Uma reunião de duas horas sai por menos de US$ 0,60.
 
 ## Ligar e desligar a escuta
 
-O botão **🎙️ Ei DERVS** / **🔴 Ouvindo**, no alto da janela, é o interruptor do
-microfone.
+**Desde 16/09/2026 não existe mais um botão na tela para isso.** A janela
+antiga (Qt) tinha o interruptor **🎙️ Ei DERVS** / **🔴 Ouvindo**; o HUD novo
+não tem — é algo que você podia fazer clicando na tela e hoje não pode mais.
+Diga com todas as letras: **hoje, com o DERVS aberto, o microfone fica
+ligado o tempo todo**, e as únicas formas de desligar são:
 
-- **🔴 Ouvindo** (dourado aceso): o microfone está aberto. Diga "DERVS" e ele
-  atende. Só isso — o que você fala **não sai do seu computador** enquanto ele
-  não ouvir o nome.
-- **🎙️ Microfone desligado**: nada é ouvido, nem aqui dentro.
+1. **Sair do DERVS** (botão direito no ícone da bandeja → "Sair do DERVS").
+   Fechando o app, o microfone fecha junto.
+2. **Editar a configuração** — mude a chave `escuta_ao_abrir` para `false` em
+   `%APPDATA%\dervs\config.json` e reabra o DERVS. Ele nasce sem escutar.
+   (O padrão de fábrica é `true`, ou seja, escutando.)
 
-**Ele lembra da sua escolha.** Se você desligar e fechar o app, na próxima vez
-ele abre desligado, e a barra de status diz *"escuta desligada — clique no botão
-para ligar"*. Assim o silêncio é escolha sua, não defeito.
-
-Se preferir que ele sempre abra ouvindo, mude `escuta_ao_abrir` para `true` no
-arquivo de configuração (`%APPDATA%\dervs\config.json`).
+Enquanto ele não ouvir o seu nome, o que você fala **não sai do seu
+computador** de qualquer forma (ver o funil mais abaixo) — mas o microfone em
+si não tem mais um "desligar rápido" na própria tela. Se isso incomodar, me
+avise: dá para trazer o botão de volta ao HUD.
 
 ---
 
@@ -179,18 +179,12 @@ terceiro.
 
 ## Ligar e desligar o microfone
 
-Dentro da janela do DERVS há um botão no alto, que diz em qual estado está:
+Ver a seção **"Ligar e desligar a escuta"**, acima — hoje não há mais um
+botão na tela para isso; o microfone fica ligado enquanto o DERVS estiver
+aberto, e as saídas são sair do DERVS ou mudar `escuta_ao_abrir` na
+configuração.
 
-| O botão diz | Significa |
-|---|---|
-| **🔴 Ouvindo** | O microfone está aberto. Ele só responde se ouvir seu nome. |
-| **🎙️ Microfone desligado** | O microfone está fechado. Ele não ouve nada, nem localmente. |
-
-Clicar alterna entre os dois. O estado fica escrito com todas as letras de
-propósito: quem deixa um microfone aberto o dia inteiro precisa conseguir olhar
-para a tela e saber, na hora, se ele está aberto.
-
-Ao abrir, o DERVS já nasce ouvindo.
+Ao abrir (com a configuração padrão), o DERVS já nasce ouvindo.
 
 ---
 
@@ -302,12 +296,12 @@ de cada coisa — está no arquivo `ESTADO.md`, na pasta do projeto.
 | O que acontece | O que fazer |
 |---|---|
 | **A tela diz "não entrou som"** | É o aviso mais importante que ele dá: o microfone não está entregando áudio nenhum. Ou não tem microfone ligado na entrada rosa, ou ele está mudo no Windows (clique com o botão direito no ícone de som → Configurações de som → Entrada). |
-| **Aperto Gravar, falo, e o texto vem vazio** | Se ele não mostrou nenhum recado, avise. Se mostrou "não entrou som", é a linha de cima. Desde 03/09/2026 ele nunca mais fica calado nesse caso — e também não gasta com a nuvem à toa. |
+| **Falo e o texto vem vazio (ou nada aparece)** | Se ele não mostrou nenhum recado, avise. Se mostrou "não entrou som", é a linha de cima. Desde 03/09/2026 ele nunca mais fica calado nesse caso — e também não gasta com a nuvem à toa. |
 | Ele não acorda quando chamo | Primeiro veja se não é a linha acima: sem microfone, ele nunca acorda. Se o microfone está bom, fale um pouco mais alto e mais perto. Se continuar, me avise: existe um detector mais preciso que dá para ligar (Porcupine), que exige uma conta gratuita de 5 minutos. |
 | Ele acorda sozinho, sem eu chamar | Me avise. É o mesmo caminho do item acima. |
 | Ele não fala nada | O motor de voz precisa dos modelos em `%LOCALAPPDATA%\dervs\modelos`. Se a pasta sumiu, me avise que eu baixo de novo. |
 | A janela não abre | Me avise, e diga se apareceu alguma mensagem na tela. |
-| Aperto Gravar e **nada acontece** | Olhe a palavrinha ao lado do nome DERVS, no alto do pop-up. Se disser "não estou conseguindo ouvir", o motor de voz caiu — me avise. Antes de 02/09/2026 ele dizia "pronto" mesmo surdo, e você não tinha como saber. |
+| Falo e **nada acontece** | Olhe o rótulo de estado no alto do HUD. Se disser "não estou conseguindo ouvir", o motor de voz caiu — me avise. Antes de 02/09/2026 ele dizia "pronto" mesmo surdo, e você não tinha como saber. |
 | "o ouvido caiu — levantando de novo" | É normal e se resolve sozinho: ele tenta duas vezes. Só me avise se virar "não estou conseguindo ouvir". |
 | Parece que tem mais de um DERVS aberto | Não tem mais como acontecer. Se acontecer, me avise — é um defeito novo. |
 | Ele pede confirmação demais | Me avise. A rede de segurança prefere perguntar a mais que a menos, mas se estiver incomodando dá para afinar. |
