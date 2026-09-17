@@ -13,6 +13,7 @@
 #
 #     python -m venv dervs-venv
 #     dervs-venv\Scripts\python.exe -m pip install -r requirements.txt
+#     cd electron && npm install && cd ..
 #     dervs-venv\Scripts\python.exe scripts\instalar_atalho.py
 #
 # O que fica de FORA daqui, de propósito:
@@ -21,7 +22,11 @@
 #     instalador de Windows: a funcionalidade fica indisponível até alguém
 #     escrever um;
 #   - coqui-tts/torch (motor de voz XTTS), pesado e opcional — o motor padrão
-#     é o Kokoro.
+#     é o Kokoro;
+#   - o Electron da tela nova (HUD), que NÃO é dependência Python: mora em
+#     electron/package.json (versão travada em 33.2.1). Depois de instalar
+#     este requirements.txt, rode também "cd electron && npm install" — ver
+#     README.md. Sem isso `dervs_electron.py` não abre.
 
 # --- a janela ---
 PyQt6==6.11.0
