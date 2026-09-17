@@ -218,6 +218,18 @@ Em ordem de valor para você:
   (`dervs.py`/Qt) nesta rodada — se um dia parecer pesado no dia a dia, o
   primeiro lugar a olhar é o `requestAnimationFrame` do HUD (`hud.js`), que
   desenha o núcleo e os anéis o tempo todo enquanto a janela está visível.
+- **PR #1 mesclado na `main`** — a cara nova não é mais uma branch separada,
+  é o que abre pelo atalho hoje.
+- **Segundo bug achado e corrigido na mesma verificação, depois do merge:**
+  o dono relatou "está bugado" e, ao tirar uma foto da tela, os cartões de
+  erro e de plano apareciam **vazios desde a abertura do app**, mesmo sem
+  nenhum erro ou plano ter acontecido. Causa: no CSS, a classe `.cartao`
+  (e `.cartao-plano-autorizacao`) declara `display: flex`, que tem mais
+  força que a regra padrão do navegador que esconde elemento com o
+  atributo `hidden` — o `hidden` nunca vencia. Corrigido com uma regra
+  `[hidden] { display: none !important; }` em `electron/renderer/estilo.css`
+  (commit `dce1fe2`, direto na `main`). Confirmado com foto da tela antes e
+  depois da correção.
 
 **Ainda em aberto, sem data — só acontece com você por perto:**
 - ouvir você falar de verdade perto do microfone e ver a onda reagir, do
