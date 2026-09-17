@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DERVS</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <!-- Marcas em L nos quatro cantos — referência de HUD/mira (design.md). -->
+  <div class="cantos" aria-hidden="true">
+    <span class="canto canto-tl"></span>
+    <span class="canto canto-tr"></span>
+    <span class="canto canto-bl"></span>
+    <span class="canto canto-br"></span>
+  </div>
+
+  <header class="topo">
+    <h1 class="nome">DERVS</h1>
+  </header>
+
+  <main class="hud">
+    <p class="rotulo-estado" id="rotulo-estado"></p>
+    <div class="nucleo-area">
+      <canvas id="canvas" width="320" height="320" aria-label="Núcleo do DERVS"></canvas>
+      <p class="leitura-tecnica" id="leitura-amp">AMP 0.00</p>
+    </div>
+  </main>
+
+  <section class="conversa" id="conversa" aria-live="polite">
+    <p class="fala fala-dono" id="fala-dono" hidden>
+      <span class="fala-rotulo">você</span>
+      <span class="fala-texto" id="fala-dono-texto"></span>
+    </p>
+    <p class="fala fala-dervs" id="fala-dervs" hidden>
+      <span class="fala-rotulo">DERVS</span>
+      <span class="fala-texto" id="fala-dervs-texto"></span>
+    </p>
+  </section>
+
+  <section class="cartao cartao-erro" id="cartao-erro" hidden>
+    <svg class="icone-erro" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="24" cy="24" r="20" fill="none" stroke="#FF3B3B" stroke-width="2.5" stroke-dasharray="6 4"/>
+      <rect x="22" y="14" width="4" height="16" fill="#FF3B3B"/>
+      <rect x="22" y="33" width="4" height="4" fill="#FF3B3B"/>
+    </svg>
+    <div class="cartao-erro-texto">
+      <p class="cartao-erro-frase" id="cartao-erro-frase"></p>
+      <p class="cartao-erro-apoio" id="cartao-erro-apoio" hidden></p>
+    </div>
+  </section>
+
+  <section class="cartao cartao-plano" id="cartao-plano" hidden>
+    <p class="cartao-plano-pergunta" id="cartao-plano-pergunta"></p>
+    <ul class="cartao-plano-passos" id="cartao-plano-passos"></ul>
+    <div class="cartao-plano-botoes">
+      <button type="button" id="botao-confirmar" class="botao botao-confirmar">Confirmar</button>
+      <button type="button" id="botao-cancelar" class="botao botao-cancelar">Cancelar</button>
+    </div>
+  </section>
+
+  <script src="hud.js"></script>
+</body>
+</html>
