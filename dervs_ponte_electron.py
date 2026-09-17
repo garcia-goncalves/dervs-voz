@@ -87,6 +87,7 @@ class PonteElectron:
         self._ultimo_volume_guardado = None
         self._ultimo_volume_enviado = None
         self._ultimo_envio_volume = 0.0
+        self._sair_notificado = False
 
     # ---- subir o filho -----------------------------------------------
 
@@ -131,7 +132,7 @@ class PonteElectron:
         except (OSError, ValueError):
             pass
         finally:
-            self._chamar(self._ao_sair)
+            self._chamar_ao_sair()
 
     def _ler_erro(self):
         processo = self._processo
@@ -159,7 +160,7 @@ class PonteElectron:
         if verbo == "pronto":
             self._despachar_guardado()
         elif verbo == "sair":
-            self._chamar(self._ao_sair)
+            self._chamar_ao_sair()
         elif verbo == "plano":
             resposta = dado.get("resposta")
             if resposta not in ("confirmar", "cancelar"):
@@ -175,6 +176,16 @@ class PonteElectron:
             callback(*args)
         except Exception as e:
             sys.stderr.write(f"ponte: callback falhou: {e}\n")
+
+    def _chamar_ao_sair(self):
+        """`ao_sair` é o gatilho de encerramento do DERVS — no máximo uma vez
+        por instância, mesmo que o verbo `sair` chegue e em seguida o
+        `stdout` feche (o mesmo evento de saída, contado duas vezes)."""
+        with self._lock:
+            if self._sair_notificado:
+                return
+            self._sair_notificado = True
+        self._chamar(self._ao_sair)
 
     def _despachar_guardado(self):
         with self._lock:
@@ -251,13 +262,14 @@ class PonteElectron:
                 return
             self._fechado = True
             processo = self._processo
+            if processo is not None:
+                try:
+                    if processo.stdin is not None:
+                        processo.stdin.close()
+                except (OSError, ValueError):
+                    pass
         if processo is None:
             return
-        try:
-            if processo.stdin is not None:
-                processo.stdin.close()
-        except (OSError, ValueError):
-            pass
         try:
             processo.wait(timeout=espera)
             return
