@@ -202,12 +202,16 @@ function ligarStdin() {
 }
 
 // Resposta do cartão de plano vinda do renderer (via preload/contextBridge).
-ipcMain.on("dervs:responder-plano", (_evento, resposta) => {
+// `dado` é `{ resposta, autorizado }` (preload.js atual); aceita também uma
+// string solta por compatibilidade com um preload mais velho.
+ipcMain.on("dervs:responder-plano", (_evento, dado) => {
+  const resposta = dado && typeof dado === "object" ? dado.resposta : dado;
+  const autorizado = Boolean(dado && typeof dado === "object" && dado.autorizado);
   if (resposta !== "confirmar" && resposta !== "cancelar") {
     console.error(`electron: resposta de plano inválida, ignorada: ${String(resposta)}`);
     return;
   }
-  enviarAoPython({ verbo: "plano", resposta });
+  enviarAoPython({ verbo: "plano", resposta, autorizado });
 });
 
 app.whenReady().then(() => {

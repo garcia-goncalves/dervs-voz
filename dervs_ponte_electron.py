@@ -17,6 +17,15 @@ Verbos Python → Electron (só estes cinco):
   volume  {"valor"}                   — 0.0 a 1.0, estrangulado (ver abaixo).
   fala    {"papel", "texto"}          — uma linha nova de conversa.
   plano   {"passos", "nivel", "pergunta"} — lista vazia limpa o cartão.
+            Cada passo em `passos` traz `rotulo`/`nivel` (contrato
+            original); um cartão de PASSO ÚNICO (risco de um passo
+            destrutivo dentro do plano, não o plano inteiro) também traz,
+            por extensão do protocolo: `comando` (texto do comando),
+            `precisa_autorizacao` (bool — toca rede de fora ou lê arquivo
+            de segredo), `texto_autorizacao` (a frase certa para a caixa) e
+            `dupla_confirmacao` (bool — exige dois "confirmar" seguidos).
+            Consumidor que só lê `rotulo`/`nivel` continua funcionando sem
+            mudar nada.
   mostrar {}                          — traz a janela para frente.
 
 Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
@@ -24,7 +33,11 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
             guardados (só o último de cada) e são despachados quando ele
             chega — o mesmo padrão do `READY` dos daemons.
   sair    — "Sair do DERVS" da bandeja.
-  plano   {"resposta": "confirmar" | "cancelar"} — botão do cartão de plano.
+  plano   {"resposta": "confirmar" | "cancelar", "autorizado": bool} —
+            botão do cartão de plano. `autorizado` é extensão do
+            protocolo: reflete a caixa "Tenho autorização" marcada ou não
+            quando o cartão em tela é um passo com `precisa_autorizacao`;
+            ausente vira `False`.
 
 Regras duras (valem para os dois lados da ponte, e este arquivo cumpre a
 parte do Python):
@@ -166,7 +179,12 @@ class PonteElectron:
             if resposta not in ("confirmar", "cancelar"):
                 sys.stderr.write(f"ponte: resposta de plano desconhecida: {dado!r}\n")
                 return
-            self._chamar(self._ao_plano, resposta)
+            # `autorizado` é extensão do protocolo (ver cabeçalho, verbo
+            # `plano` Electron → Python): a caixa "Tenho autorização"
+            # marcada ou não. Ausente/tipo errado vira `False` — nunca
+            # deixa passar sem marcar por acidente de protocolo.
+            autorizado = bool(dado.get("autorizado", False))
+            self._chamar(self._ao_plano, resposta, autorizado)
         else:
             sys.stderr.write(f"ponte: verbo desconhecido vindo do Electron: {verbo!r}\n")
 

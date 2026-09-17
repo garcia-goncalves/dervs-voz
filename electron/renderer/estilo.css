@@ -233,6 +233,33 @@ body {
   color: var(--erro);
 }
 
+.cartao-plano-comando {
+  margin: 0 0 10px 0;
+  padding: 6px 8px;
+  font-family: var(--fonte-tecnica);
+  font-size: 12px;
+  color: var(--texto-secundario);
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid var(--acento-fraco);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.cartao-plano-autorizacao {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 13px;
+  color: var(--texto-primario);
+  cursor: pointer;
+}
+
+.cartao-plano-autorizacao input[type="checkbox"] {
+  margin-top: 2px;
+}
+
 .cartao-plano-botoes {
   display: flex;
   gap: 10px;

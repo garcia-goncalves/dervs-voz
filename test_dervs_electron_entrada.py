@@ -153,6 +153,94 @@ def test_me_chamaram_roda_em_thread_de_verdade_e_so_manda_mostrar():
     assert ponte.chamadas == [("mostrar",)]
 
 
+# ---- o cartão de passo destrutivo tem de ir pela ponte (o bug de segurança) -
+#
+# Antes desta correção, `_mostrar_cartao` (herdado de `PopUp`) só escrevia em
+# widgets Qt escondidos — o Electron nunca era avisado e o plano travava em
+# silêncio no primeiro passo destrutivo. Os testes abaixo provam que a ponte
+# recebe o cartão, e que as duas travas do Qt (autorização e dupla
+# confirmação) continuam valendo do lado Python mesmo sem widget visível.
+
+def _preparar_passo_destrutivo(motor, comando):
+    """Monta um plano de um passo só e chama `_processar_passo()`, que
+    mostra o cartão (via `_mostrar_cartao`, agora estendido) e deixa o
+    `motor` no mesmo estado em que `confirmar_passo()`/`_confirmar_do_electron`
+    encontrariam de verdade."""
+    motor.plano = [{"comando": comando}]
+    motor.passo_i = 0
+    motor._auto_seguidos = 0
+    motor._aguardando_ok = False
+    motor._processar_passo()
+
+
+def test_mostrar_cartao_manda_o_passo_pela_ponte_com_os_campos_novos(motor):
+    _preparar_passo_destrutivo(motor, "nmap -sV 192.168.0.10")
+    d = motor._risco_atual
+    assert d["nivel"] == "destrutivo"
+    assert d["precisa_autorizacao"] is True
+
+    planos = motor.ponte.de_tipo("plano")
+    assert planos, "o cartão do passo destrutivo nunca chegou na ponte"
+    passos = planos[-1][1]
+    assert len(passos) == 1
+    passo_ponte = passos[0]
+    assert passo_ponte["comando"] == "nmap -sV 192.168.0.10"
+    assert passo_ponte["precisa_autorizacao"] is True
+    assert passo_ponte["dupla_confirmacao"] is True
+    assert passo_ponte["texto_autorizacao"]
+    assert "Passo 1 de 1" in passo_ponte["rotulo"]
+
+
+def test_passo_com_autorizacao_so_roda_quando_autorizado_chega_true(motor, monkeypatch):
+    rodados = []
+    monkeypatch.setattr(motor, "_rodar_comando",
+                         lambda c, terminal=False: rodados.append(c))
+    _preparar_passo_destrutivo(motor, "nmap -sV 192.168.0.10")
+    assert motor._risco_atual["precisa_autorizacao"] is True
+
+    # sem autorizado: nem o primeiro clique do duplo-clique pode avançar —
+    # ignorado, igual ao Qt faz com `b_auth.isChecked()` antes de tudo.
+    dervs_electron._confirmar_do_electron(motor, False)
+    assert rodados == [], "rodou (ou avançou o duplo-clique) sem autorização"
+    assert motor._2conf is False
+
+    # com autorizado=True: 1º clique arma o trilho de dupla confirmação, mas
+    # ainda não roda nada.
+    dervs_electron._confirmar_do_electron(motor, True)
+    assert rodados == [], "rodou no 1º clique do trilho de dupla confirmação"
+    assert motor._2conf is True
+
+    # 2º clique, ainda autorizado: agora sim roda.
+    dervs_electron._confirmar_do_electron(motor, True)
+    assert rodados == ["nmap -sV 192.168.0.10"]
+
+
+def test_passo_com_dupla_confirmacao_precisa_de_duas_respostas_confirmar(motor, monkeypatch):
+    rodados = []
+    monkeypatch.setattr(motor, "_rodar_comando",
+                         lambda c, terminal=False: rodados.append(c))
+    # destrutivo, mas sem tocar alvo/segredo — não pede autorização, só o
+    # duplo clique (nível destrutivo sempre pede `dupla_confirmacao`).
+    _preparar_passo_destrutivo(motor, "rm -rf /home/user/projeto")
+    d = motor._risco_atual
+    assert d["nivel"] == "destrutivo"
+    assert d["precisa_autorizacao"] is False
+    assert d["dupla_confirmacao"] is True
+
+    dervs_electron._confirmar_do_electron(motor, False)
+    assert rodados == [], "rodou com uma única resposta 'confirmar'"
+    assert motor._2conf is True, "o 1º clique tinha de armar o trilho"
+
+    # o cartão tem de voltar pela ponte com o texto do 2º estágio — o HUD
+    # não pode ficar esperando um card que nunca chega.
+    planos = motor.ponte.de_tipo("plano")
+    assert planos[-1][3] != planos[-2][3] or len(planos) >= 2, (
+        "o cartão do 2º estágio nunca foi reenviado pela ponte")
+
+    dervs_electron._confirmar_do_electron(motor, False)
+    assert rodados == ["rm -rf /home/user/projeto"]
+
+
 # ---- sair: encerrar_tudo + posse.soltar() ----------------------------------
 
 class PosseFalsa:

@@ -19,7 +19,11 @@ contextBridge.exposeInMainWorld("dervs", {
   aoVolume: aoCanal("dervs:volume"),
   aoFala: aoCanal("dervs:fala"),
   aoPlano: aoCanal("dervs:plano"),
-  responderPlano: (resposta) => {
-    ipcRenderer.send("dervs:responder-plano", resposta);
+  // `autorizado` é extensão do protocolo (ver dervs_ponte_electron.py,
+  // cabeçalho): reflete a caixa "Tenho autorização" do cartão de passo.
+  // Omitido, vira `false` — nunca destrava um passo que pede autorização
+  // sem ela ter sido marcada de verdade.
+  responderPlano: (resposta, autorizado = false) => {
+    ipcRenderer.send("dervs:responder-plano", { resposta, autorizado: Boolean(autorizado) });
   },
 });
