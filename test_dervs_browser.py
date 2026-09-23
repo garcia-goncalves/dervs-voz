@@ -173,3 +173,41 @@ def test_rodar_para_app_sem_marcador_vira_erro(monkeypatch):
 
 def test_rodar_para_app_objetivo_vazio():
     assert nav.rodar_para_app("")["codigo"] == 1
+
+
+# --- caminhos herdados do Linux que não existem no Windows -------------------
+def test_perfil_do_chrome_no_windows_e_o_user_data_do_localappdata():
+    env = {"LOCALAPPDATA": r"C:\Users\dono\AppData\Local"}
+    p = nav._perfil_chrome_padrao("win32", env)
+    assert p == nav.os.path.join(r"C:\Users\dono\AppData\Local", "Google", "Chrome", "User Data")
+
+
+def test_perfil_do_chrome_no_linux_continua_o_config_do_google_chrome():
+    assert nav._perfil_chrome_padrao("linux", {}).endswith("google-chrome")
+
+
+def test_python_do_playwright_a_variavel_de_ambiente_vence():
+    assert nav._python_do_playwright("win32", {"DERVS_PLAYWRIGHT_PY": "X:/py.exe"}) == "X:/py.exe"
+
+
+def test_python_do_playwright_no_windows_usa_o_proprio_python_quando_tem_playwright():
+    r = nav._python_do_playwright("win32", {}, executavel=r"C:\v\Scripts\python.exe",
+                                   tem_playwright=lambda: True)
+    assert r == r"C:\v\Scripts\python.exe"
+
+
+def test_python_do_playwright_prefere_python_exe_ao_pythonw():
+    r = nav._python_do_playwright("win32", {}, executavel=r"C:\v\Scripts\pythonw.exe",
+                                   existe=lambda p: True, tem_playwright=lambda: True)
+    assert r.endswith("python.exe") and not r.endswith("pythonw.exe")
+
+
+def test_python_do_playwright_sem_playwright_devolve_caminho_que_nao_existe():
+    r = nav._python_do_playwright("win32", {}, executavel=r"C:\v\Scripts\python.exe",
+                                   tem_playwright=lambda: False)
+    assert not nav.os.path.exists(r)      # rodar_para_app cai no erro claro
+
+
+def test_python_do_playwright_no_linux_e_a_venv_isolada():
+    r = nav._python_do_playwright("linux", {})
+    assert r.endswith("playwright-venv/bin/python")

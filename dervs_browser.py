@@ -33,6 +33,7 @@ que dervs_exec.rodar — {"codigo", "saida", "tipo"} — para a tela e o cérebr
 tratarem o resultado como o de qualquer outro passo.
 """
 import os
+import sys
 import json
 import time
 import urllib.request
@@ -60,9 +61,21 @@ def _carregar_chave_openai() -> str | None:
         return v.strip() if v else None
 
 
+def _perfil_chrome_padrao(plataforma: str = sys.platform, env=None) -> str:
+    """Onde o Chrome guarda o perfil (logins, cookies) do dono. O padrão de
+    Linux (`~/.config/google-chrome`) não existe no Windows: lá o Chrome abriria
+    com um perfil VAZIO, sem nenhum login — e o "entra no meu Gmail" falharia
+    sem explicação."""
+    env = os.environ if env is None else env
+    if plataforma == "win32":
+        base = env.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
+        return os.path.join(base, "Google", "Chrome", "User Data")
+    return os.path.expanduser("~/.config/google-chrome")
+
+
 _conf = _ler_config()
 PERFIL_CHROME = os.path.expanduser(
-    _conf.get("navegador_perfil_chrome") or "~/.config/google-chrome")
+    _conf.get("navegador_perfil_chrome") or _perfil_chrome_padrao())
 PERFIL_NOME = _conf.get("navegador_perfil_nome") or "Default"
 MAX_PASSOS = int(_conf.get("navegador_max_passos") or 15)
 # Cérebro-navegador: o mais barato por padrão (pedido do dono). Sobe só se preciso.
@@ -77,7 +90,35 @@ TIMEOUT_ACAO_MS = 8000  # quanto esperar um clique/campo aparecer
 # então a tarefa de navegador roda como PROCESSO À PARTE nesta venv — igual ao
 # Whisper e à voz. Marcador na saída para separar o JSON do resultado de
 # qualquer ruído que o Chrome/Playwright jogue no stdout.
-PLAYWRIGHT_PY = os.path.expanduser("~/voice/playwright-venv/bin/python")
+def _python_do_playwright(plataforma: str = sys.platform, env=None,
+                          executavel: str | None = None, existe=os.path.exists,
+                          tem_playwright=None) -> str:
+    """Qual Python roda a tarefa de navegador. Sempre devolve um caminho; se ele
+    não existir, `rodar_para_app` cai no erro claro em vez de travar.
+
+    Ordem: `DERVS_PLAYWRIGHT_PY` (o dono manda) → venv isolada do Linux
+    (`~/voice/playwright-venv`) → no Windows, o PRÓPRIO Python do DERVS, se o
+    Playwright estiver instalado nele (é o caso normal: `requirements.txt`). O
+    Chrome em si não é baixado — o Playwright usa o instalado (`channel=chrome`).
+    """
+    env = os.environ if env is None else env
+    if env.get("DERVS_PLAYWRIGHT_PY"):
+        return env["DERVS_PLAYWRIGHT_PY"]
+    if plataforma == "win32":
+        exe = executavel or sys.executable
+        # `pythonw.exe` (o app sem janela) não tem stdout útil para o filho
+        console = os.path.join(os.path.dirname(exe), "python.exe")
+        if os.path.basename(exe).lower() == "pythonw.exe" and existe(console):
+            exe = console
+        if tem_playwright is None:
+            import importlib.util
+            tem_playwright = lambda: importlib.util.find_spec("playwright") is not None
+        return exe if tem_playwright() else os.path.join(
+            os.path.dirname(exe), "python-sem-playwright.exe")
+    return os.path.expanduser("~/voice/playwright-venv/bin/python")
+
+
+PLAYWRIGHT_PY = _python_do_playwright()
 _MARCADOR = "GRIMJSON:"
 
 # ---------------------------------------------------------------------------
@@ -292,13 +333,14 @@ def rodar_tarefa(objetivo: str, url_inicial: str | None = None,
     chave = _carregar_chave_openai()
     if not chave:
         return {"codigo": 1, "tipo": "erro",
-                "saida": "o navegador autônomo precisa da chave da OpenAI (em "
-                         "~/voice/.env) para pensar os cliques, e ela não está lá."}
+                "saida": "o navegador autônomo precisa da chave da OpenAI para "
+                         "pensar os cliques, e ela não está instalada."}
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         return {"codigo": 1, "tipo": "erro",
-                "saida": "o Playwright não está instalado na venv do navegador."}
+                "saida": "o Playwright não está instalado — rode 'pip install "
+                         "-r requirements.txt' no ambiente do DERVS."}
 
     teto = max_passos or MAX_PASSOS
     historico = []

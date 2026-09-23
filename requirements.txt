@@ -48,5 +48,8 @@ kokoro-onnx==0.6.1
 # --- painel do HUD (CPU/RAM/disco reais, dervs_sistema.py) ---
 psutil==7.2.2
 
+# --- navegador autônomo (dervs_browser.py) — usa o Chrome já instalado, sem baixar navegador ---
+playwright==1.63.0
+
 # --- testes ---
 pytest==9.1.1
