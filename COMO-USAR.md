@@ -111,22 +111,22 @@ minuto). Uma reunião de duas horas sai por menos de US$ 0,60.
 
 ## Ligar e desligar a escuta
 
-**Desde 16/09/2026 não existe mais um botão na tela para isso.** A janela
-antiga (Qt) tinha o interruptor **🎙️ Ei DERVS** / **🔴 Ouvindo**; o HUD novo
-não tem — é algo que você podia fazer clicando na tela e hoje não pode mais.
-Diga com todas as letras: **hoje, com o DERVS aberto, o microfone fica
-ligado o tempo todo**, e as únicas formas de desligar são:
+**O botão voltou (23/09/2026).** Logo abaixo do nome **DERVS** na tela há um
+botão que diz **MICROFONE LIGADO** (ponto cheio, ciano) ou **MICROFONE
+DESLIGADO** (ponto vazio, apagado). Um clique liga ou desliga a escuta. O
+botão só muda quando o DERVS realmente abriu ou fechou o microfone — ele não
+"finge" o estado. A sua última escolha fica guardada: se desligar e fechar o
+DERVS, ele abre desligado.
+
+Outras formas, se precisar:
 
 1. **Sair do DERVS** (botão direito no ícone da bandeja → "Sair do DERVS").
    Fechando o app, o microfone fecha junto.
-2. **Editar a configuração** — mude a chave `escuta_ao_abrir` para `false` em
-   `%APPDATA%\dervs\config.json` e reabra o DERVS. Ele nasce sem escutar.
-   (O padrão de fábrica é `true`, ou seja, escutando.)
+2. **Editar a configuração** — a chave `escuta_ao_abrir` em
+   `%APPDATA%\dervs\config.json` (`true` = abre escutando, o padrão).
 
 Enquanto ele não ouvir o seu nome, o que você fala **não sai do seu
-computador** de qualquer forma (ver o funil mais abaixo) — mas o microfone em
-si não tem mais um "desligar rápido" na própria tela. Se isso incomodar, me
-avise: dá para trazer o botão de volta ao HUD.
+computador** de qualquer forma (ver o funil mais abaixo).
 
 ---
 
@@ -179,10 +179,8 @@ terceiro.
 
 ## Ligar e desligar o microfone
 
-Ver a seção **"Ligar e desligar a escuta"**, acima — hoje não há mais um
-botão na tela para isso; o microfone fica ligado enquanto o DERVS estiver
-aberto, e as saídas são sair do DERVS ou mudar `escuta_ao_abrir` na
-configuração.
+Ver a seção **"Ligar e desligar a escuta"**, acima — o botão **MICROFONE
+LIGADO / DESLIGADO** fica logo abaixo do nome DERVS, na tela.
 
 Ao abrir (com a configuração padrão), o DERVS já nasce ouvindo.
 

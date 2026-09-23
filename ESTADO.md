@@ -1,9 +1,9 @@
-# Estado do DERVS — 17/09/2026
+# Estado do DERVS — 23/09/2026
 
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 17/09/2026. **624 testes verdes** no ambiente do
+Última verificação: 23/09/2026. **679 testes verdes** no ambiente do
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
@@ -55,6 +55,33 @@ cobrem e o que foi visto ao vivo sem áudio (ver acima). Não confunda "testes
 passam" com "demonstrado funcionando com voz real": são coisas diferentes, e
 a segunda ainda está pendente.
 
+**Terceira rodada (23/09/2026) — o que fechou:**
+
+- **O botão do microfone voltou ao HUD** (era o item 2.2). Verbo novo `microfone`
+  na ponte, nos dois sentidos; o botão só muda de cara quando o Python confirma.
+  Provado ao vivo: clique → "MICROFONE LIGADO" → o DERVS fala "Tô ligado" →
+  clique → "DESLIGADO", e a escolha fica gravada.
+- **Defeito sério achado testando ao vivo: o Python não encerrava quando o
+  Electron fechava** ("Sair do DERVS" ou queda). Ele chamava `quit()` da thread
+  errada; o Qt ignora. Resultado: o DERVS ficava vivo, sem cara, **com o
+  microfone aberto**, e o atalho seguinte "não fazia nada" (avisava um Electron
+  que já não existia). É uma causa provável dos "sumiu / bugou" que você
+  relatou. Corrigido e provado: derrubando o Electron, o Python e todos os
+  ajudantes encerram sozinhos em segundos.
+- **Navegador autônomo funciona no Windows** (era o item 2.3). O perfil padrão
+  era o de Linux — e ficou **gravado no seu `config.json`**, vencendo a correção;
+  agora o valor antigo é curado na leitura. O Playwright entrou no
+  `requirements.txt` (usa o Chrome que já está instalado, sem baixar navegador).
+  Provado ao vivo com perfil vazio: abriu example.com e leu o título.
+  **Com os logins do seu Chrome só funciona com ele FECHADO** (o perfil só abre
+  num lugar por vez) — e não testei em cima do seu Chrome aberto, de propósito.
+- **Diário do porteiro** (item 4.5) e **testes dos três ajudantes de voz** (4.6).
+- **Electron 33.2.1 → 44.4.5**: a 33 saiu de suporte e o `npm audit` acusava
+  20+ avisos (4 altos); agora zero.
+- Janela 420×560 → 420×620 (o botão novo cortava o rodapé).
+- Peso morto removido (item 4.7): `dervs_painel.py`, `falar.sh`,
+  `ligar-voz-com-senha.sh` — continuam no histórico do Git, dá para voltar.
+
 ---
 
 ## 1. O que está funcionando agora
@@ -66,6 +93,9 @@ a segunda ainda está pendente.
 | Janela transparente (novo 17/09 — sem o borrão do desktop, ver acima) | **funciona** | sua máquina | zero |
 | Relógio/data e painel CPU/RAM/disco reais (novo 17/09) | **funciona** | sua máquina | zero |
 | Botão "Abrir DERVS App" (novo 17/09 — só abre, sem integração ainda) | **funciona** | sua máquina | zero |
+| Botão liga/desliga do microfone (voltou 23/09) | **funciona** | sua máquina | zero |
+| Navegador autônomo (23/09, Chrome fechado) | **funciona** | sua máquina + OpenAI | centavos por tarefa |
+| Diário do porteiro (23/09) | **funciona** | sua máquina | zero |
 | Abrir por atalho (Área de Trabalho e menu Iniciar, agora abre `dervs_electron.py`) | **funciona** | sua máquina | zero |
 | Um DERVS só de cada vez (o 2º clique traz de volta o 1º) | **funciona** | sua máquina | zero |
 | Porteiro — "isso foi comigo?" | **funciona** | sua máquina | zero |
@@ -108,7 +138,9 @@ já está liberada para programas de área de trabalho.
 Se você ligar e ainda não funcionar, o DERVS agora **diz o motivo na tela** em
 vez de mostrar um campo vazio (item 3.1 abaixo).
 
-### 2.2. O microfone perdeu o botão de liga/desliga na tela — dito sem eufemismo
+### 2.2. ~~O microfone perdeu o botão de liga/desliga na tela~~ — RESOLVIDO em 23/09/2026
+
+*(O texto abaixo é o histórico; o botão voltou — ver "Terceira rodada", acima.)*
 
 **Consequência direta da troca de tela (16/09/2026): hoje não existe mais um
 botão no HUD para desligar o microfone.** A janela Qt antiga tinha o
@@ -128,7 +160,10 @@ para a nuvem antes do nome ser ouvido), só o controle fino de "escutar agora
 ou não" que existia na tela sumiu. Se isso incomodar, é trabalho de meia hora
 trazer o botão de volta ao HUD.
 
-### 2.3. O navegador autônomo não funciona no Windows
+### 2.3. ~~O navegador autônomo não funciona no Windows~~ — RESOLVIDO em 23/09/2026
+
+*(Histórico; ver "Terceira rodada", acima. O que resta: o Chrome do dono tem de
+estar fechado para o autônomo usar o perfil com os logins.)*
 
 O DERVS sabe pilotar o Chrome sozinho ("entra no meu Gmail e vê quantos não
 lidos"). Todo o código existe e está testado. **Mas o ambiente que ele precisa
@@ -306,20 +341,26 @@ do GitHub é pago por minuto e a sua cota já estourou uma vez. É uma decisão 
 dinheiro, e é sua. Se quiser, monto no padrão barato (roda pouco no `push`, o
 caro só antes de publicar).
 
-### 4.5. Telemetria do porteiro
+### 4.5. ~~Telemetria do porteiro~~ — FEITO em 23/09/2026 (`porteiro.jsonl`; texto só se `porteiro_registrar_texto`)
+
+*(Histórico:)*
 
 Quando o porteiro decide "não era comigo", o texto que ele ouviu é jogado fora
 e o arquivo apagado. Consequência: se uma frase sua for ignorada por engano,
 **não há como provar onde ela sumiu**. Vale guardar um resumo (sem o áudio) para
 poder investigar.
 
-### 4.6. Três ajudantes sem teste próprio
+### 4.6. ~~Três ajudantes sem teste próprio~~ — FEITO em 23/09/2026 (23 testes em `test_dervs_daemons_de_voz.py`)
+
+*(Histórico:)*
 
 `dervs_kokoro_daemon.py`, `dervs_piper_daemon.py` e `dervs_tts_daemon.py` não
 têm teste dedicado. Eles são exercitados de raspão pelos testes da voz, mas uma
 quebra dentro deles não seria pega.
 
-### 4.7. Peso morto que sobrou da versão de Linux
+### 4.7. ~~Peso morto que sobrou da versão de Linux~~ — REMOVIDO em 23/09/2026
+
+*(Histórico; o caminho do `arecord` continua, é reserva intencional.)*
 
 - `dervs_painel.py` — arquivo inteiro, do projeto irmão de Linux. Ninguém no
   Windows o importa. Deixei no lugar: apagar é irreversível e ele não atrapalha.
@@ -355,6 +396,8 @@ desta máquina. Agora está em `requirements.txt`:
 python -m venv dervs-venv
 dervs-venv\Scripts\python.exe -m pip install -r requirements.txt
 cd electron && npm install && cd ..
+# se electron\node_modules\electron\dist não existir depois do npm install:
+#   node electron\node_modules\electron\install.js
 dervs-venv\Scripts\python.exe scripts\instalar_atalho.py
 ```
 

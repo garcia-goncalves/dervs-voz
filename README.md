@@ -61,7 +61,7 @@ No Windows, do diretório do projeto:
 dervs-venv\Scripts\python.exe dervs_electron.py             # abre o DERVS (HUD Electron)
 dervs-venv\Scripts\python.exe dervs_transcrever.py [audio]  # audio -> texto
 dervs-venv\Scripts\python.exe scripts\instalar_atalho.py    # icone + atalhos
-dervs-venv\Scripts\python.exe -m pytest -q                  # testes (624 verdes)
+dervs-venv\Scripts\python.exe -m pytest -q                  # testes (679 verdes)
 dervs-venv\Scripts\python.exe amostras_de_voz.py            # amostras das 3 vozes
 ```
 
@@ -81,7 +81,10 @@ cd ..
 ```
 
 Baixa o Electron (~150–300 MB) — precisa de internet na primeira vez. Sem isso
-`dervs_electron.py` não encontra o runtime do Electron e recusa abrir.
+`dervs_electron.py` não encontra o runtime do Electron e recusa abrir. Versão
+atual: **44.4.5** (23/09/2026, `npm audit` sem nenhuma vulnerabilidade). Se o
+`npm install` terminar sem baixar o binário (aconteceu na 44), rode uma vez
+`node node_modules/electron/install.js` dentro de `electron/`.
 
 O dono não usa terminal: para ele existem os atalhos **DERVS** e
 **DERVS - Transcrever audio** na Área de Trabalho e no menu Iniciar, criados por
@@ -119,14 +122,20 @@ caminho: `python -c "import dervs_config as c; print(c.CONFIG_PATH)"`.
 
 Chaves: `stt`, `stt_openai_modelo`, `porteiro`, `porteiro_modelo`, `cerebro`,
 `cerebro_openai_modelo`, `motor`, `voz_kokoro`, `voz`, `voz_velocidade`,
-`janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir`, `dervs_app_url`
+`janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir`, `porteiro_registrar_texto`
+(guardar o TEXTO que o porteiro ouviu no diário — padrão `false`), `dervs_app_url`
 (URL que o botão "Abrir DERVS App" do HUD abre — padrão `http://localhost:4777`),
 e as do navegador. Valor inválido cai no padrão em vez de derrubar o app
 (`_validar`). Mudou → reinicie.
 
-**O HUD Electron não tem botão de liga/desliga o microfone na tela** — o Qt
-tinha; esta rodada tirou. Hoje só dá para desligar a escuta saindo do DERVS ou
-editando `escuta_ao_abrir` neste arquivo. Detalhe em `ESTADO.md`.
+**O HUD tem o botão de liga/desliga do microfone** (voltou em 23/09/2026): um
+clique pede ao Python para abrir ou fechar a escuta, e o botão só muda de cara
+(**MICROFONE LIGADO / DESLIGADO**) quando o Python confirma — assim ele não
+mente sobre o microfone. A escolha fica em `escuta_ao_abrir`.
+
+**Diário do porteiro:** `%LOCALAPPDATA%\dervs\porteiro.jsonl` — uma linha por
+decisão (hora, acordou, nº de palavras, duração). O que foi dito **não** é
+gravado, salvo `porteiro_registrar_texto: true`. Gira em 256 KB.
 
 ## Segredo
 
@@ -259,9 +268,7 @@ contra mini **2,04**/1,51/1,42 s. Mais preciso e **não ficou mais lento**.
 | Reconhecer a voz do dono no ruído real dele | o porteiro foi medido com voz sintetizada |
 | Serviço que sobe sozinho no boot | fora de escopo desta rodada, de propósito |
 | `dervs_enrich.py` (OSINT com `bbot`) | `bbot` não roda em Windows. Fica desligado |
-| `dervs_painel.py` | legado, ninguém importa. Fica como está |
-| `falar.sh`, `ligar-voz-com-senha.sh` | scripts do Linux, ainda não traduzidos |
-| Navegador autônomo ponta a ponta | caminho do perfil do Chrome corrigido, mas não validado |
+| Navegador autônomo com o Chrome real do dono | validado ao vivo em 23/09/2026 com perfil vazio (abriu example.com e leu o título); com os logins dele só vale com o Chrome FECHADO |
 
 ## "Sumiu definitivamente" — 02/09/2026, noite. O registro de queda pagou.
 
