@@ -39,7 +39,11 @@ Viés desta peça: ERRAR PARA O LADO DE NÃO ACORDAR. Deixar de acordar custa ao
 dono repetir a frase; acordar à toa custa o DERVS falar no meio de uma reunião
 e ainda mandar o áudio para a nuvem.
 """
+import json
+import os
 import sys
+import time
+import wave
 
 from dervs_listen import separar_chamada
 
@@ -50,6 +54,50 @@ COLA_PORTEIRO = "Dervs. Ok Dervs. Ei Dervs. O assistente se chama Dervs."
 
 # Medido: 'tiny' acerta igual ao 'base' e é o dobro mais rápido. Ver o docstring.
 MODELO_PADRAO = "tiny"
+
+# O diário: uma linha por decisão, para poder provar onde uma frase sumiu. Sem
+# ele, "não era comigo" apaga o texto e o wav e não sobra pista nenhuma — se o
+# porteiro errar com o dono, ninguém consegue investigar.
+# POR PADRÃO NÃO GUARDA O TEXTO: o que foi dito na sala (reunião, família) é
+# justamente o que o porteiro existe para não deixar sair. Só hora, se acordou,
+# quantas palavras e a duração do áudio. Guardar o texto é escolha do dono
+# (`porteiro_registrar_texto`), para uma semana de investigação, não para sempre.
+LIMITE_DIARIO_BYTES = 256 * 1024
+
+
+def caminho_do_diario() -> str:
+    """DERVS_DIARIO_PORTEIRO sobrepõe tudo; senão %LOCALAPPDATA%/dervs/porteiro.jsonl
+    (mesma pasta dos modelos); em Linux, ~/.local/state/dervs."""
+    if os.environ.get("DERVS_DIARIO_PORTEIRO"):
+        return os.environ["DERVS_DIARIO_PORTEIRO"]
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
+        return os.path.join(base, "dervs", "porteiro.jsonl")
+    return os.path.expanduser("~/.local/state/dervs/porteiro.jsonl")
+
+
+def _duracao_s(caminho_wav: str):
+    try:
+        with wave.open(caminho_wav, "rb") as w:
+            return round(w.getnframes() / float(w.getframerate()), 2)
+    except (OSError, EOFError, wave.Error, ZeroDivisionError):
+        return None
+
+
+def _registrar(diario, registro: dict) -> None:
+    """Acrescenta uma linha ao diário. NUNCA levanta: telemetria que derruba a
+    escuta é pior que não ter telemetria."""
+    try:
+        os.makedirs(os.path.dirname(diario) or ".", exist_ok=True)
+        try:
+            if os.path.getsize(diario) > LIMITE_DIARIO_BYTES:
+                os.replace(diario, diario + ".1")     # guarda só a geração anterior
+        except FileNotFoundError:
+            pass
+        with open(diario, "a", encoding="utf-8") as f:
+            f.write(json.dumps(registro, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 class PorteiroLocal:
@@ -65,9 +113,14 @@ class PorteiroLocal:
     """
 
     def __init__(self, tamanho: str = MODELO_PADRAO, threads: int = 8,
-                 transcritor=None):
+                 transcritor=None, diario=None, registrar_texto: bool = False):
         self.tamanho = tamanho
         self.threads = threads
+        # `diario` é o caminho do arquivo, ou None para não registrar nada
+        # (o padrão de quem constrói na mão, como os testes). `criar_porteiro`
+        # é quem liga o diário de verdade.
+        self.diario = diario
+        self.registrar_texto = registrar_texto
         # `transcritor` existe para o teste injetar um dublê e não precisar do
         # modelo de verdade. Em produção fica None e o modelo é carregado.
         self._transcritor = transcritor
@@ -124,9 +177,24 @@ class PorteiroLocal:
             sys.stderr.write("dervs_porteiro: falhei ao ouvir %s (%s)\n"
                              % (caminho_wav, erro))
             sys.stderr.flush()
+            self._anotar(caminho_wav, False, "", erro=True)
             return False, ""
         acordou, _resto = separar_chamada(texto)
+        self._anotar(caminho_wav, bool(acordou), texto)
         return bool(acordou), texto
+
+    def _anotar(self, caminho_wav, acordou, texto, erro=False):
+        if not self.diario:
+            return
+        registro = {"quando": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "acordou": acordou,
+                    "palavras": len(texto.split()),
+                    "duracao_s": _duracao_s(caminho_wav)}
+        if erro:
+            registro["erro"] = True
+        if self.registrar_texto and texto:
+            registro["texto"] = texto
+        _registrar(self.diario, registro)
 
 
 def criar_porteiro(conf=None):
@@ -148,4 +216,6 @@ def criar_porteiro(conf=None):
             "use porteiro: \"local\".")
     tamanho = conf.get("porteiro_modelo", MODELO_PADRAO)
     threads = int(conf.get("porteiro_threads", 8))
-    return PorteiroLocal(tamanho=tamanho, threads=threads)
+    return PorteiroLocal(tamanho=tamanho, threads=threads,
+                         diario=caminho_do_diario(),
+                         registrar_texto=conf.get("porteiro_registrar_texto") is True)

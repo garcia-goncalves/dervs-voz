@@ -129,6 +129,13 @@ PADRAO = {
     # conta gratuita no picovoice.ai. Ver dervs_porteiro.py.
     "porteiro": "local",
     "porteiro_modelo": "tiny",
+    # Guardar, no diário do porteiro (%LOCALAPPDATA%/dervs/porteiro.jsonl), o
+    # TEXTO que ele ouviu em cada decisão? Padrão False: o diário só anota hora,
+    # se acordou, nº de palavras e duração — o que foi dito na sala (reunião,
+    # família) é justamente o que o porteiro existe para não deixar sair. Ligue
+    # por uma semana se o DERVS estiver "ignorando" você e for preciso ver o
+    # que o porteiro entendeu; depois desligue e apague o arquivo.
+    "porteiro_registrar_texto": False,
 
     # Cérebro: "openai" (gpt-4.1-nano — ultrarrápido e barato, precisa de chave
     # em ~/voice/.env e internet) ou "claude" (CLI local, grátis na assinatura).
@@ -216,6 +223,8 @@ def _validar(conf: dict) -> dict:
     # dono que ligou uma coisa que não liga.
     if conf.get("porteiro") not in ("local",):
         conf["porteiro"] = PADRAO["porteiro"]
+    if not isinstance(conf.get("porteiro_registrar_texto"), bool):
+        conf["porteiro_registrar_texto"] = PADRAO["porteiro_registrar_texto"]
     if not isinstance(conf.get("porteiro_modelo"), str) or not conf["porteiro_modelo"]:
         conf["porteiro_modelo"] = PADRAO["porteiro_modelo"]
     if conf.get("cerebro") not in ("openai", "claude"):

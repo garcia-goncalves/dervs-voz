@@ -199,3 +199,92 @@ def test_porteiro_local_e_o_padrao_da_configuracao():
     # valor inventado no arquivo do dono cai no padrão em vez de derrubar o app
     conf = dict(dervs_config.PADRAO, porteiro="coisa inventada")
     assert dervs_config._validar(conf)["porteiro"] == "local"
+
+
+# ------------------------------------------- o diário: onde uma frase sumiu
+
+def _linhas_do_diario(caminho):
+    with open(caminho, encoding="utf-8") as f:
+        return [json.loads(l) for l in f if l.strip()]
+
+
+def _porteiro_com_diario(texto, caminho, registrar_texto=False):
+    return PorteiroLocal(transcritor=lambda _c: texto, diario=str(caminho),
+                         registrar_texto=registrar_texto)
+
+
+def test_diario_registra_a_decisao_sem_o_texto_por_padrao(tmp_path):
+    caminho = tmp_path / "porteiro.jsonl"
+    _porteiro_com_diario("fala secreta da reuniao", caminho).ouviu_o_nome("x.wav")
+    [linha] = _linhas_do_diario(caminho)
+    assert linha["acordou"] is False
+    assert linha["palavras"] == 4
+    assert "quando" in linha
+    assert "texto" not in linha, (
+        "o que foi dito na sala não pode ficar gravado sem o dono ligar isso")
+    assert "secreta" not in json.dumps(linha)
+
+
+def test_diario_guarda_o_texto_quando_o_dono_liga(tmp_path):
+    caminho = tmp_path / "porteiro.jsonl"
+    _porteiro_com_diario("ok deus abriu chrome", caminho,
+                         registrar_texto=True).ouviu_o_nome("x.wav")
+    [linha] = _linhas_do_diario(caminho)
+    assert linha["texto"] == "ok deus abriu chrome"
+
+
+def test_diario_registra_quando_acordou(tmp_path):
+    caminho = tmp_path / "porteiro.jsonl"
+    _porteiro_com_diario("dervs que horas sao", caminho).ouviu_o_nome("x.wav")
+    assert _linhas_do_diario(caminho)[0]["acordou"] is True
+
+
+def test_diario_registra_o_erro_de_ouvir_sem_derrubar(tmp_path):
+    caminho = tmp_path / "porteiro.jsonl"
+
+    def quebra(_c):
+        raise RuntimeError("wav corrompido")
+
+    p = PorteiroLocal(transcritor=quebra, diario=str(caminho))
+    assert p.ouviu_o_nome("x.wav") == (False, "")
+    [linha] = _linhas_do_diario(caminho)
+    assert linha["acordou"] is False and linha["erro"] is True
+
+
+def test_diario_registra_a_duracao_do_audio(tmp_path):
+    import wave
+    wav = tmp_path / "fala.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * 8000)          # 0,5 s
+    caminho = tmp_path / "porteiro.jsonl"
+    _porteiro_com_diario("oi", caminho).ouviu_o_nome(str(wav))
+    assert _linhas_do_diario(caminho)[0]["duracao_s"] == 0.5
+
+
+def test_diario_que_nao_da_para_escrever_nunca_derruba_a_escuta(tmp_path):
+    # o "arquivo" é uma pasta: escrever falha, e a decisão tem de sair igual
+    p = _porteiro_com_diario("dervs oi", tmp_path)
+    assert p.ouviu_o_nome("x.wav")[0] is True
+
+
+def test_diario_gira_quando_passa_do_limite(tmp_path):
+    caminho = tmp_path / "porteiro.jsonl"
+    caminho.write_bytes(b"x" * (porteiro_mod.LIMITE_DIARIO_BYTES + 1))
+    _porteiro_com_diario("oi", caminho).ouviu_o_nome("x.wav")
+    assert (tmp_path / "porteiro.jsonl.1").exists()
+    assert len(_linhas_do_diario(caminho)) == 1      # recomeçou limpo
+
+
+def test_porteiro_sem_diario_nao_escreve_nada_em_lugar_nenhum(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    _porteiro_que_ouve("oi").ouviu_o_nome("x.wav")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_criar_porteiro_liga_o_diario_e_respeita_registrar_texto(tmp_path, monkeypatch):
+    monkeypatch.setenv("DERVS_DIARIO_PORTEIRO", str(tmp_path / "d.jsonl"))
+    p = criar_porteiro({"porteiro_registrar_texto": True})
+    assert p.diario == str(tmp_path / "d.jsonl")
+    assert p.registrar_texto is True
+    assert criar_porteiro({}).registrar_texto is False
