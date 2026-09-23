@@ -219,3 +219,21 @@ def test_dervs_app_url_vazia_ou_nao_texto_cai_no_padrao():
     assert c["dervs_app_url"] == cfg.PADRAO["dervs_app_url"]
     c = cfg._validar({**cfg.PADRAO, "dervs_app_url": None})
     assert c["dervs_app_url"] == cfg.PADRAO["dervs_app_url"]
+
+
+def test_perfil_de_linux_gravado_no_windows_e_curado(monkeypatch):
+    monkeypatch.setattr(cfg.sys, "platform", "win32")
+    for velho in ("~/.config/google-chrome", "~\.config\google-chrome", "~/.config/google-chrome/"):
+        c = cfg._validar({**cfg.PADRAO, "navegador_perfil_chrome": velho})
+        assert c["navegador_perfil_chrome"] == "", velho
+
+
+def test_perfil_que_o_dono_escolheu_no_windows_e_respeitado(monkeypatch):
+    monkeypatch.setattr(cfg.sys, "platform", "win32")
+    escolhido = r"D:\meu\chrome"
+    c = cfg._validar({**cfg.PADRAO, "navegador_perfil_chrome": escolhido})
+    assert c["navegador_perfil_chrome"] == escolhido
+
+
+def test_perfil_padrao_e_vazio_para_valer_o_do_sistema():
+    assert cfg.PADRAO["navegador_perfil_chrome"] == ""

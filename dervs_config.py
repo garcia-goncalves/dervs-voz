@@ -179,8 +179,12 @@ PADRAO = {
     # para você conferir. Suba para tarefas mais longas; desça para segurar a rédea.
     "navegador_max_passos": 15,
     # Pasta do perfil do Chrome (onde ficam seus logins) e o nome do perfil.
-    # Só mude se você usa outro navegador/perfil.
-    "navegador_perfil_chrome": "~/.config/google-chrome",
+    # Só mude se você usa outro navegador/perfil. Vazio = o do sistema (no
+    # Windows, %LOCALAPPDATA%/Google/Chrome/User Data; em Linux,
+    # ~/.config/google-chrome — ver `dervs_browser._perfil_chrome_padrao`).
+    # Antes o padrão era o caminho de Linux, gravado no config.json de quem
+    # rodou o DERVS no Windows: o Chrome abria com um perfil VAZIO, sem login.
+    "navegador_perfil_chrome": "",
     "navegador_perfil_nome": "Default",
     # Modelo que decide cada clique. Vazio = usa o mesmo do cérebro (o mais
     # barato). Suba só se a navegação exigir mais esperteza.
@@ -250,8 +254,13 @@ def _validar(conf: dict) -> dict:
         conf["navegador_max_passos"] = min(max(n, 1), 60)  # entre 1 e 60 passos
     except (TypeError, ValueError, KeyError):
         conf["navegador_max_passos"] = PADRAO["navegador_max_passos"]
-    if not isinstance(conf.get("navegador_perfil_chrome"), str) or not conf["navegador_perfil_chrome"]:
+    if not isinstance(conf.get("navegador_perfil_chrome"), str):
         conf["navegador_perfil_chrome"] = PADRAO["navegador_perfil_chrome"]
+    # Cura o config.json antigo: o padrão de Linux gravado no Windows não existe
+    # aqui e seria obedecido no lugar do perfil de verdade do Chrome.
+    if sys.platform == "win32" and conf["navegador_perfil_chrome"].replace(
+            "\\", "/").rstrip("/") == "~/.config/google-chrome":
+        conf["navegador_perfil_chrome"] = ""
     if not isinstance(conf.get("navegador_perfil_nome"), str) or not conf["navegador_perfil_nome"]:
         conf["navegador_perfil_nome"] = PADRAO["navegador_perfil_nome"]
     if not isinstance(conf.get("navegador_modelo"), str):
