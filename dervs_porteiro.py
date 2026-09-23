@@ -92,8 +92,8 @@ def _registrar(diario, registro: dict) -> None:
         try:
             if os.path.getsize(diario) > LIMITE_DIARIO_BYTES:
                 os.replace(diario, diario + ".1")     # guarda só a geração anterior
-        except FileNotFoundError:
-            pass
+        except OSError:
+            pass    # não girou (arquivo em uso?): ainda assim registra esta decisão
         with open(diario, "a", encoding="utf-8") as f:
             f.write(json.dumps(registro, ensure_ascii=False) + "\n")
     except Exception:
