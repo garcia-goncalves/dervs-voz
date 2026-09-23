@@ -27,7 +27,7 @@ import signal
 import sys
 import threading
 
-from PyQt6 import QtWidgets
+from PyQt6 import QtCore, QtWidgets
 
 import dervs
 import dervs_config as config
@@ -120,9 +120,16 @@ class Motor(dervs.PopUp):
     "fala com a tela".
     """
 
+    # O botão do HUD chega pela thread de leitura da ponte. Emitir um sinal
+    # daqui atravessa sozinho para a thread da tela (o Motor mora nela) —
+    # mexer em `b_conversa`/`Escuta` de outra thread derruba o app, e um
+    # `QTimer` criado fora da thread do Qt nunca dispara (ver `dervs.Ponte`).
+    _pedido_microfone = QtCore.pyqtSignal(bool)
+
     def __init__(self, ponte: PonteElectron):
         self.ponte = ponte
         self._ultimo_estado_enviado = None
+        self._ultimo_microfone_enviado = None
         # Identidade do cartão em trânsito (correção de concorrência — ver
         # relato desta etapa): sem isto, uma resposta duplicada ou atrasada
         # do Electron (duplo-clique cujas duas mensagens saem antes do
@@ -135,6 +142,17 @@ class Motor(dervs.PopUp):
         # Etapa 4: a `Voz` já sabe emitir o nível de amplitude enquanto fala,
         # se alguém ligar `ao_nivel`. Quem liga aqui é a ponte.
         self.voz.ao_nivel = ponte.enviar_volume
+        self._pedido_microfone.connect(self._microfone_na_tela)
+
+    # ---- microfone: o liga/desliga do HUD --------------------------------
+    def pedir_microfone(self, ligar: bool):
+        """Seguro de chamar de qualquer thread (ver `_pedido_microfone`)."""
+        self._pedido_microfone.emit(bool(ligar))
+
+    def _microfone_na_tela(self, ligar: bool):
+        # o mesmo caminho do botão Qt antigo: `toggled` → `alternar_conversa`,
+        # que grava `escuta_ao_abrir` e abre/fecha a `Escuta`.
+        self.b_conversa.setChecked(ligar)
 
     # ---- a janela Qt de verdade NUNCA aparece --------------------------
     def abrir(self):
@@ -272,6 +290,10 @@ class Motor(dervs.PopUp):
     # ---- o relógio de 500ms que já existe --------------------------------
     def atualizar(self):
         super().atualizar()
+        aberto = self.escuta is not None
+        if aberto != self._ultimo_microfone_enviado:
+            self.ponte.enviar_microfone(aberto)
+            self._ultimo_microfone_enviado = aberto
         estado = self._estado_atual()
         if estado == self._ultimo_estado_enviado:
             return
@@ -319,6 +341,20 @@ def _construir_me_chamaram(ponte: PonteElectron):
     def _me_chamaram():
         ponte.enviar_mostrar()
     return _me_chamaram
+
+
+def _construir_ao_sair(app):
+    """O que roda quando o Electron pede para sair ("Sair do DERVS") ou morre.
+    Roda na thread de leitura da ponte — e `QApplication.quit()` chamado de
+    fora da thread da tela não encerra nada: o Python ficava vivo, sem cara,
+    com o microfone aberto, e o atalho seguinte "não fazia nada" (o 2º DERVS
+    só avisava um Electron que já não existia). `invokeMethod` com conexão
+    enfileirada leva o pedido até a thread certa.
+    """
+    def _ao_sair():
+        QtCore.QMetaObject.invokeMethod(
+            app, "quit", QtCore.Qt.ConnectionType.QueuedConnection)
+    return _ao_sair
 
 
 def _construir_ao_plano(motor: Motor):
@@ -431,8 +467,7 @@ def main():
     app = QtWidgets.QApplication([])
     app.setQuitOnLastWindowClosed(False)
 
-    def _ao_sair():
-        app.quit()            # o aboutToQuit chama `_encerrar`, ver abaixo
+    _ao_sair = _construir_ao_sair(app)   # o aboutToQuit chama `_encerrar`
 
     # `ao_plano` precisa do `motor`, e o `motor` precisa da `ponte` — a mesma
     # indireção de `ponte_alvo` acima resolve a dependência circular sem
@@ -443,8 +478,16 @@ def main():
         if ao_plano_alvo:
             ao_plano_alvo[0](resposta, autorizado, cartao_id)
 
-    ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial, ao_pronto=lambda: None)
+    ao_microfone_alvo = []
+
+    def _ao_microfone_inicial(ligar):
+        if ao_microfone_alvo:
+            ao_microfone_alvo[0](ligar)
+
+    ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial,
+                          ao_pronto=lambda: None, ao_microfone=_ao_microfone_inicial)
     motor = Motor(ponte)
+    ao_microfone_alvo.append(motor.pedir_microfone)
     ao_plano_alvo.append(_construir_ao_plano(motor))
     ponte_alvo.append(_construir_me_chamaram(ponte))
 

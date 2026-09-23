@@ -396,3 +396,56 @@ def test_abrir_sem_env_extra_nao_passa_env_nenhum(tmp_path, monkeypatch):
     assert len(chamadas) == 1
     _, kwargs = chamadas[0]
     assert "env" not in kwargs
+
+
+# ---- microfone: o liga/desliga que voltou ao HUD -------------------------
+
+def test_enviar_microfone_manda_ligado_como_booleano():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_microfone(True)
+    p.enviar_microfone(False)
+    dados = [json.loads(l) for l in _linhas_escritas(processo)]
+    assert dados == [{"verbo": "microfone", "ligado": True},
+                     {"verbo": "microfone", "ligado": False}]
+
+
+def test_enviar_microfone_antes_de_pronto_guarda_o_ultimo_e_despacha_depois():
+    p, processo = _nova_ponte()
+    p.enviar_microfone(True)
+    p.enviar_microfone(False)
+    assert _linhas_escritas(processo) == []
+    p._despachar_guardado()
+    dados = [json.loads(l) for l in _linhas_escritas(processo)]
+    assert dados == [{"verbo": "microfone", "ligado": False}]
+
+
+def test_pedido_de_microfone_chama_o_callback_com_o_booleano():
+    pedidos = []
+    linha = b'{"verbo": "microfone", "ligar": true}\n{"verbo": "microfone", "ligar": false}\n'
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None,
+                                ao_plano=lambda *a, **k: None,
+                                ao_pronto=lambda: None,
+                                ao_microfone=pedidos.append)
+    p._iniciar(ProcessoFalso(linha))
+    assert _esperar(lambda: len(pedidos) == 2)
+    assert pedidos == [True, False]
+
+
+@pytest.mark.parametrize("valor", ['"true"', '1', 'null', '"false"', '[]'])
+def test_pedido_de_microfone_com_valor_que_nao_e_booleano_e_ignorado(valor, capsys):
+    pedidos = []
+    linha = ('{"verbo": "microfone", "ligar": %s}\n' % valor).encode()
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None,
+                                ao_plano=lambda *a, **k: None,
+                                ao_pronto=lambda: None,
+                                ao_microfone=pedidos.append)
+    p._iniciar(ProcessoFalso(linha))
+    time.sleep(0.2)   # dá tempo da thread de leitura processar a linha
+    assert pedidos == []
+    assert "microfone" in capsys.readouterr().err
+
+
+def test_pedido_de_microfone_sem_callback_nao_derruba_a_ponte():
+    p, _ = _nova_ponte(b'{"verbo": "microfone", "ligar": true}\n')
+    time.sleep(0.1)   # a thread de leitura não pode ter explodido

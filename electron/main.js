@@ -64,7 +64,7 @@ function enviarAoPython(objeto) {
 // para não competir com a janela em que ele está trabalhando (design.md,
 // "contradicoes_resolvidas" da esteira dervs-painel-completo).
 const LARGURA = 420;
-const ALTURA = 560;
+const ALTURA = 620; // era 560 até o botão do microfone entrar (17/09→23/09): sem isto o rodapé corta
 const MARGEM_CANTO = 24;
 
 function posicaoDeCanto() {
@@ -272,6 +272,15 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo sistema com campo faltando/invalido, ignorado");
       }
       break;
+    case "microfone":
+      // A escuta abriu ou fechou (Python é o dono do microfone — o HUD só
+      // reflete). Só o booleano de verdade vale.
+      if (typeof mensagem.ligado !== "boolean") {
+        console.error("electron: verbo microfone sem campo ligado booleano, ignorado");
+        return;
+      }
+      janela.webContents.send("dervs:microfone", { ligado: mensagem.ligado });
+      break;
     default:
       console.error(`electron: verbo desconhecido do Python, ignorado: ${String(verbo)}`);
   }
@@ -317,6 +326,17 @@ ipcMain.on("dervs:responder-plano", (_evento, dado) => {
     return;
   }
   enviarAoPython({ verbo: "plano", resposta, autorizado, cartao_id: cartaoId });
+});
+
+// Botão liga/desliga do microfone: só PEDE — quem abre ou fecha o microfone
+// é o Python (o Electron nunca captura áudio, ver dervs_nivel.py). O botão só
+// muda de cara quando o Python responde com o verbo `microfone`.
+ipcMain.on("dervs:alternar-microfone", (_evento, ligar) => {
+  if (typeof ligar !== "boolean") {
+    console.error(`electron: pedido de microfone inválido, ignorado: ${String(ligar)}`);
+    return;
+  }
+  enviarAoPython({ verbo: "microfone", ligar });
 });
 
 // Botão "Abrir DERVS App" do HUD — só ABRE a URL no navegador padrão do

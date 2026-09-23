@@ -49,6 +49,9 @@ Verbos Python → Electron (só estes cinco):
             Consumidor que só lê `rotulo`/`nivel` continua funcionando sem
             mudar nada.
   mostrar {}                          — traz a janela para frente.
+  microfone {"ligado"}                — extensão do protocolo: a escuta está
+            aberta (true) ou fechada (false). Guarda só o último valor até o
+            `pronto`, como `estado` — o botão do HUD nasce já no lado certo.
   sistema {"cpu", "ram", "disco_livre_gb", "disco_total_gb"} — extensão do
             protocolo (fase 1 da esteira `dervs-painel-completo`): leitura
             real da máquina, mandada a cada ~2s por `dervs_sistema.py`. Ausente
@@ -60,6 +63,9 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
             guardados (só o último de cada) e são despachados quando ele
             chega — o mesmo padrão do `READY` dos daemons.
   sair    — "Sair do DERVS" da bandeja.
+  microfone {"ligar": bool}           — botão liga/desliga do HUD. Só o
+            booleano de verdade vale (mesma checagem estrita de `autorizado`):
+            string, número ou null viram linha ignorada no stderr.
   plano   {"resposta": "confirmar" | "cancelar", "autorizado": bool,
             "cartao_id"} — botão do cartão de plano. `autorizado` é
             extensão do protocolo: reflete a caixa "Tenho autorização"
@@ -122,8 +128,13 @@ class PonteElectron:
     é chamado quando a janela terminou de carregar.
     """
 
-    def __init__(self, ao_sair, ao_plano, ao_pronto):
-        """`ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`."""
+    def __init__(self, ao_sair, ao_plano, ao_pronto, ao_microfone=None):
+        """`ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`.
+        `ao_microfone(ligar: bool)` roda na thread de leitura da ponte — quem
+        o fornece precisa atravessar para a thread da tela antes de mexer em
+        widget ou thread do Qt (ver `Motor` em `dervs_electron.py`)."""
+        self._ao_microfone = ao_microfone
+        self._ultimo_microfone_guardado = None
         self._ao_sair = ao_sair
         self._ao_plano = ao_plano
         self._ao_pronto = ao_pronto
@@ -282,6 +293,13 @@ class PonteElectron:
             # se ainda vale é `dervs_electron.py`.
             cartao_id = dado.get("cartao_id")
             self._chamar(self._ao_plano, resposta, autorizado, cartao_id)
+        elif verbo == "microfone":
+            ligar = dado.get("ligar")
+            if not isinstance(ligar, bool):
+                sys.stderr.write(f"ponte: pedido de microfone inválido: {dado!r}\n")
+                return
+            if self._ao_microfone is not None:
+                self._chamar(self._ao_microfone, ligar)
         else:
             sys.stderr.write(f"ponte: verbo desconhecido vindo do Electron: {verbo!r}\n")
 
@@ -307,8 +325,11 @@ class PonteElectron:
             self._pronto = True
             estado = self._ultimo_estado_guardado
             volume = self._ultimo_volume_guardado
+            microfone = self._ultimo_microfone_guardado
         if estado is not None:
             self._escrever(estado)
+        if microfone is not None:
+            self._escrever(microfone)
         if volume is not None:
             self._escrever(volume)
         self._chamar(self._ao_pronto)
@@ -321,6 +342,14 @@ class PonteElectron:
         with self._lock:
             if not self._pronto:
                 self._ultimo_estado_guardado = msg
+                return
+        self._escrever(msg)
+
+    def enviar_microfone(self, ligado):
+        msg = {"verbo": "microfone", "ligado": bool(ligado)}
+        with self._lock:
+            if not self._pronto:
+                self._ultimo_microfone_guardado = msg
                 return
         self._escrever(msg)
 

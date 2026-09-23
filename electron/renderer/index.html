@@ -23,6 +23,13 @@
     <p class="data" id="data-atual" aria-label="Data de hoje"></p>
   </header>
 
+  <!-- Liga/desliga da escuta. Escondido até o Python dizer em que estado o
+       microfone está — nunca chuta "ligado" antes de saber. -->
+  <button type="button" id="botao-microfone" class="botao-microfone" aria-pressed="false" hidden>
+    <span class="microfone-ponto" aria-hidden="true"></span>
+    <span id="botao-microfone-texto">Microfone</span>
+  </button>
+
   <main class="hud">
     <p class="rotulo-estado" id="rotulo-estado"></p>
     <div class="nucleo-area">

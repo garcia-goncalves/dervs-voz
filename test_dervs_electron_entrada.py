@@ -50,6 +50,9 @@ class PonteFalsa:
     def enviar_mostrar(self):
         self.chamadas.append(("mostrar",))
 
+    def enviar_microfone(self, ligado):
+        self.chamadas.append(("microfone", ligado))
+
     def fechar(self, espera=3.0):
         self.fechada = True
 
@@ -356,3 +359,68 @@ def test_trava_de_instancia_e_a_posse_de_dervs_instancia_reusada(tmp_path):
 
 if __name__ == "__main__":            # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ---- microfone: o liga/desliga que voltou ao HUD ----------------------------
+
+class _EscutaFalsa:
+    pausado = False
+
+
+def test_atualizar_avisa_o_hud_quando_o_microfone_abre_e_fecha(motor):
+    motor.atualizar()
+    assert motor.ponte.de_tipo("microfone")[-1] == ("microfone", False)
+    motor.escuta = _EscutaFalsa()
+    motor.atualizar()
+    assert motor.ponte.de_tipo("microfone")[-1] == ("microfone", True)
+    motor.escuta = None
+    motor.atualizar()
+    assert motor.ponte.de_tipo("microfone")[-1] == ("microfone", False)
+
+
+def test_atualizar_nao_repete_microfone_que_nao_mudou(motor):
+    motor.atualizar()
+    motor.atualizar()
+    motor.atualizar()
+    assert len(motor.ponte.de_tipo("microfone")) == 1
+
+
+def test_pedido_de_outra_thread_chega_ao_botao_na_thread_da_tela(motor):
+    registro = []
+
+    class BotaoFalso:
+        def setChecked(self, valor):
+            registro.append((valor, threading.current_thread()))
+
+    motor.b_conversa = BotaoFalso()
+    # `False` de propósito: o timer de abertura do motor (config
+    # `escuta_ao_abrir` ligada) também chama `setChecked(True)` no botão.
+    t = threading.Thread(target=motor.pedir_microfone, args=(False,))
+    t.start()
+    t.join()
+    _app.processEvents()      # entrega o sinal enfileirado à thread da tela
+    pedidos = [thread for valor, thread in registro if valor is False]
+    assert pedidos == [threading.main_thread()], (
+        "o botão foi tocado fora da thread da tela — derruba o app")
+
+
+# ---- "sair" vindo do Electron roda em outra thread e precisa fechar o Qt ----
+
+def test_ao_sair_de_outra_thread_fecha_o_qt_na_thread_da_tela():
+    from PyQt6 import QtCore
+    registro = []
+
+    class AppFalso(QtCore.QObject):
+        @QtCore.pyqtSlot()
+        def quit(self):
+            registro.append(threading.current_thread())
+
+    alvo = AppFalso()
+    ao_sair = dervs_electron._construir_ao_sair(alvo)
+    t = threading.Thread(target=ao_sair)
+    t.start()
+    t.join()
+    _app.processEvents()
+    assert registro == [threading.main_thread()], (
+        "quit() tem de rodar na thread da tela; chamado de outra thread o "
+        "Qt ignora e o Python fica vivo, sem cara, com o microfone aberto")

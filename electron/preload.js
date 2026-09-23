@@ -22,6 +22,12 @@ contextBridge.exposeInMainWorld("dervs", {
   // Extensão do protocolo (fase 1 da esteira dervs-painel-completo): CPU/RAM/
   // disco reais, mandados a cada ~2s — ver dervs_sistema.py.
   aoSistema: aoCanal("dervs:sistema"),
+  // Botão liga/desliga do microfone: `alternarMicrofone(ligar)` só pede ao
+  // Python; `aoMicrofone` recebe `{ ligado }` quando a escuta de fato mudou.
+  aoMicrofone: aoCanal("dervs:microfone"),
+  alternarMicrofone: (ligar) => {
+    ipcRenderer.send("dervs:alternar-microfone", Boolean(ligar));
+  },
   // Botão "Abrir DERVS App": só manda o pedido para o processo principal
   // abrir a URL no navegador — o renderer não tem `shell` nem rede.
   abrirAppDervs: () => {

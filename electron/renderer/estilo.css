@@ -457,8 +457,51 @@ label {
    (o núcleo pulsa, ver hud.js), mas os anéis param de girar em vez de só
    ficarem mais devagar — hud.js lê este mesmo media query em JS para decidir
    a velocidade-alvo, e este bloco aqui é só a documentação do contrato. */
+/* Botão liga/desliga do microfone. Ligado = ponto ciano cheio; desligado =
+   ponto vazado e texto apagado — o estado se lê num relance, sem depender só
+   de cor (o texto também muda). */
+.botao-microfone {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  border: 2px solid var(--acento-fraco);
+  background: var(--vidro-painel);
+  color: var(--texto-secundario);
+  font-family: var(--fonte-tecnica);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.botao-microfone .microfone-ponto {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  box-sizing: border-box;
+}
+
+.botao-microfone.microfone-ligado {
+  border-color: var(--acento);
+  color: var(--acento);
+}
+
+.botao-microfone.microfone-ligado .microfone-ponto {
+  background: currentColor;
+}
+
+.botao-microfone:hover,
+.botao-microfone:focus-visible {
+  border-color: var(--acento);
+  color: var(--acento);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .painel-dado,
+  .botao-microfone,
   .botao-abrir-app-dervs {
     transition: none;
   }

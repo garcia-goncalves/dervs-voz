@@ -74,6 +74,8 @@
   const elSistemaRam = document.getElementById("sistema-ram");
   const elSistemaDisco = document.getElementById("sistema-disco");
   const botaoAbrirAppDervs = document.getElementById("botao-abrir-app-dervs");
+  const botaoMicrofone = document.getElementById("botao-microfone");
+  const elBotaoMicrofoneTexto = document.getElementById("botao-microfone-texto");
 
   // Estado do cartão de plano em relação à caixa "tenho autorização" — só o
   // clique em Confirmar lê isto, não há validação em tempo real do lado de
@@ -449,6 +451,26 @@
     elPaineisSistema.hidden = false;
   }
 
+  // --- botão do microfone -----------------------------------------------------
+  // O clique só PEDE ao Python o estado contrário; a cara do botão muda quando
+  // o Python confirma (aoMicrofone) — assim ele nunca mente sobre o microfone.
+
+  let microfoneLigado = null;
+
+  function aoMicrofone({ ligado } = {}) {
+    if (typeof ligado !== "boolean") return;
+    microfoneLigado = ligado;
+    botaoMicrofone.hidden = false;
+    botaoMicrofone.setAttribute("aria-pressed", String(ligado));
+    botaoMicrofone.classList.toggle("microfone-ligado", ligado);
+    elBotaoMicrofoneTexto.textContent = ligado ? "Microfone ligado" : "Microfone desligado";
+  }
+
+  botaoMicrofone.addEventListener("click", () => {
+    if (microfoneLigado === null) return;
+    window.dervs.alternarMicrofone(!microfoneLigado);
+  });
+
   // --- botão "Abrir DERVS App" ----------------------------------------------
 
   botaoAbrirAppDervs.addEventListener("click", () => {
@@ -462,6 +484,7 @@
   window.dervs.aoFala(aoFala);
   window.dervs.aoPlano(aoPlano);
   window.dervs.aoSistema(aoSistema);
+  window.dervs.aoMicrofone(aoMicrofone);
 
   aplicarRotuloEstado();
   aplicarLeituraAmp();
