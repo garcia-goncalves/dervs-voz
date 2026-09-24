@@ -133,6 +133,22 @@ clique pede ao Python para abrir ou fechar a escuta, e o botão só muda de cara
 (**MICROFONE LIGADO / DESLIGADO**) quando o Python confirma — assim ele não
 mente sobre o microfone. A escolha fica em `escuta_ao_abrir`.
 
+**Quarta rodada (23/09/2026) — três funções novas no HUD:**
+
+- **Atalho global `Ctrl+Alt+D`** (`globalShortcut`, `electron/main.js`): esconde a
+  janela se ela está à vista, senão traz de volta e foca. Se outro programa já usa
+  a combinação, o Electron avisa no log e segue sem o atalho. A janela também não
+  fica mais presa minimizada: quem a minimiza (Win+D) é desfeito na hora.
+- **Cartão do diário do porteiro:** `HOJE: N ouvidas · M acordei`, contado de
+  `porteiro.jsonl` (+ a rotação `.1`) por `dervs_diario.py`, a cada ~30 s. Só
+  metadados — o texto nunca é lido. Só aparece depois da primeira leitura.
+- **Botão `Reunião 1h`:** fecha o microfone por 1 hora e reabre sozinho, mostrando
+  `REUNIÃO 59:12`; clicar de novo cancela e reabre na hora. O temporizador mora no
+  `Motor` (`dervs_electron.py`) e a reunião **não** grava `escuta_ao_abrir` — se o
+  app fechar no meio, abre ouvindo. Ligar ou desligar o microfone à mão durante a
+  reunião a cancela. Verbos novos da ponte: `diario` e `reuniao` (ver o cabeçalho de
+  `dervs_ponte_electron.py`). Janela 420×620 → 420×700.
+
 **Diário do porteiro:** `%LOCALAPPDATA%\dervs\porteiro.jsonl` — uma linha por
 decisão (hora, acordou, nº de palavras, duração). O que foi dito **não** é
 gravado, salvo `porteiro_registrar_texto: true`. Gira em 256 KB.

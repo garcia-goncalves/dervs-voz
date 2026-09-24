@@ -79,6 +79,23 @@ a segunda ainda está pendente.
 - **Electron 33.2.1 → 44.4.5**: a 33 saiu de suporte e o `npm audit` acusava
   20+ avisos (4 altos); agora zero.
 - Janela 420×560 → 420×620 (o botão novo cortava o rodapé).
+
+**Quarta rodada (23/09/2026) — três funções do HUD, provadas ao vivo:**
+
+- **Atalho global Ctrl+Alt+D:** apertado com a janela à vista, ela some; apertado
+  de novo, volta. Minimizar a janela (Win+D) agora é desfeito na hora — provado
+  minimizando por fora e vendo a janela de volta. O atalho é solto ao sair.
+- **Cartão do diário** (`dervs_diario.py`, verbo `diario`): apareceu
+  "HOJE: 1 ouvidas · 1 acordei", igual à contagem feita à mão no `porteiro.jsonl`.
+- **Modo reunião** (`Motor`, verbo `reuniao`): clique → "REUNIÃO 59:57" e
+  microfone desligado; clique de novo → microfone ligado, botão volta a
+  "REUNIÃO 1H". `escuta_ao_abrir` conferido depois: **continuou como estava**
+  (a reunião restaura o valor que o caminho do botão grava). Fim da hora e
+  cancelar por microfone manual provados nos testes com relógio injetado.
+- Janela 420×620 → 420×700: o cartão de erro ("não chegou som") + o cartão do
+  diário juntos cortavam o botão "Abrir DERVS App".
+- Limite honesto: a hora inteira de reunião não foi esperada ao vivo (só o início
+  e o cancelamento); o fim é coberto pelos testes.
 - Peso morto removido (item 4.7): `dervs_painel.py`, `falar.sh`,
   `ligar-voz-com-senha.sh` — continuam no histórico do Git, dá para voltar.
 

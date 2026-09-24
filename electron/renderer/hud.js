@@ -75,6 +75,11 @@
   const elSistemaDisco = document.getElementById("sistema-disco");
   const botaoAbrirAppDervs = document.getElementById("botao-abrir-app-dervs");
   const botaoMicrofone = document.getElementById("botao-microfone");
+  const botaoReuniao = document.getElementById("botao-reuniao");
+  const elBotaoReuniaoTexto = document.getElementById("botao-reuniao-texto");
+  const elDiario = document.getElementById("diario");
+  const elDiarioOuvidas = document.getElementById("diario-ouvidas");
+  const elDiarioAcordou = document.getElementById("diario-acordou");
   const elBotaoMicrofoneTexto = document.getElementById("botao-microfone-texto");
 
   // Estado do cartão de plano em relação à caixa "tenho autorização" — só o
@@ -461,6 +466,7 @@
     if (typeof ligado !== "boolean") return;
     microfoneLigado = ligado;
     botaoMicrofone.hidden = false;
+    botaoReuniao.hidden = false;
     botaoMicrofone.setAttribute("aria-pressed", String(ligado));
     botaoMicrofone.classList.toggle("microfone-ligado", ligado);
     elBotaoMicrofoneTexto.textContent = ligado ? "Microfone ligado" : "Microfone desligado";
@@ -470,6 +476,46 @@
     if (microfoneLigado === null) return;
     window.dervs.alternarMicrofone(!microfoneLigado);
   });
+
+  // --- modo reunião -------------------------------------------------------------
+  // O Python é dono do temporizador e manda os segundos restantes (ou null).
+  // O clique só PEDE; o botão só muda de cara quando o Python responde.
+
+  let reuniaoAtiva = false;
+
+  function formatarRestante(segundos) {
+    const m = Math.floor(segundos / 60);
+    const s = segundos % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  function aoReuniao({ restanteS } = {}) {
+    if (restanteS === null) {
+      reuniaoAtiva = false;
+    } else if (Number.isInteger(restanteS) && restanteS >= 0) {
+      reuniaoAtiva = true;
+    } else {
+      return;
+    }
+    botaoReuniao.hidden = false;
+    botaoReuniao.setAttribute("aria-pressed", String(reuniaoAtiva));
+    botaoReuniao.classList.toggle("microfone-ligado", reuniaoAtiva);
+    elBotaoReuniaoTexto.textContent =
+      reuniaoAtiva ? `REUNIÃO ${formatarRestante(restanteS)}` : "Reunião 1h";
+  }
+
+  botaoReuniao.addEventListener("click", () => {
+    window.dervs.alternarReuniao(!reuniaoAtiva);
+  });
+
+  // --- cartão do diário do porteiro ------------------------------------------
+
+  function aoDiario({ ouvidas, acordou } = {}) {
+    if (!Number.isInteger(ouvidas) || !Number.isInteger(acordou)) return;
+    elDiarioOuvidas.textContent = String(ouvidas);
+    elDiarioAcordou.textContent = String(acordou);
+    elDiario.hidden = false;
+  }
 
   // --- botão "Abrir DERVS App" ----------------------------------------------
 
@@ -485,6 +531,8 @@
   window.dervs.aoPlano(aoPlano);
   window.dervs.aoSistema(aoSistema);
   window.dervs.aoMicrofone(aoMicrofone);
+  window.dervs.aoReuniao(aoReuniao);
+  window.dervs.aoDiario(aoDiario);
 
   aplicarRotuloEstado();
   aplicarLeituraAmp();

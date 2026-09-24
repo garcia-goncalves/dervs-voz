@@ -25,10 +25,17 @@
 
   <!-- Liga/desliga da escuta. Escondido até o Python dizer em que estado o
        microfone está — nunca chuta "ligado" antes de saber. -->
-  <button type="button" id="botao-microfone" class="botao-microfone" aria-pressed="false" hidden>
-    <span class="microfone-ponto" aria-hidden="true"></span>
-    <span id="botao-microfone-texto">Microfone</span>
-  </button>
+  <div class="botoes-escuta">
+    <button type="button" id="botao-microfone" class="botao-microfone" aria-pressed="false" hidden>
+      <span class="microfone-ponto" aria-hidden="true"></span>
+      <span id="botao-microfone-texto">Microfone</span>
+    </button>
+    <!-- Modo reunião: fecha o microfone por 1 hora e reabre sozinho. O
+         temporizador mora no Python; este botão só pede e mostra o tempo. -->
+    <button type="button" id="botao-reuniao" class="botao-microfone botao-reuniao" aria-pressed="false" hidden>
+      <span id="botao-reuniao-texto">Reunião 1h</span>
+    </button>
+  </div>
 
   <main class="hud">
     <p class="rotulo-estado" id="rotulo-estado"></p>
@@ -55,6 +62,12 @@
       <span class="painel-dado-valor" id="sistema-disco">-- / -- GB</span>
     </div>
   </section>
+
+  <!-- Diário do porteiro — só os números de HOJE (dervs_diario.py), nunca
+       texto. Some (hidden) até a primeira leitura real chegar. -->
+  <p class="diario" id="diario" hidden>
+    HOJE: <span id="diario-ouvidas">0</span> ouvidas · <span id="diario-acordou">0</span> acordei
+  </p>
 
   <section class="conversa" id="conversa" aria-live="polite">
     <p class="fala fala-dono" id="fala-dono" hidden>

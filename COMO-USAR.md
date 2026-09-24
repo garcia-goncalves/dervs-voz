@@ -182,7 +182,20 @@ terceiro.
 Ver a seção **"Ligar e desligar a escuta"**, acima — o botão **MICROFONE
 LIGADO / DESLIGADO** fica logo abaixo do nome DERVS, na tela.
 
-Ao abrir (com a configuração padrão), o DERVS já nasce ouvindo.
+Ao abrir (com a configuração padrão), o DERVS já nasce ouvindo.
+
+**Reunião 1h:** ao lado do botão do microfone, o botão **REUNIÃO 1H** fecha o
+microfone por uma hora e o reabre sozinho. Enquanto dura, mostra o tempo que falta
+(**REUNIÃO 59:12**). Clique de novo para cancelar e voltar a ouvir na hora. Se você
+ligar ou desligar o microfone pelo botão dele durante a reunião, ela é cancelada.
+Se fechar o DERVS no meio, ele abre ouvindo da próxima vez.
+
+**Atalho no teclado:** `Ctrl+Alt+D` esconde a janela do DERVS; apertando de novo
+ela volta.
+
+**Uma linha pequena** perto do rodapé diz **HOJE: N ouvidas · M acordei** — quantas
+frases o DERVS ouviu hoje e em quantas ele acordou. Só números; o que foi dito não
+aparece.
 
 ---
 

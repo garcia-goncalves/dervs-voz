@@ -22,7 +22,7 @@
 // protocolo. Diagnóstico só com console.error (vai para o stderr, que o
 // Python relê e reescreve com prefixo "electron:").
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, shell, globalShortcut } = require("electron");
 const path = require("path");
 const net = require("net");
 const readline = require("readline");
@@ -64,7 +64,7 @@ function enviarAoPython(objeto) {
 // para não competir com a janela em que ele está trabalhando (design.md,
 // "contradicoes_resolvidas" da esteira dervs-painel-completo).
 const LARGURA = 420;
-const ALTURA = 620; // era 560 até o botão do microfone entrar (17/09→23/09): sem isto o rodapé corta
+const ALTURA = 700; // 560 → 620 (botão do microfone) → 700 (23/09: cartão do diário + cartão de erro visível ao mesmo tempo cortavam o rodapé)
 const MARGEM_CANTO = 24;
 
 function posicaoDeCanto() {
@@ -131,6 +131,19 @@ function criarJanela() {
     enviarAoPython({ verbo: "pronto" });
   });
 
+  // A janela é um widget sem moldura: nada a minimiza de propósito, e uma
+  // janela presa minimizada (posição -32000,-32000) some sem deixar rastro —
+  // o "DERVS sumiu". Quem minimiza (Win+D, Mostrar Área de Trabalho) é
+  // desfeito na hora; esconder de propósito é o atalho global ou o X.
+  janela.on("minimize", () => {
+    setImmediate(() => {
+      if (janela && !janela.isDestroyed() && janela.isMinimized()) {
+        janela.restore();
+        janela.showInactive();
+      }
+    });
+  });
+
   janela.once("ready-to-show", () => {
     janela.show();
   });
@@ -152,6 +165,29 @@ function mostrarJanela() {
   if (janela.isMinimized()) janela.restore();
   janela.show();
   janela.focus();
+}
+
+// Atalho global Ctrl+Alt+D: visível e não minimizada → esconde; senão traz
+// de volta e foca.
+const ATALHO_GLOBAL = "Control+Alt+D";
+
+function alternarJanela() {
+  if (!janela) return;
+  if (janela.isVisible() && !janela.isMinimized()) {
+    janela.hide();
+  } else {
+    mostrarJanela();
+  }
+}
+
+function registrarAtalhoGlobal() {
+  try {
+    if (!globalShortcut.register(ATALHO_GLOBAL, alternarJanela)) {
+      console.error(`electron: atalho ${ATALHO_GLOBAL} já é de outro programa, sem atalho global`);
+    }
+  } catch (erro) {
+    console.error(`electron: não consegui registrar ${ATALHO_GLOBAL}: ${erro.message}`);
+  }
 }
 
 function recolherJanela() {
@@ -281,6 +317,24 @@ function tratarLinhaDoPython(linha) {
       }
       janela.webContents.send("dervs:microfone", { ligado: mensagem.ligado });
       break;
+    case "diario":
+      // Cartão do diário do porteiro: só dois inteiros, nunca texto.
+      if (Number.isInteger(mensagem.ouvidas) && Number.isInteger(mensagem.acordou)) {
+        janela.webContents.send("dervs:diario", {
+          ouvidas: mensagem.ouvidas, acordou: mensagem.acordou });
+      } else {
+        console.error("electron: verbo diario com campo faltando/invalido, ignorado");
+      }
+      break;
+    case "reuniao":
+      // Segundos que faltam do modo reunião (inteiro) ou null (sem reunião).
+      if (mensagem.restante_s === null
+          || (Number.isInteger(mensagem.restante_s) && mensagem.restante_s >= 0)) {
+        janela.webContents.send("dervs:reuniao", { restanteS: mensagem.restante_s });
+      } else {
+        console.error("electron: verbo reuniao com restante_s invalido, ignorado");
+      }
+      break;
     default:
       console.error(`electron: verbo desconhecido do Python, ignorado: ${String(verbo)}`);
   }
@@ -339,6 +393,16 @@ ipcMain.on("dervs:alternar-microfone", (_evento, ligar) => {
   enviarAoPython({ verbo: "microfone", ligar });
 });
 
+// Botão "Reunião 1h": só PEDE — o temporizador e o microfone são do Python.
+// Booleano estrito, como o do microfone.
+ipcMain.on("dervs:alternar-reuniao", (_evento, ligar) => {
+  if (typeof ligar !== "boolean") {
+    console.error(`electron: pedido de reunião inválido, ignorado: ${String(ligar)}`);
+    return;
+  }
+  enviarAoPython({ verbo: "reuniao", ligar });
+});
+
 // Botão "Abrir DERVS App" do HUD — só ABRE a URL no navegador padrão do
 // dono, nunca navega dentro desta janela (fase 1 da esteira
 // dervs-painel-completo; a integração de verdade com o outro projeto é fase
@@ -352,7 +416,14 @@ ipcMain.on("dervs:abrir-app-dervs", () => {
 app.whenReady().then(() => {
   criarJanela();
   montarBandeja();
+  registrarAtalhoGlobal();
   ligarCanalDoPython();
+});
+
+// Sair solta o atalho global — senão a combinação fica presa até o Windows
+// perceber que o dono morreu.
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
 });
 
 // window-all-closed NÃO encerra o app — de propósito, não é o padrão do

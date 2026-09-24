@@ -499,6 +499,33 @@ label {
   color: var(--acento);
 }
 
+/* Os dois botões da escuta lado a lado; o de reunião reaproveita a cara do do
+   microfone. Em reunião fica "ligado" (ciano) e mostra REUNIÃO mm:ss. */
+.botoes-escuta {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.botao-reuniao {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cartão do diário do porteiro: uma linha discreta, sem moldura. */
+.diario {
+  margin: 0;
+  font-family: var(--fonte-tecnica);
+  font-size: 10px;
+  letter-spacing: .08em;
+  color: var(--texto-secundario);
+  font-variant-numeric: tabular-nums;
+}
+
+.diario span {
+  color: var(--acento);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .painel-dado,
   .botao-microfone,

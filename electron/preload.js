@@ -28,6 +28,25 @@ contextBridge.exposeInMainWorld("dervs", {
   alternarMicrofone: (ligar) => {
     ipcRenderer.send("dervs:alternar-microfone", Boolean(ligar));
   },
+  // Modo reunião: `alternarReuniao(ligar)` só pede ao Python (booleano
+  // estrito); `aoReuniao` recebe `{ restanteS }` — inteiro ou null.
+  aoReuniao: (callback) => {
+    ipcRenderer.on("dervs:reuniao", (_evento, dado) => {
+      const r = dado && dado.restanteS;
+      if (r === null || (Number.isInteger(r) && r >= 0)) callback({ restanteS: r });
+    });
+  },
+  alternarReuniao: (ligar) => {
+    ipcRenderer.send("dervs:alternar-reuniao", Boolean(ligar));
+  },
+  // Cartão do diário do porteiro: `{ ouvidas, acordou }`, inteiros de HOJE.
+  aoDiario: (callback) => {
+    ipcRenderer.on("dervs:diario", (_evento, dado) => {
+      if (dado && Number.isInteger(dado.ouvidas) && Number.isInteger(dado.acordou)) {
+        callback({ ouvidas: dado.ouvidas, acordou: dado.acordou });
+      }
+    });
+  },
   // Botão "Abrir DERVS App": só manda o pedido para o processo principal
   // abrir a URL no navegador — o renderer não tem `shell` nem rede.
   abrirAppDervs: () => {
