@@ -376,3 +376,9 @@ def test_toque_avisa_vencido_com_app_fechado(agenda):
     falsa = _PopUpFalsa(agenda)
     _toque(falsa)
     assert falsa.voz.ditas == ["Você tinha um lembrete às 13h: tomar o remédio."]
+
+
+def test_descrever_arredonda_o_relogio_com_microssegundos():
+    # regressão da prova ao vivo: 59,6 s saía "em 60 segundos"
+    agora = datetime(2026, 9, 23, 14, 0, 0, 400000)
+    assert lb.descrever(datetime(2026, 9, 23, 14, 1, 0), agora) == "em 1 minuto"

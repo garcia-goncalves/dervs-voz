@@ -61,7 +61,7 @@ No Windows, do diretório do projeto:
 dervs-venv\Scripts\python.exe dervs_electron.py             # abre o DERVS (HUD Electron)
 dervs-venv\Scripts\python.exe dervs_transcrever.py [audio]  # audio -> texto
 dervs-venv\Scripts\python.exe scripts\instalar_atalho.py    # icone + atalhos
-dervs-venv\Scripts\python.exe -m pytest -q                  # testes (679 verdes)
+dervs-venv\Scripts\python.exe -m pytest -q                  # testes (812 verdes)
 dervs-venv\Scripts\python.exe amostras_de_voz.py            # amostras das 3 vozes
 ```
 

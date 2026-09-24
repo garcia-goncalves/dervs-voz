@@ -177,6 +177,38 @@ terceiro.
 
 ---
 
+## Pedir um lembrete
+
+Você pode pedir para o DERVS te avisar de alguma coisa. Ele guarda no
+computador (nada vai para a internet) e, na hora, **fala em voz alta e
+escreve na tela**. Diga, por exemplo:
+
+> "DERVS, me lembra em 10 minutos de ligar para o cliente."
+> "DERVS, me lembra às 15h30 de tomar o remédio."
+> "DERVS, me lembra amanhã às 9 de pagar o boleto."
+> "DERVS, daqui a 2 horas me avisa da reunião."
+
+Ele responde na hora, por exemplo: *"Certo, te aviso às 15h30: tomar o remédio."*
+Se ele **não entender a hora**, ele não inventa: diz *"Não entendi a hora. Diga
+por exemplo: me lembra em 10 minutos de ligar para o cliente."* e você repete.
+
+Outros pedidos:
+
+> "DERVS, quais são meus lembretes?" — ele lê a lista.
+> "DERVS, cancela os lembretes." — apaga todos e diz quantos apagou.
+
+Bom saber:
+
+- Só vale até **7 dias** à frente.
+- Se você disser só a hora ("às 9") e ela já passou hoje, vale para amanhã.
+- Se o DERVS estiver **fechado** na hora, ele avisa quando você abrir de novo
+  ("Você tinha um lembrete às 13h: ..."), uma vez só.
+- Se ele estiver falando, o aviso espera a fala acabar.
+- O que você pede para lembrar é só **falado de volta**: nunca é executado
+  como comando.
+
+---
+
 ## Ligar e desligar o microfone
 
 Ver a seção **"Ligar e desligar a escuta"**, acima — o botão **MICROFONE

@@ -3,7 +3,7 @@
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 23/09/2026. **679 testes verdes** no ambiente do
+Última verificação: 23/09/2026. **812 testes verdes** no ambiente do
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
@@ -96,6 +96,18 @@ a segunda ainda está pendente.
   diário juntos cortavam o botão "Abrir DERVS App".
 - Limite honesto: a hora inteira de reunião não foi esperada ao vivo (só o início
   e o cancelamento); o fim é coberto pelos testes.
+- **Lembretes por voz** (`dervs_lembretes.py`, atalho local em `dervs_atalhos.py`):
+  "me lembra em 10 minutos de ligar para o cliente", "às 15h30", "amanhã às 9",
+  "daqui a 2 horas me avisa da reunião". 100% local, sem custo. Lista em
+  `%APPDATA%\dervs\lembretes.json` (gravação atômica; arquivo torto vira lista
+  vazia); um relógio de 1 s na `PopUp` avisa em voz e no HUD, sem interromper
+  fala em curso, e apaga o lembrete antes de falar (não repete). Vencido com o
+  app fechado: "você tinha um lembrete às 13h: ...". Hora não entendida é
+  RECUSADA em voz clara, nunca chutada; limite de 7 dias e 20 lembretes; o texto
+  é só falado (nunca executado) e cortado em 200 caracteres. Provado ao vivo
+  (app real, sem microfone): "em 1 minuto" gravou, confirmou, disparou no
+  horário, apareceu no HUD e o arquivo ficou vazio. Limite honesto: o áudio da
+  fala do aviso não foi conferido de ouvido, só o texto enviado à voz.
 - Peso morto removido (item 4.7): `dervs_painel.py`, `falar.sh`,
   `ligar-voz-com-senha.sh` — continuam no histórico do Git, dá para voltar.
 

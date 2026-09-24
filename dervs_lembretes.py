@@ -238,9 +238,9 @@ def _hora_curta(dt: datetime) -> str:
 
 def descrever(quando: datetime, agora: datetime) -> str:
     """'em 10 minutos' (curto), 'às 15h30', 'amanhã às 9h', 'dia 28 às 9h'."""
-    delta = (quando - agora).total_seconds()
+    delta = round((quando - agora).total_seconds())   # 59,6 s = "1 minuto"
     if delta < 60:
-        s = max(1, int(round(delta)))
+        s = max(1, delta)
         return f"em {s} segundo" + ("" if s == 1 else "s")
     if delta < 3600:
         mnt = max(1, int(round(delta / 60)))
