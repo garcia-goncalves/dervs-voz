@@ -22,6 +22,8 @@ import sys
 import unicodedata
 from datetime import datetime
 
+import dervs_lembretes as lembretes
+
 
 def _norm(texto: str) -> str:
     """Minúsculas, sem acento, sem pontuação, espaços colapsados — para casar a
@@ -263,6 +265,20 @@ def _casar_abrir(n: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Lembretes por voz (a lógica está em dervs_lembretes.py).
+# ---------------------------------------------------------------------------
+_RE_MENCIONA_LEMBRETE = re.compile(r"\b(lembra|lembre|lembrar|lembrete|lembretes|avisa|avise|avisar)\b")
+_RE_AVISA_HORA = re.compile(r"\bme (avisa|avise|avisar)\b")
+_RE_LISTAR_LEMBRETES = re.compile(
+    r"\b(quais (sao )?(os )?(meus )?lembretes|que lembretes (eu )?(tenho|tem)|"
+    r"meus lembretes|(lista|listar|leia|le|mostra|mostre|diz|diga) "
+    r"((os|meus|todos|todos os) )*lembretes|tenho (algum )?lembretes?)\b")
+_RE_CANCELAR_LEMBRETES = re.compile(
+    r"\b(cancela|cancele|cancelar|apaga|apague|apagar|limpa|limpe|limpar|"
+    r"remove|remova|remover|exclui|exclua|esquece|esqueca)\b.*\blembretes\b")
+
+
+# ---------------------------------------------------------------------------
 # Confirmação por voz — quando um plano está esperando o OK do dono.
 # ---------------------------------------------------------------------------
 _AFIRMA = {
@@ -303,19 +319,79 @@ def eh_confirmacao(texto: str) -> str | None:
     return None
 
 
-def tentar(fala: str, agora: datetime | None = None) -> dict | None:
+def _lembretes_do_dono(n: str, fala: str, agora: datetime, agenda) -> dict | None:
+    """Lembretes por voz: criar, listar e cancelar todos. O texto do lembrete
+    é só FALADO de volta — jamais vira comando (a ficha é sempre 'conversar').
+
+    Sem `agenda` (nos testes de hora/abrir), não decide nada: devolve None e o
+    resto do fluxo segue como sempre. O chamador já garantiu que, mesmo assim,
+    'me lembra de abrir o chrome' NÃO cai no atalho de abrir app."""
+    if lembretes.eh_pedido(fala) or _RE_AVISA_HORA.search(n):
+        achado = lembretes.interpretar(fala, agora)
+        if achado is None:
+            if not lembretes.eh_pedido(fala):
+                return None        # 'me avisa quando chegar': não é comigo
+            return _ficha_conversar(
+                "Não entendi a hora. Diga por exemplo: "
+                "me lembra em 10 minutos de ligar para o cliente.")
+        quando, texto = achado
+        if not agenda.adicionar(quando, texto):
+            return _ficha_conversar(
+                "Você já tem lembretes demais. Peça para cancelar os "
+                "lembretes e tente de novo.")
+        quando_falado = lembretes.descrever(quando, agora)
+        if texto:
+            return _ficha_conversar(f"Certo, te aviso {quando_falado}: {texto}.")
+        return _ficha_conversar(f"Certo, te aviso {quando_falado}.")
+    if len(n.split()) > 9:
+        return None
+    if _RE_CANCELAR_LEMBRETES.search(n):
+        qtd = agenda.cancelar_todos()
+        if qtd == 0:
+            return _ficha_conversar("Você não tinha lembretes para apagar.")
+        if qtd == 1:
+            return _ficha_conversar("Apaguei o seu único lembrete.")
+        return _ficha_conversar(f"Apaguei os {qtd} lembretes.")
+    if _RE_LISTAR_LEMBRETES.search(n):
+        itens = agenda.listar()
+        if not itens:
+            return _ficha_conversar("Você não tem lembretes.")
+        partes = []
+        for i in itens:
+            quando = lembretes.descrever(i["quando"], agora)
+            partes.append(f"{quando}, {i['texto']}" if i["texto"] else quando)
+        cab = ("Você tem um lembrete: " if len(itens) == 1
+               else f"Você tem {len(itens)} lembretes: ")
+        if len(partes) > 1:
+            corpo = "; ".join(partes[:-1]) + "; e " + partes[-1]
+        else:
+            corpo = partes[0]
+        return _ficha_conversar(f"{cab}{corpo}.")
+    return None
+
+
+def tentar(fala: str, agora: datetime | None = None, agenda=None) -> dict | None:
     """Devolve a ficha pronta se a fala é trivial e conhecida; senão None.
 
-    `agora` é injetável para o teste; em produção usa a hora do relógio."""
+    `agora` é injetável para o teste; em produção usa a hora do relógio.
+    `agenda` (dervs_lembretes.Agenda) liga os lembretes por voz; sem ela, frase
+    de lembrete vai para o cérebro (e nunca cai em 'abrir app' por engano)."""
     n = _norm(fala)
     if not n:
         return None
     agora = agora or datetime.now()
+    if _RE_MENCIONA_LEMBRETE.search(n):
+        if agenda is None:
+            return None
+        ficha = _lembretes_do_dono(n, fala, agora, agenda)
+        if ficha is not None:
+            return ficha
     if _RE_HORA.search(n):
         return _ficha_conversar(hora_falada(agora))
     if _RE_DATA.search(n):
         return _ficha_conversar(data_falada(agora))
     return _casar_abrir(n)
+
 
 
 if __name__ == "__main__":
