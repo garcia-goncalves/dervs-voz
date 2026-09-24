@@ -329,3 +329,50 @@ def test_atalho_me_avisa_solto_segue_para_o_cerebro(agenda):
 def test_atalhos_antigos_continuam(agenda):
     assert at.tentar("que horas são", AGORA, agenda)["fala"] == "São duas da tarde."
     assert at.tentar("que dia é hoje", AGORA, agenda)["fala"].startswith("Hoje é quarta-feira")
+
+
+# ---- o toque do relógio da PopUp (sem abrir janela: `self` de mentira) ----
+class _PopUpFalsa:
+    def __init__(self, agenda, falando=False):
+        self.agenda = agenda
+        self.voz = VozFalsa()
+        self.voz.falando = lambda: falando
+        self.hud = []
+
+    def _diz(self, papel, texto, cor=None):
+        self.hud.append((papel, texto))
+
+
+def _toque(falsa):
+    import dervs
+    dervs.PopUp._checar_lembretes(falsa)
+
+
+def test_toque_avisa_em_voz_e_no_hud_e_nao_repete(agenda):
+    agenda.adicionar(AGORA + timedelta(minutes=1), "ligar para o cliente")
+    falsa = _PopUpFalsa(agenda)
+    _toque(falsa)
+    assert falsa.voz.ditas == [] and falsa.hud == []          # ainda não venceu
+    agenda.relogio["t"] = AGORA + timedelta(minutes=1)
+    _toque(falsa)
+    assert falsa.voz.ditas == ["Lembrete: ligar para o cliente."]
+    assert falsa.hud == [("dervs", "Lembrete: ligar para o cliente.")]
+    _toque(falsa)
+    assert len(falsa.voz.ditas) == 1                           # sem repetir
+
+
+def test_toque_nao_interrompe_fala_em_curso(agenda):
+    agenda.adicionar(AGORA, "ligar")
+    falando = _PopUpFalsa(agenda, falando=True)
+    _toque(falando)
+    assert falando.voz.ditas == [] and len(agenda.listar()) == 1   # fica na fila
+    livre = _PopUpFalsa(agenda, falando=False)
+    _toque(livre)
+    assert livre.voz.ditas == ["Lembrete: ligar."]
+
+
+def test_toque_avisa_vencido_com_app_fechado(agenda):
+    agenda.adicionar(datetime(2026, 9, 23, 13, 0), "tomar o remédio")
+    falsa = _PopUpFalsa(agenda)
+    _toque(falsa)
+    assert falsa.voz.ditas == ["Você tinha um lembrete às 13h: tomar o remédio."]

@@ -29,6 +29,7 @@ import dervs_exec as execu
 import dervs_browser as navegador
 import dervs_enrich as enriquecimento
 import dervs_atalhos as atalhos
+import dervs_lembretes as lembretes
 import dervs_config as cfg
 import dervs_instancia as instancia
 import dervs_processos as processos
@@ -623,6 +624,14 @@ class PopUp(QtWidgets.QWidget):
         self.timer = QtCore.QTimer(self); self.timer.timeout.connect(self.atualizar)
         self.timer.start(500)
 
+        # LEMBRETES POR VOZ (dervs_lembretes.py). O QTimer nasce aqui, na thread
+        # do Qt — criado em outra thread ele nunca dispararia. Confere a cada
+        # 1 s; o que venceu com o app fechado é avisado no primeiro toque.
+        self.agenda = lembretes.Agenda()
+        self._timer_lembretes = QtCore.QTimer(self)
+        self._timer_lembretes.timeout.connect(self._checar_lembretes)
+        self._timer_lembretes.start(1000)
+
         # A ESCUTA JÁ NASCE LIGADA. Antes o botão "🎙️ Ei DERVS" nascia
         # desligado: a cada reinício do serviço o DERVS ficava SURDO até
         # alguém clicar nele de novo. Sintoma que o dono relatou — "não acorda
@@ -637,6 +646,22 @@ class PopUp(QtWidgets.QWidget):
             QtCore.QTimer.singleShot(800, lambda: self.b_conversa.setChecked(True))
         else:
             QtCore.QTimer.singleShot(800, self._mostrar_escuta_desligada)
+
+    def _checar_lembretes(self):
+        """Um toque do relógio: se há lembrete vencido e o DERVS não está
+        falando, avisa (voz + HUD) e o remove da agenda ANTES de falar, para
+        não repetir. Falando agora? Espera o próximo toque — não interrompe."""
+        try:
+            if self.voz.falando():
+                return
+            item = self.agenda.retirar_vencido()
+            if item is None:
+                return
+            frase = lembretes.frase_de_aviso(item, self.agenda.agora())
+            self._diz("dervs", frase)
+            self.voz.falar(frase)
+        except Exception as e:  # o relógio nunca pode derrubar o app
+            print(f"[lembretes] falha ao avisar: {e}", file=sys.stderr)
 
     def _mostrar_escuta_desligada(self):
         """Deixa claro, ao abrir, que o silencio e escolha dele e nao defeito.
@@ -1165,7 +1190,7 @@ class PopUp(QtWidgets.QWidget):
         # responde na hora, sem os ~2,7 s do cérebro. Se não reconhece, cai no
         # cérebro como sempre. É só otimização — nunca decide errado no lugar dele.
         if self._atalhos_ligados:
-            ficha = atalhos.tentar(texto)
+            ficha = atalhos.tentar(texto, agenda=self.agenda)
             if ficha is not None:
                 self._cerebro_respondeu(ficha)
                 return
