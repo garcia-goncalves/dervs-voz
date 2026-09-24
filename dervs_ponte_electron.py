@@ -28,7 +28,7 @@ mesmo padrão (`127.0.0.1`, nunca a rede) já comprovado em
 O `stderr` do filho é lido aqui e reescrito no `sys.stderr` deste processo,
 com o prefixo `electron:` — falha nunca é engolida.
 
-Verbos Python → Electron (só estes cinco):
+Verbos Python → Electron (só estes):
   estado  {"valor", "texto", "apoio"} — só quando o estado muda.
   volume  {"valor"}                   — 0.0 a 1.0, estrangulado (ver abaixo).
   fala    {"papel", "texto"}          — uma linha nova de conversa.
@@ -57,6 +57,15 @@ Verbos Python → Electron (só estes cinco):
             real da máquina, mandada a cada ~2s por `dervs_sistema.py`. Ausente
             (nunca mandado) enquanto `psutil` não estiver instalado — o painel
             de sistema do HUD some em silêncio, nada mais quebra.
+  diario  {"ouvidas", "acordou"}      — extensão do protocolo (quarta rodada):
+            o resumo de HOJE do diário do porteiro (inteiros), mandado a cada
+            ~30 s por `dervs_diario.py`. Só metadados — nunca texto. Não guarda
+            o último valor: a próxima leitura chega sozinha. O cartão do HUD
+            só aparece depois da primeira.
+  reuniao {"restante_s"}              — extensão do protocolo (quarta rodada):
+            segundos que faltam do modo reunião (inteiro), ou `null` quando
+            não há reunião (terminou ou foi cancelada). Mandado a cada segundo
+            enquanto a reunião durar; o temporizador mora no Python (`Motor`).
 
 Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
   pronto  — a janela carregou. Antes disso, `estado` e `volume` ficam
@@ -66,6 +75,9 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
   microfone {"ligar": bool}           — botão liga/desliga do HUD. Só o
             booleano de verdade vale (mesma checagem estrita de `autorizado`):
             string, número ou null viram linha ignorada no stderr.
+  reuniao {"ligar": bool}             — botão "Reunião 1h": `true` fecha o
+            microfone por 1 hora e reabre sozinho; `false` cancela e reabre
+            na hora. Booleano estrito, como `microfone`.
   plano   {"resposta": "confirmar" | "cancelar", "autorizado": bool,
             "cartao_id"} — botão do cartão de plano. `autorizado` é
             extensão do protocolo: reflete a caixa "Tenho autorização"
@@ -128,12 +140,15 @@ class PonteElectron:
     é chamado quando a janela terminou de carregar.
     """
 
-    def __init__(self, ao_sair, ao_plano, ao_pronto, ao_microfone=None):
+    def __init__(self, ao_sair, ao_plano, ao_pronto, ao_microfone=None,
+                 ao_reuniao=None):
         """`ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`.
         `ao_microfone(ligar: bool)` roda na thread de leitura da ponte — quem
         o fornece precisa atravessar para a thread da tela antes de mexer em
-        widget ou thread do Qt (ver `Motor` em `dervs_electron.py`)."""
+        widget ou thread do Qt (ver `Motor` em `dervs_electron.py`); vale o
+        mesmo para `ao_reuniao(ligar: bool)`."""
         self._ao_microfone = ao_microfone
+        self._ao_reuniao = ao_reuniao
         self._ultimo_microfone_guardado = None
         self._ao_sair = ao_sair
         self._ao_plano = ao_plano
@@ -300,6 +315,13 @@ class PonteElectron:
                 return
             if self._ao_microfone is not None:
                 self._chamar(self._ao_microfone, ligar)
+        elif verbo == "reuniao":
+            ligar = dado.get("ligar")
+            if not isinstance(ligar, bool):
+                sys.stderr.write(f"ponte: pedido de reuniao inválido: {dado!r}\n")
+                return
+            if self._ao_reuniao is not None:
+                self._chamar(self._ao_reuniao, ligar)
         else:
             sys.stderr.write(f"ponte: verbo desconhecido vindo do Electron: {verbo!r}\n")
 
@@ -415,6 +437,20 @@ class PonteElectron:
             "verbo": "sistema", "cpu": cpu, "ram": ram,
             "disco_livre_gb": disco_livre_gb, "disco_total_gb": disco_total_gb,
         })
+
+    def enviar_diario(self, ouvidas, acordou):
+        """Resumo de hoje do diário do porteiro (ver `dervs_diario.py`). Como
+        `sistema`, só manda depois do `pronto` e não guarda o último valor."""
+        with self._lock:
+            if not self._pronto:
+                return
+        self._escrever({"verbo": "diario", "ouvidas": int(ouvidas),
+                        "acordou": int(acordou)})
+
+    def enviar_reuniao(self, restante_s):
+        """Segundos restantes do modo reunião, ou `None` quando não há."""
+        restante = None if restante_s is None else int(restante_s)
+        self._escrever({"verbo": "reuniao", "restante_s": restante})
 
     def _escrever(self, msg: dict):
         linha = (json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8")

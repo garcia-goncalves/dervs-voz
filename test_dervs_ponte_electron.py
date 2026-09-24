@@ -449,3 +449,59 @@ def test_pedido_de_microfone_com_valor_que_nao_e_booleano_e_ignorado(valor, caps
 def test_pedido_de_microfone_sem_callback_nao_derruba_a_ponte():
     p, _ = _nova_ponte(b'{"verbo": "microfone", "ligar": true}\n')
     time.sleep(0.1)   # a thread de leitura não pode ter explodido
+
+
+# ---- diário do porteiro e modo reunião (quarta rodada) ----------------------
+
+def test_enviar_diario_manda_ouvidas_e_acordou():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_diario(7, 2)
+    assert json.loads(_linhas_escritas(processo)[0]) == {
+        "verbo": "diario", "ouvidas": 7, "acordou": 2}
+
+
+def test_enviar_diario_antes_de_pronto_nao_manda_nada():
+    p, processo = _nova_ponte()
+    p.enviar_diario(1, 1)
+    assert _linhas_escritas(processo) == []
+
+
+def test_enviar_reuniao_manda_restante_ou_null():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_reuniao(3552)
+    p.enviar_reuniao(None)
+    dados = [json.loads(l) for l in _linhas_escritas(processo)]
+    assert dados == [{"verbo": "reuniao", "restante_s": 3552},
+                     {"verbo": "reuniao", "restante_s": None}]
+
+
+def _ponte_com_reuniao(linha: bytes, recebido):
+    p = ponte_mod.PonteElectron(
+        ao_sair=lambda: None, ao_plano=lambda *a, **k: None,
+        ao_pronto=lambda: None, ao_reuniao=lambda ligar: recebido.append(ligar))
+    p._iniciar(ProcessoFalso(linha))
+    return p
+
+
+@pytest.mark.parametrize("valor", [True, False])
+def test_pedido_de_reuniao_chama_ao_reuniao(valor):
+    recebido = []
+    linha = (json.dumps({"verbo": "reuniao", "ligar": valor}) + "\n").encode()
+    _ponte_com_reuniao(linha, recebido)
+    assert _esperar(lambda: recebido == [valor])
+
+
+@pytest.mark.parametrize("valor", ["true", 1, None, [True]])
+def test_pedido_de_reuniao_nao_booleano_e_ignorado(valor):
+    recebido = []
+    linha = (json.dumps({"verbo": "reuniao", "ligar": valor}) + "\n").encode()
+    _ponte_com_reuniao(linha, recebido)
+    time.sleep(0.15)
+    assert recebido == []
+
+
+def test_pedido_de_reuniao_sem_callback_nao_derruba_a_ponte():
+    p, _ = _nova_ponte(b'{"verbo": "reuniao", "ligar": true}\n')
+    time.sleep(0.1)
