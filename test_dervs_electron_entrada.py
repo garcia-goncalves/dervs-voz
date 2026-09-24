@@ -53,6 +53,9 @@ class PonteFalsa:
     def enviar_microfone(self, ligado):
         self.chamadas.append(("microfone", ligado))
 
+    def enviar_reuniao(self, restante_s):
+        self.chamadas.append(("reuniao", restante_s))
+
     def fechar(self, espera=3.0):
         self.fechada = True
 
@@ -424,3 +427,152 @@ def test_ao_sair_de_outra_thread_fecha_o_qt_na_thread_da_tela():
     assert registro == [threading.main_thread()], (
         "quit() tem de rodar na thread da tela; chamado de outra thread o "
         "Qt ignora e o Python fica vivo, sem cara, com o microfone aberto")
+
+
+# ---- modo reunião: microfone fechado por 1 hora, reabre sozinho -------------
+
+class _BotaoFalso:
+    """Faz o papel do `b_conversa` de verdade: `setChecked` dispara o mesmo
+    `alternar_conversa` do Motor (que grava `escuta_ao_abrir`), sem abrir
+    microfone nenhum."""
+
+    def __init__(self, motor, ligado):
+        self.motor = motor
+        self.ligado = ligado
+
+    def isChecked(self):
+        return self.ligado
+
+    def setChecked(self, valor):
+        if valor != self.ligado:
+            self.ligado = valor
+            self.motor.alternar_conversa(valor)
+
+
+@pytest.fixture
+def reuniao(motor, monkeypatch):
+    """Motor com botão falso, config falsa (guarda o que foi gravado) e
+    relógio injetável — nada dorme de verdade."""
+    gravados = []
+    conf = {"escuta_ao_abrir": True}
+    monkeypatch.setattr(dervs.cfg, "carregar", lambda: dict(conf))
+    monkeypatch.setattr(dervs.cfg, "gravar",
+                        lambda chave, valor: gravados.append((chave, valor)) or True)
+    # `PopUp.alternar_conversa(True)` de verdade abriria o microfone: troca só
+    # o miolo herdado por um que grava a escolha, como a versão real faz
+    # primeiro. O `Motor.alternar_conversa` (que detecta o clique manual) fica
+    # o de verdade.
+    monkeypatch.setattr(
+        dervs.PopUp, "alternar_conversa",
+        lambda self, ligar: dervs.cfg.gravar("escuta_ao_abrir", bool(ligar)))
+    motor.b_conversa = _BotaoFalso(motor, True)
+    agora = [1000.0]
+    motor._relogio = lambda: agora[0]
+    motor.ponte.chamadas.clear()
+
+    class Ctx:
+        pass
+    c = Ctx()
+    c.motor, c.gravados, c.agora = motor, gravados, agora
+    c.pedir = lambda ligar: (motor.pedir_reuniao(ligar), _app.processEvents())
+    c.restantes = lambda: [x[1] for x in motor.ponte.de_tipo("reuniao")]
+    return c
+
+
+def test_reuniao_fecha_o_microfone_e_conta_1h(reuniao):
+    reuniao.pedir(True)
+    assert reuniao.motor.b_conversa.ligado is False
+    assert reuniao.restantes() == [3600]
+
+
+def test_reuniao_reabre_sozinha_ao_fim_da_hora(reuniao):
+    reuniao.pedir(True)
+    reuniao.agora[0] += 3599
+    reuniao.motor.atualizar()
+    assert reuniao.motor.b_conversa.ligado is False
+    assert reuniao.restantes()[-1] == 1
+    reuniao.agora[0] += 1
+    reuniao.motor.atualizar()
+    assert reuniao.motor.b_conversa.ligado is True
+    assert reuniao.restantes()[-1] is None
+
+
+def test_reuniao_manda_o_tempo_que_falta(reuniao):
+    reuniao.pedir(True)
+    reuniao.agora[0] += 48        # 59:12 no relógio do HUD
+    reuniao.motor.atualizar()
+    assert reuniao.restantes()[-1] == 3552
+
+
+def test_reuniao_nao_repete_o_mesmo_segundo(reuniao):
+    reuniao.pedir(True)
+    reuniao.motor.atualizar()
+    reuniao.motor.atualizar()
+    assert reuniao.restantes() == [3600]
+
+
+def test_clicar_de_novo_cancela_e_reabre_na_hora(reuniao):
+    reuniao.pedir(True)
+    reuniao.agora[0] += 10
+    reuniao.pedir(False)
+    assert reuniao.motor.b_conversa.ligado is True
+    assert reuniao.restantes()[-1] is None
+    reuniao.agora[0] += 5000      # o fim antigo não pode reabrir de novo
+    reuniao.motor.atualizar()
+    assert reuniao.restantes()[-1] is None
+
+
+def test_reuniao_nao_grava_escuta_ao_abrir_false(reuniao):
+    # o dono abre ouvindo (True): depois de a reunião fechar e reabrir o
+    # microfone, a última escolha gravada tem de continuar sendo True
+    reuniao.pedir(True)
+    assert reuniao.gravados[-1] == ("escuta_ao_abrir", True)
+    reuniao.agora[0] += 3600
+    reuniao.motor.atualizar()
+    assert reuniao.gravados[-1] == ("escuta_ao_abrir", True)
+
+
+def test_dono_religa_o_microfone_no_meio_cancela_a_reuniao(reuniao):
+    reuniao.pedir(True)
+    reuniao.motor.b_conversa.setChecked(True)    # clique manual no botão Qt
+    assert reuniao.restantes()[-1] is None
+    reuniao.agora[0] += 4000
+    reuniao.motor.atualizar()
+    assert reuniao.restantes()[-1] is None       # não reabre/fecha nada depois
+
+
+def test_dono_desliga_e_religa_manual_durante_a_reuniao_cancela(reuniao):
+    reuniao.pedir(True)
+    reuniao.motor.b_conversa.setChecked(True)
+    reuniao.motor.b_conversa.setChecked(False)   # desliga manualmente de novo
+    reuniao.agora[0] += 4000
+    reuniao.motor.atualizar()
+    assert reuniao.motor.b_conversa.ligado is False   # a reunião não o reabre
+
+
+def test_reuniao_com_microfone_ja_desligado_nao_reabre_no_fim(reuniao):
+    reuniao.motor.b_conversa.ligado = False
+    reuniao.pedir(True)
+    reuniao.agora[0] += 3600
+    reuniao.motor.atualizar()
+    assert reuniao.motor.b_conversa.ligado is False
+
+
+def test_cancelar_sem_reuniao_ativa_nao_faz_nada(reuniao):
+    reuniao.pedir(False)
+    assert reuniao.restantes() == []
+    assert reuniao.motor.b_conversa.ligado is True
+
+
+def test_pedido_de_reuniao_de_outra_thread_chega_na_thread_da_tela(reuniao):
+    registro = []
+    reuniao.motor._reuniao_na_tela = lambda ligar: registro.append(
+        (ligar, threading.current_thread()))
+    # o sinal já estava ligado ao método original: religa ao substituto
+    reuniao.motor._pedido_reuniao.disconnect()
+    reuniao.motor._pedido_reuniao.connect(reuniao.motor._reuniao_na_tela)
+    t = threading.Thread(target=reuniao.motor.pedir_reuniao, args=(True,))
+    t.start()
+    t.join()
+    _app.processEvents()
+    assert registro == [(True, threading.main_thread())]

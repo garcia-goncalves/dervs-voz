@@ -23,19 +23,24 @@ sem Qt. Custo: zero reescrita, os testes existentes de `dervs.py` continuam
 valendo, e nenhuma correção do `ESTADO.md` é jogada fora.
 """
 import os
+import math
 import signal
 import sys
 import threading
+import time
 
 from PyQt6 import QtCore, QtWidgets
 
 import dervs
 import dervs_config as config
+import dervs_diario as diario
 import dervs_instancia as instancia
 import dervs_registro as registro
 import dervs_safety as seg
 import dervs_sistema as sistema
 from dervs_ponte_electron import PonteElectron
+
+DURACAO_REUNIAO_S = 3600     # o botão "Reunião 1h" do HUD
 
 CAMINHO_ELECTRON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electron")
 
@@ -125,11 +130,21 @@ class Motor(dervs.PopUp):
     # mexer em `b_conversa`/`Escuta` de outra thread derruba o app, e um
     # `QTimer` criado fora da thread do Qt nunca dispara (ver `dervs.Ponte`).
     _pedido_microfone = QtCore.pyqtSignal(bool)
+    _pedido_reuniao = QtCore.pyqtSignal(bool)     # idem, para o modo reunião
 
     def __init__(self, ponte: PonteElectron):
         self.ponte = ponte
         self._ultimo_estado_enviado = None
         self._ultimo_microfone_enviado = None
+        # Modo reunião: `_reuniao_fim` é o instante (do `_relogio`) em que o
+        # microfone reabre, ou None sem reunião. `_relogio` é injetável para
+        # os testes andarem uma hora sem dormir. Tudo aqui só é tocado pela
+        # thread da tela (sinal + `atualizar`).
+        self._relogio = time.monotonic
+        self._reuniao_fim = None
+        self._reuniao_reabrir = False
+        self._reuniao_ultimo_enviado = None
+        self._efeito_reuniao = False    # True enquanto a reunião mexe no botão
         # Identidade do cartão em trânsito (correção de concorrência — ver
         # relato desta etapa): sem isto, uma resposta duplicada ou atrasada
         # do Electron (duplo-clique cujas duas mensagens saem antes do
@@ -143,6 +158,7 @@ class Motor(dervs.PopUp):
         # se alguém ligar `ao_nivel`. Quem liga aqui é a ponte.
         self.voz.ao_nivel = ponte.enviar_volume
         self._pedido_microfone.connect(self._microfone_na_tela)
+        self._pedido_reuniao.connect(self._reuniao_na_tela)
 
     # ---- microfone: o liga/desliga do HUD --------------------------------
     def pedir_microfone(self, ligar: bool):
@@ -153,6 +169,70 @@ class Motor(dervs.PopUp):
         # o mesmo caminho do botão Qt antigo: `toggled` → `alternar_conversa`,
         # que grava `escuta_ao_abrir` e abre/fecha a `Escuta`.
         self.b_conversa.setChecked(ligar)
+
+    # ---- modo reunião: o microfone fecha por 1 hora e reabre sozinho -----
+    def pedir_reuniao(self, ligar: bool):
+        """Seguro de chamar de qualquer thread (mesmo motivo do microfone)."""
+        self._pedido_reuniao.emit(bool(ligar))
+
+    def _reuniao_na_tela(self, ligar: bool):
+        if ligar:
+            if self._reuniao_fim is not None:
+                return                      # já em reunião: o botão manda `false`
+            self._reuniao_reabrir = bool(self.b_conversa.isChecked())
+            self._reuniao_fim = self._relogio() + DURACAO_REUNIAO_S
+            self._mexer_no_microfone_sem_gravar(False)
+            self._reuniao_avisar()
+        elif self._reuniao_fim is not None:
+            self._reuniao_encerrar()
+
+    def _mexer_no_microfone_sem_gravar(self, ligar: bool):
+        """Fecha/abre o microfone pelo MESMO caminho do botão (`b_conversa`),
+        mas sem deixar a reunião virar escolha do dono: o caminho do botão
+        grava `escuta_ao_abrir`, e um app fechado no meio da reunião tem de
+        abrir ouvindo de novo. Por isso o valor gravado é restaurado."""
+        antes = config.carregar()["escuta_ao_abrir"]
+        self._efeito_reuniao = True
+        try:
+            if bool(self.b_conversa.isChecked()) != ligar:
+                self.b_conversa.setChecked(ligar)
+        finally:
+            self._efeito_reuniao = False
+        config.gravar("escuta_ao_abrir", antes)
+
+    def _reuniao_encerrar(self):
+        """Fim da hora, ou clique de cancelar: reabre (se estava aberto)."""
+        reabrir = self._reuniao_reabrir
+        self._cancelar_reuniao_estado()
+        if reabrir:
+            self._mexer_no_microfone_sem_gravar(True)
+
+    def _cancelar_reuniao_estado(self):
+        """Zera a reunião SEM mexer no microfone (o dono já mexeu, ou vamos
+        reabrir logo em seguida) e avisa o HUD."""
+        self._reuniao_fim = None
+        self._reuniao_reabrir = False
+        self._reuniao_avisar()
+
+    def _reuniao_restante(self):
+        if self._reuniao_fim is None:
+            return None
+        return max(0, int(math.ceil(self._reuniao_fim - self._relogio())))
+
+    def _reuniao_avisar(self):
+        """Manda o restante ao HUD, só quando o número mudou."""
+        restante = self._reuniao_restante()
+        if restante != self._reuniao_ultimo_enviado:
+            self.ponte.enviar_reuniao(restante)
+            self._reuniao_ultimo_enviado = restante
+
+    def _reuniao_passo(self):
+        if self._reuniao_fim is None:
+            return
+        if self._reuniao_restante() <= 0:
+            self._reuniao_encerrar()
+        else:
+            self._reuniao_avisar()
 
     # ---- a janela Qt de verdade NUNCA aparece --------------------------
     def abrir(self):
@@ -180,6 +260,10 @@ class Motor(dervs.PopUp):
 
     # ---- microfone: a escuta contínua liga o nível na ponte -------------
     def alternar_conversa(self, ligar):
+        if self._reuniao_fim is not None and not self._efeito_reuniao:
+            # o dono mexeu no microfone no meio da reunião: a vontade dele
+            # vale, a reunião acaba (sem reabrir nem fechar mais nada).
+            self._cancelar_reuniao_estado()
         super().alternar_conversa(ligar)
         if ligar and self.escuta is not None:
             self.escuta.nivel.connect(self.ponte.enviar_volume)
@@ -290,6 +374,7 @@ class Motor(dervs.PopUp):
     # ---- o relógio de 500ms que já existe --------------------------------
     def atualizar(self):
         super().atualizar()
+        self._reuniao_passo()
         aberto = self.escuta is not None
         if aberto != self._ultimo_microfone_enviado:
             self.ponte.enviar_microfone(aberto)
@@ -479,15 +564,22 @@ def main():
             ao_plano_alvo[0](resposta, autorizado, cartao_id)
 
     ao_microfone_alvo = []
+    ao_reuniao_alvo = []
 
     def _ao_microfone_inicial(ligar):
         if ao_microfone_alvo:
             ao_microfone_alvo[0](ligar)
 
+    def _ao_reuniao_inicial(ligar):
+        if ao_reuniao_alvo:
+            ao_reuniao_alvo[0](ligar)
+
     ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial,
-                          ao_pronto=lambda: None, ao_microfone=_ao_microfone_inicial)
+                          ao_pronto=lambda: None, ao_microfone=_ao_microfone_inicial,
+                          ao_reuniao=_ao_reuniao_inicial)
     motor = Motor(ponte)
     ao_microfone_alvo.append(motor.pedir_microfone)
+    ao_reuniao_alvo.append(motor.pedir_reuniao)
     ao_plano_alvo.append(_construir_ao_plano(motor))
     ponte_alvo.append(_construir_me_chamaram(ponte))
 
@@ -506,6 +598,8 @@ def main():
     # nunca deveria esperar por elas nem ser bloqueada por elas.
     parar_sistema = threading.Event()
     sistema.iniciar_loop_sistema(ponte, parar_sistema)
+    # Cartão do diário do porteiro (HOJE: N ouvidas · M acordei), a cada ~30 s.
+    diario.iniciar_loop_diario(ponte, parar_sistema)
 
     app.aboutToQuit.connect(lambda: _encerrar(motor, ponte, posse, parar_sistema))
     app.exec()
