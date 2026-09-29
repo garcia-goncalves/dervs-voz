@@ -105,6 +105,9 @@ def registrar(tipo: str, usd: float, detalhe: str = "", caminho=None, agora=None
         return False
 
 
+_LIMITE_LEITURA = 512 * 1024          # ~4 mil linhas; um dia pesado não passa de 1 mil
+
+
 def total_do_dia(caminho=None, hoje=None) -> dict:
     """`{"total": US$, "tts": ..., "stt": ..., "cerebro": ...}` de HOJE."""
     saida = {"total": 0.0, "tts": 0.0, "stt": 0.0, "cerebro": 0.0}
@@ -113,8 +116,18 @@ def total_do_dia(caminho=None, hoje=None) -> dict:
         if not caminho:
             return saida
         dia = (hoje or datetime.date.today()).strftime("%Y-%m-%d")
-        with open(caminho, "r", encoding="utf-8", errors="replace") as f:
-            for linha in f:
+        # Só o FIM do arquivo: as linhas são cronológicas e o painel pergunta a
+        # cada 5 s — reler meses de histórico à toa cresceria para sempre.
+        with open(caminho, "rb") as fb:
+            fb.seek(0, os.SEEK_END)
+            tam = fb.tell()
+            fb.seek(max(0, tam - _LIMITE_LEITURA))
+            bruto = fb.read().decode("utf-8", errors="replace")
+        linhas = bruto.splitlines()
+        if tam > _LIMITE_LEITURA and linhas:
+            linhas = linhas[1:]                  # a primeira pode estar cortada ao meio
+        if linhas is not None:
+            for linha in linhas:
                 try:
                     r = json.loads(linha)
                     if r["quando"][:10] != dia:

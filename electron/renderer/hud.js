@@ -258,6 +258,7 @@
   let ultimoTs = 0;
 
   function passo(ts) {
+    rafHud = null;
     if (!rodando) return;
     const deltaS = ultimoTs ? Math.min(0.1, (ts - ultimoTs) / 1000) : 0.016;
     ultimoTs = ts;
@@ -286,22 +287,31 @@
   }
 
   let temporizadorHud = null;
+  let rafHud = null;
 
   function agendarProximo() {
-    temporizadorHud = setTimeout(() => { if (rodando) requestAnimationFrame(passo); },
-      msDoProximoQuadro());
+    temporizadorHud = setTimeout(() => {
+      temporizadorHud = null;
+      if (rodando) rafHud = requestAnimationFrame(passo);
+    }, msDoProximoQuadro());
+  }
+
+  function cancelarLacoHud() {
+    clearTimeout(temporizadorHud);
+    temporizadorHud = null;
+    if (rafHud) { cancelAnimationFrame(rafHud); rafHud = null; }
   }
 
   function iniciarLaco() {
     if (rodando) return;
-    clearTimeout(temporizadorHud);
+    cancelarLacoHud();
     rodando = true;
     ultimoTs = 0;
-    requestAnimationFrame(passo);
+    rafHud = requestAnimationFrame(passo);
   }
 
   function pararLaco() {
-    clearTimeout(temporizadorHud);
+    cancelarLacoHud();
     rodando = false;
   }
 

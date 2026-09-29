@@ -386,6 +386,7 @@
   let rodando = false;
   let ultimoTs = 0;
   let temporizador = null;
+  let rafId = null;
 
   function cadencia() {
     return F.msPorQuadro({ visivel: !document.hidden, focada: document.hasFocus() });
@@ -393,6 +394,7 @@
 
   function passo(ts) {
     temporizador = null;
+    rafId = null;
     if (!rodando) return;
     const deltaS = ultimoTs ? Math.min(0.25, (ts - ultimoTs) / 1000) : 0.033;
     ultimoTs = ts;
@@ -406,16 +408,23 @@
     const ms = cadencia();
     if (ms === null) { rodando = false; return; }     // escondida: para de vez
     // setTimeout segura o intervalo (30 ou 10 quadros/s); o rAF alinha o desenho ao vídeo.
-    temporizador = setTimeout(() => requestAnimationFrame(passo), ms);
+    temporizador = setTimeout(() => { temporizador = null; rafId = requestAnimationFrame(passo); }, ms);
+  }
+
+  // Um único laço vivo: o timeout OU o rAF pendente. Sem cancelar os dois, um
+  // foco/blur entre um e outro criava uma segunda cadeia que nunca morria.
+  function cancelarLaco() {
+    if (temporizador) { clearTimeout(temporizador); temporizador = null; }
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   }
 
   function reavaliarLaco() {
-    if (temporizador) { clearTimeout(temporizador); temporizador = null; }
+    cancelarLaco();
     if (cadencia() === null) { rodando = false; return; }
     rodando = true;
     ultimoTs = 0;
     if (!document.hidden) { redesenharSparks(); desenharAcoes(); }
-    requestAnimationFrame(passo);
+    rafId = requestAnimationFrame(passo);
   }
 
   document.addEventListener("visibilitychange", reavaliarLaco);

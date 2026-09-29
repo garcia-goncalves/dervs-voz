@@ -145,3 +145,15 @@ def test_cerebro_openai_registra_gasto(arq, monkeypatch):
     monkeypatch.setattr(b, "OPENAI_KEY", "chave")
     b._pensar_openai([{"papel": "dono", "texto": "oi"}], 10)
     assert g.total_do_dia(str(arq))["cerebro"] > 0
+
+
+def test_total_do_dia_le_so_o_fim_do_arquivo(tmp_path):
+    import datetime
+    arq = tmp_path / "g.jsonl"
+    hoje = datetime.date(2026, 9, 28)
+    antigas = "".join('{"quando":"2026-01-01T10:00:00","tipo":"tts","usd":1.0,"detalhe":""}\n'
+                      for _ in range(20000))               # ~1,6 MB de meses atrás
+    de_hoje = '{"quando":"2026-09-28T10:00:00","tipo":"tts","usd":0.25,"detalhe":""}\n'
+    arq.write_text(antigas + de_hoje, encoding="utf-8")
+    r = g.total_do_dia(caminho=str(arq), hoje=hoje)
+    assert r["total"] == 0.25 and r["tts"] == 0.25

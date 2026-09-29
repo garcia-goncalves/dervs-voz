@@ -75,7 +75,7 @@ def precisa_encolher(tamanho_bytes: int) -> bool:
 def duracao_segundos(caminho: str) -> float:
     """Quanto tempo tem o áudio, perguntando ao ffmpeg."""
     r = subprocess.run([_ffmpeg(), "-i", caminho], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", timeout=30)
     # o ffmpeg escreve "Duration: 00:12:34.56" no stderr e sai com erro por não
     # ter recebido saída — é o jeito documentado de só perguntar.
     for linha in r.stderr.splitlines():

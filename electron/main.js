@@ -293,8 +293,11 @@ function painelVisivel() {
 function mostrarPainel() {
   if (!painel || painel.isDestroyed()) criarPainel();
   if (janelaViva(janela)) {
-    widgetEstavaVisivel = janela.isVisible();
-    if (widgetEstavaVisivel) janela.hide();
+    // só lembra o estado do widget ANTES de o painel estar na tela: abrir o painel
+    // de novo (pela bandeja) com ele já aberto gravava "escondido" e o widget
+    // não voltava ao fechar.
+    if (!painelVisivel()) widgetEstavaVisivel = janela.isVisible();
+    if (janela.isVisible()) janela.hide();
   }
   if (painel.isMinimized()) painel.restore();
   painel.show();

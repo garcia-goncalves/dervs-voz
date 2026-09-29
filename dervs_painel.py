@@ -10,6 +10,7 @@ thread nunca levanta.
 """
 import datetime
 import threading
+import time
 
 import dervs_diario
 import dervs_gasto
@@ -18,12 +19,26 @@ import dervs_lembretes
 INTERVALO_PADRAO_SEG = 5.0
 
 
+_ultima_agenda_boa = []      # o último resultado com itens (contra a troca do arquivo)
+
+
 def montar_agenda(agenda) -> list:
-    """Lembretes pendentes reais, já com a hora dita em português."""
+    """Lembretes pendentes reais, já com a hora dita em português.
+
+    A thread da tela troca o `lembretes.json` (os.replace) e, no Windows, uma
+    leitura no mesmo instante falha e a `Agenda` a trata como "vazio": o painel
+    piscava sem lembretes. Vazio logo depois de ter itens é lido de novo uma vez."""
+    global _ultima_agenda_boa
+    itens = agenda.listar()
+    if not itens and _ultima_agenda_boa:
+        time.sleep(0.05)
+        itens = agenda.listar()
     agora = agenda.agora()
-    return [{"quando": i["quando"].isoformat(timespec="seconds"),
-             "quando_txt": dervs_lembretes.descrever(i["quando"], agora),
-             "texto": i["texto"]} for i in agenda.listar()]
+    saida = [{"quando": i["quando"].isoformat(timespec="seconds"),
+              "quando_txt": dervs_lembretes.descrever(i["quando"], agora),
+              "texto": i["texto"]} for i in itens]
+    _ultima_agenda_boa = saida
+    return saida
 
 
 def motor_de_voz(voz) -> str:

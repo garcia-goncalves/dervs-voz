@@ -194,3 +194,27 @@ def test_laco_para_quando_o_evento_e_marcado(tmp_path):
                                    voz=None, caminho_diario=str(tmp_path / "d.jsonl"))
     t.join(2)
     assert not t.is_alive()
+
+
+def test_agenda_nao_pisca_vazia_quando_a_troca_do_arquivo_atrapalha_uma_leitura():
+    import datetime
+    import dervs_painel
+
+    agora = datetime.datetime(2026, 9, 28, 10, 0, 0)
+
+    class AgendaTrocandoArquivo:
+        def __init__(self):
+            self.chamadas = 0
+
+        def agora(self):
+            return agora
+
+        def listar(self):
+            self.chamadas += 1
+            if self.chamadas == 2:            # a leitura que cai na troca do arquivo
+                return []
+            return [{"quando": agora + datetime.timedelta(minutes=5), "texto": "beber água"}]
+
+    ag = AgendaTrocandoArquivo()
+    assert len(dervs_painel.montar_agenda(ag)) == 1
+    assert len(dervs_painel.montar_agenda(ag)) == 1, "a agenda piscou vazia"
