@@ -31,7 +31,7 @@ import json
 import datetime
 import time
 import shutil
-import select
+import queue
 import threading
 import subprocess
 import urllib.request
@@ -39,11 +39,32 @@ import urllib.error
 
 import dervs_gasto
 
-# Caminho ABSOLUTO do 'claude'. Como serviço do systemd o PATH é mínimo e não
-# inclui ~/.local/bin — por isso "claude" cru dava [Errno 2]. Resolvemos aqui.
-CLAUDE = (shutil.which("claude")
-          or os.path.expanduser("~/.local/bin/claude")
-          or "claude")
+def _do_atalho_para_o_exe(caminho: str) -> str:
+    """O `claude.cmd` do npm é só um atalho que chama o `claude.exe` nativo. Rodar
+    o `.cmd` faz o cmd.exe reinterpretar os argumentos, e o prompt do cérebro tem
+    aspas, `|` e `&` — quebraria (e é brecha de injeção). Se o `.exe` de verdade
+    está ao lado, usa ele direto."""
+    if caminho.lower().endswith(".cmd"):
+        exe = os.path.join(os.path.dirname(caminho), "node_modules", "@anthropic-ai",
+                           "claude-code", "bin", "claude.exe")
+        if os.path.isfile(exe):
+            return exe
+    return caminho
+
+
+def _resolver_claude(which=shutil.which) -> str:
+    """Caminho do `claude` instalado. No Windows o npm instala `claude.cmd` (ou
+    `claude.exe`, na versão nativa); `which` acha os dois pelo PATHEXT, e os
+    nomes com extensão são tentados por garantia. Não há fallback para caminho
+    de Linux: ele nunca existiu aqui e só escondia o erro de "não instalado"."""
+    for nome in ("claude", "claude.exe", "claude.cmd"):
+        achado = which(nome)
+        if achado:
+            return _do_atalho_para_o_exe(achado)
+    return "claude"
+
+
+CLAUDE = _resolver_claude()
 
 # Modelo do cérebro. 'haiku' = pensamento mais rápido (tipo Siri). O trilho de
 # segurança local protege independentemente do modelo. MEDIDO: haiku responde
@@ -415,6 +436,10 @@ class _Sessao:
 
     def __init__(self):
         self.proc = None
+        # Fila alimentada por uma thread leitora do stdout (uma por processo).
+        # `select.select` em cano não funciona no Windows (WinError 10038/10093),
+        # então o prazo é dado por `Queue.get(timeout=)`.
+        self._fila = None
         # Impressão digital da conversa já entregue ao daemon: lista de
         # (papel, texto). Serve para descobrir o pedaço NOVO a cada chamada.
         self._enviada = []
@@ -438,12 +463,30 @@ class _Sessao:
         # stderr vai para DEVNULL de propósito: como o daemon vive muito tempo e
         # a gente nunca lê o stderr, deixá-lo em PIPE poderia ENCHER o buffer do
         # cano e TRAVAR o processo. O que interessa (o resultado) vem no stdout.
+        # UTF-8 explícito: sem isso o texto usa a página de código do Windows
+        # (cp1252) e acento/emoji chega torto no `claude`, que lê UTF-8.
         self.proc = subprocess.Popen(
             _cmd_stream(),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, bufsize=1,
+            encoding="utf-8", errors="replace",
         )
+        self._fila = queue.Queue()
+        threading.Thread(target=self._ler_saida, args=(self.proc.stdout, self._fila),
+                         daemon=True).start()
         self._enviada = []
+
+    @staticmethod
+    def _ler_saida(saida, fila):
+        """Despeja as linhas do stdout na fila; `None` marca o fim (o processo
+        morreu ou foi morto). Uma thread por processo: ela termina sozinha no EOF."""
+        try:
+            for linha in saida:
+                fila.put(linha)
+        except (OSError, ValueError):
+            pass
+        finally:
+            fila.put(None)
 
     def _mandar(self, texto: str):
         """Escreve um turno do usuário no stdin do daemon (formato stream-json)."""
@@ -455,19 +498,18 @@ class _Sessao:
 
     def _ler_resultado(self, timeout: float) -> str:
         """Lê a saída stream-json até o evento 'result' e devolve o texto do
-        modelo. Respeita o prazo com select(); se estourar, levanta erro para
-        o chamador cair no fallback."""
+        modelo. Respeita o prazo com `Queue.get(timeout=)`; se estourar, levanta
+        erro para o chamador cair no fallback."""
         deadline = time.time() + timeout
-        out = self.proc.stdout
         while True:
             restante = deadline - time.time()
             if restante <= 0:
                 raise TimeoutError("o cérebro demorou demais para responder")
-            pronto, _, _ = select.select([out], [], [], restante)
-            if not pronto:
+            try:
+                linha = self._fila.get(timeout=restante)
+            except queue.Empty:
                 raise TimeoutError("o cérebro demorou demais para responder")
-            linha = out.readline()
-            if linha == "":
+            if linha is None:
                 raise RuntimeError("o cérebro fechou a saída (daemon morreu)")
             linha = linha.strip()
             if not linha:

@@ -378,3 +378,115 @@ def test_a_hora_nao_e_confundivel_com_fala_do_dono():
     daora = [m for m in msgs if gb._agora() in m["content"]]
     assert daora, "a hora sumiu"
     assert all(m["role"] == "system" for m in daora), "a hora tem de vir como sistema"
+
+
+# --- sessão de verdade, com um processo falso de stream-json ------------------
+# Antes, `_ler_resultado` usava select.select num cano: no Windows isso dá
+# WinError 10093 (select só serve para soquete), o streaming NUNCA funcionou
+# aqui e todo turno caía no `claude -p` de uma tacada (~10 s). Estes testes
+# sobem um processo Python de mentira que fala o mesmo protocolo, sem `claude`.
+
+_PROCESSO_FALSO = r'''
+import json, os, sys
+print("linha que nao e json", flush=True)
+print(json.dumps({"type": "system", "subtype": "init"}), flush=True)
+for bruto in sys.stdin.buffer:
+    obj = json.loads(bruto.decode("utf-8"))
+    texto = obj["message"]["content"][0]["text"]
+    print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                      "result": json.dumps({"pid": os.getpid(), "eco": texto})}),
+          flush=True)
+'''
+
+_PROCESSO_MUDO = r'''
+import sys, time
+sys.stdin.readline()
+time.sleep(30)
+'''
+
+_PROCESSO_QUE_MORRE = r'''
+import sys
+sys.stdin.readline()
+'''
+
+
+def _sessao_com(monkeypatch, tmp_path, codigo):
+    script = tmp_path / "falso.py"
+    script.write_text(codigo, encoding="utf-8")
+    monkeypatch.setattr(gb, "_cmd_stream", lambda: [sys.executable, str(script)])
+    iniciados = []
+    original = _Sessao._iniciar
+
+    def _contando(self):
+        iniciados.append(1)
+        original(self)
+
+    monkeypatch.setattr(_Sessao, "_iniciar", _contando)
+    return _Sessao(), iniciados
+
+
+def test_segundo_turno_nao_reinicia_o_processo(monkeypatch, tmp_path):
+    """O ganho de latência inteiro: o init (~7 s) é pago UMA vez."""
+    s, iniciados = _sessao_com(monkeypatch, tmp_path, _PROCESSO_FALSO)
+    try:
+        conversa = [{"papel": "dono", "texto": "abre o navegador, não o terminal"}]
+        r1 = json.loads(s.pensar(conversa, timeout=15))
+        conversa = conversa + [{"papel": "dervs", "texto": "ok"},
+                               {"papel": "dono", "texto": "e agora"}]
+        r2 = json.loads(s.pensar(conversa, timeout=15))
+    finally:
+        s._matar()
+    assert r1["pid"] == r2["pid"], "o segundo turno reiniciou o processo"
+    assert len(iniciados) == 1
+    assert "e agora" in r2["eco"]
+    assert "não" in r1["eco"], "acento se perdeu no cano (precisa ser UTF-8)"
+
+
+def test_processo_mudo_estoura_o_prazo_sem_travar(monkeypatch, tmp_path):
+    import time
+    s, _ = _sessao_com(monkeypatch, tmp_path, _PROCESSO_MUDO)
+    t0 = time.time()
+    try:
+        with pytest.raises(TimeoutError):
+            s.pensar([{"papel": "dono", "texto": "oi"}], timeout=0.8)
+    finally:
+        s._matar()
+    assert time.time() - t0 < 8
+    assert s.proc is None, "sessão contaminada tem de ser morta"
+
+
+def test_processo_que_morre_vira_erro_claro(monkeypatch, tmp_path):
+    s, _ = _sessao_com(monkeypatch, tmp_path, _PROCESSO_QUE_MORRE)
+    try:
+        with pytest.raises(RuntimeError, match="daemon morreu"):
+            s.pensar([{"papel": "dono", "texto": "oi"}], timeout=10)
+    finally:
+        s._matar()
+
+
+# --- onde está o `claude` ---------------------------------------------------
+
+def test_claude_e_resolvido_pelo_which_incluindo_cmd_e_exe():
+    procurados = []
+
+    def _which(nome):
+        procurados.append(nome)
+        return r"C:\nvm\claude.cmd" if nome == "claude.cmd" else None
+
+    assert gb._resolver_claude(which=_which) == r"C:\nvm\claude.cmd"
+    assert "claude.exe" in procurados
+
+
+def test_claude_nao_achado_devolve_o_nome_puro_e_sem_caminho_de_linux():
+    import inspect
+    assert gb._resolver_claude(which=lambda nome: None) == "claude"
+    assert ".local/bin" not in inspect.getsource(gb)
+
+
+def test_atalho_cmd_do_npm_vira_o_exe_nativo_ao_lado(tmp_path):
+    """Rodar o `.cmd` faz o cmd.exe reinterpretar o prompt (aspas, | e &)."""
+    exe = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    cmd = str(tmp_path / "claude.cmd")
+    assert gb._resolver_claude(which=lambda nome: cmd if nome == "claude" else None) == str(exe)
