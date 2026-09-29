@@ -1182,3 +1182,67 @@ def test_a_lista_de_leitura_nao_reaproveita_a_do_planejador_de_voz():
 ])
 def test_perfil_de_navegador_e_claude_json_nao_se_leem(nome, entrada):
     assert _negou(_gancho(nome, entrada))[0], (nome, entrada)
+
+
+# ---- correções da revisão: laço, trabalhador e nova conversa -----------------------
+
+def test_propor_acao_roda_a_fachada_fora_do_laco(tmp_path):
+    fora = []
+
+    class Fachada(FachadaFalsa):
+        def analisar(self, itens):
+            fora.append(threading.current_thread())
+            return super().analisar(itens)
+
+    _, f, _, _ = _ferramentas(tmp_path, fachada=Fachada())
+    asyncio.run(f["propor_acao"].handler({"itens": [{"acao": "lixeira"}]}))
+    assert fora and fora[0] is not threading.main_thread(), (
+        "analisar (síncrono, toca o disco) rodou dentro do laço asyncio")
+
+
+def test_erro_inesperado_no_turno_nao_trava_o_painel_para_sempre(tmp_path, gasto):
+    cena = Cena(tmp_path, _roteiro_simples)
+    original = cena.sessao._turno
+    chamadas = []
+
+    async def turno_que_quebra(*a):
+        chamadas.append(1)
+        if len(chamadas) == 1:
+            raise RuntimeError("falha fora do try do turno")
+        return await original(*a)
+
+    cena.sessao._turno = turno_que_quebra
+    try:
+        assert cena.sessao.perguntar("primeira")
+        assert cena.sessao.aguardar_ocioso(10), "ficou ocupado para sempre"
+        assert cena.sessao.ocupado is False
+        assert cena.verbos("claude_fim")[-1]["ok"] is False
+        cena.perguntar("segunda")             # o trabalhador continua vivo
+    finally:
+        cena.fechar()
+    assert cena.verbos("claude_fim")[-1]["ok"] is True
+
+
+def test_resultado_de_turno_anterior_a_nova_conversa_nao_regrava_a_sessao(tmp_path, gasto):
+    liberar = threading.Event()
+
+    async def roteiro(c):
+        yield _msg_inicio()
+        while not liberar.is_set():
+            await asyncio.sleep(0.01)
+        yield _resultado(sid="sessao-antiga-123456")
+
+    cena = Cena(tmp_path, roteiro)
+    try:
+        assert cena.sessao.perguntar("oi")
+        for _ in range(500):
+            if cena.clientes:
+                break
+            time.sleep(0.01)
+        cena.sessao.nova_conversa()
+        liberar.set()
+        assert cena.sessao.aguardar_ocioso(10)
+    finally:
+        cena.fechar()
+    assert cena.sessao._session_id is None
+    assert not (tmp_path / "claude_sessao.json").exists()

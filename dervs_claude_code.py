@@ -707,6 +707,7 @@ class SessaoClaudeCode:
         self._fim_do_turno.set()
         self._session_id = None
         self._custo_acumulado = 0.0
+        self._geracao = 0                     # sobe a cada nova_conversa
         self._encerrada = False
         self._trabalhador_parou = threading.Event()
         # estado de UM turno (só o trabalhador mexe)
@@ -752,6 +753,7 @@ class SessaoClaudeCode:
         """Esquece a conversa: para o que estiver rodando, apaga o `session_id` e
         derruba o cliente (o próximo `perguntar` abre um limpo)."""
         self.parar()
+        self._geracao += 1            # o resultado de um turno anterior fica velho
         self._session_id = None
         self._custo_acumulado = 0.0
         apagar_sessao(self._arquivo_sessao)
@@ -811,15 +813,34 @@ class SessaoClaudeCode:
         try:
             while True:
                 tipo, arg = await self._comandos.get()
-                if tipo == "turno":
-                    await self._turno(*arg)
-                elif tipo == "reiniciar":
-                    await self._descartar_cliente()
-                else:
-                    await self._descartar_cliente()
-                    break
+                falha = None
+                try:
+                    if tipo == "turno":
+                        await self._turno(*arg)
+                    elif tipo == "reiniciar":
+                        await self._descartar_cliente()
+                    else:
+                        await self._descartar_cliente()
+                        break
+                except Exception as e:
+                    falha = f"{type(e).__name__}: {str(e)[:200]}"
+                    sys.stderr.write(f"claude_code: comando {tipo} falhou: {falha}" + chr(10))
+                finally:
+                    if tipo == "turno" and self._ocupado:
+                        self._liberar_turno(falha)
         finally:
             self._trabalhador_parou.set()
+
+    def _liberar_turno(self, falha):
+        """O turno acabou sem passar pelo fim normal (exceção fora do `try` do
+        `_turno`): solta o painel, senão ele fica ocupado para sempre."""
+        self._pedidos.negar_todos()
+        with self._trava:
+            self._ocupado = False
+            fim = self._fim_do_turno
+        self._emitir("claude_fim", {"ok": False, "custo": 0.0,
+                                    "erro": falha or "o turno terminou sem resultado"})
+        fim.set()
 
     def _fabrica_padrao(self, opcoes):
         return sdk.ClaudeSDKClient(options=opcoes)
@@ -913,6 +934,8 @@ class SessaoClaudeCode:
         self._partes = []
         erro = None
         resultado = None
+        geracao = self._geracao
+        base_custo = self._custo_acumulado
         try:
             await self._conectar()
             await self._cliente.query(texto)
@@ -923,7 +946,7 @@ class SessaoClaudeCode:
         except Exception as e:
             erro = f"{type(e).__name__}: {str(e)[:200]}"
             await self._descartar_cliente()       # o próximo turno reconecta (resume)
-        custo, texto_final = self._fechar_resultado(resultado)
+        custo, texto_final = self._fechar_resultado(resultado, geracao, base_custo)
         ok = erro is None and resultado is not None and not resultado.is_error
         if self._interrompido:
             ok, erro = False, "interrompido"
@@ -944,20 +967,25 @@ class SessaoClaudeCode:
                 sys.stderr.write(f"claude_code: falha ao entregar a resposta final: {e}\n")
         fim.set()
 
-    def _fechar_resultado(self, resultado):
+    def _fechar_resultado(self, resultado, geracao=None, base_custo=0.0):
         """Grava o `session_id` e o custo do `ResultMessage`; devolve (custo do
         turno, texto final). O `total_cost_usd` do SDK é ACUMULADO na sessão, então
         o que se registra é a diferença."""
         if resultado is None:
             return 0.0, "".join(self._partes)
-        if resultado.session_id and resultado.session_id != self._session_id:
+        velho = geracao is not None and geracao != self._geracao
+        if velho:
+            pass    # turno anterior à nova_conversa: não ressuscita a sessão apagada
+        elif resultado.session_id and resultado.session_id != self._session_id:
             self._session_id = resultado.session_id
             gravar_sessao(self._arquivo_sessao, self._session_id, self.perfil)
         custo = 0.0
         total = resultado.total_cost_usd
         if isinstance(total, (int, float)) and total >= 0:
-            custo = total - self._custo_acumulado if total >= self._custo_acumulado else total
-            self._custo_acumulado = total
+            ref = base_custo if velho else self._custo_acumulado
+            custo = total - ref if total >= ref else total
+            if not velho:
+                self._custo_acumulado = total
             dervs_gasto.registrar("claude", custo, ETIQUETA_GASTO)
         return round(custo, 6), (resultado.result or "\n\n".join(self._partes))
 
@@ -1087,12 +1115,12 @@ def criar_servidor_dervs(sessao: SessaoClaudeCode):
                 or not all(isinstance(i, dict) for i in itens)):
             return _texto_mcp(f"itens precisa ser uma lista de 1 a {LIMITE_ITENS_PROPOSTA} "
                               "objetos.", erro=True)
-        fachada = sessao.obter_fachada()
+        fachada = await asyncio.to_thread(sessao.obter_fachada)
         if fachada is None:
             return _texto_mcp("O motor de aprovação está indisponível agora; nada foi feito.",
                               erro=True)
         try:
-            rel = fachada.analisar(itens)
+            rel = await asyncio.to_thread(fachada.analisar, itens)
         except Exception as e:                       # sem a mensagem: pode ter segredo
             return _texto_mcp(f"Não consegui montar o relatório ({type(e).__name__}).", erro=True)
         id_ = str(rel.get("id", ""))[:64]

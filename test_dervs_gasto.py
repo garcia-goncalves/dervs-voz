@@ -157,3 +157,9 @@ def test_total_do_dia_le_so_o_fim_do_arquivo(tmp_path):
     arq.write_text(antigas + de_hoje, encoding="utf-8")
     r = g.total_do_dia(caminho=str(arq), hoje=hoje)
     assert r["total"] == 0.25 and r["tts"] == 0.25
+
+
+def test_registrar_transcricao_com_segundos_torto_nao_levanta(arq):
+    g.registrar_transcricao("abc", "whisper-1")     # não numérico: engole em silêncio
+    g.registrar_transcricao(object(), "whisper-1")
+    assert not arq.exists() or arq.read_text(encoding="utf-8") == ""

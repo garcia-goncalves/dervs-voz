@@ -636,3 +636,51 @@ def test_verbos_claude_sem_callback_nao_derrubam_a_ponte():
     p, _ = _nova_ponte(b'{"verbo": "claude_parar"}\n{"verbo": "claude_perguntar", "texto": "x"}\n')
     time.sleep(0.1)
     assert p._processo is not None
+
+
+# ---- Electron travado / linha patológica ---------------------------------
+
+def test_json_aninhado_demais_nao_mata_a_thread_leitora(capsys):
+    # 60000 colchetes (abaixo do limite de linha) estouram a recursão do json.loads (RecursionError)
+    recebido = []
+    linha = b"[" * 60000 + bytes([10])
+    p, processo = _nova_ponte(
+        linhas_de_saida=linha + b'{"verbo": "pronto"}' + bytes([10]),
+        ao_pronto=lambda: recebido.append("pronto"))
+    assert _esperar(lambda: recebido == ["pronto"]), (
+        "a thread leitora morreu na linha patológica")
+
+
+def test_escrita_num_soquete_cujo_par_nao_le_perde_a_conexao_sem_travar():
+    import socket
+    import threading
+    servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    servidor.bind(("127.0.0.1", 0))
+    servidor.listen(1)
+    cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    cliente.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    cliente.connect(servidor.getsockname())     # conecta e NUNCA lê
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a, **k: None,
+                                ao_pronto=lambda: None)
+    p._servidor = servidor
+    p._aceitar_conexao()
+    assert p._canal_saida is not None
+    grande = {"verbo": "fala", "papel": "x", "texto": "a" * 60000}
+    t0 = time.monotonic()
+    fim = threading.Event()
+
+    def escrever():
+        for _ in range(3000):
+            p._escrever(grande)
+            if p._canal_saida is None:
+                break
+        fim.set()
+    th = threading.Thread(target=escrever, daemon=True)
+    th.start()
+    assert fim.wait(30), "a escrita travou para sempre num par que não lê"
+    assert p._canal_saida is None, "a conexão travada não foi dada por perdida"
+    # e o lock da ponte não ficou preso
+    assert p._lock.acquire(timeout=1)
+    p._lock.release()
+    p.fechar()
+    cliente.close()

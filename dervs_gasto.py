@@ -169,8 +169,11 @@ def registrar_voz(dados_wav: bytes, modelo: str = "") -> None:
 
 
 def registrar_transcricao(segundos, modelo: str = "") -> None:
-    if segundos:
-        registrar("stt", usd_transcricao(segundos), modelo)
+    try:
+        if segundos:
+            registrar("stt", usd_transcricao(segundos), modelo)
+    except Exception:
+        pass
 
 
 def registrar_cerebro(modelo: str, usage) -> None:

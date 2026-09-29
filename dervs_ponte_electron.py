@@ -147,6 +147,7 @@ import time
 WINDOWS = sys.platform == "win32"
 
 _LIMITE_LINHA = 64 * 1024      # 64 KiB — linha maior que isso é descartada
+_PRAZO_ESCRITA = 2.0           # s — write no soquete do Electron que não lê
 _LIMITE_TEXTO = 4000           # texto livre é cortado antes de ser enviado
 _LIMITE_PLANO = 60000          # caracteres — teto abaixo de _LIMITE_LINHA,
                                 # para sobrar folga para o resto do JSON
@@ -200,6 +201,10 @@ class PonteElectron:
         self._processo = None
         self._fechado = False
         self._lock = threading.RLock()
+        # Serializa só a escrita (linhas não se misturam). Quem escreve NÃO
+        # segura `_lock` durante o write: Electron travado não congela o app.
+        self._lock_escrita = threading.Lock()
+        self._conexao_perdida = False
         self._pronto = False
         self._ultimo_estado_guardado = None
         self._ultimo_volume_guardado = None
@@ -274,6 +279,9 @@ class PonteElectron:
             sys.stderr.write(f"ponte: conexão recusada de {endereco!r} (não é loopback)\n")
             conexao.close()
             return
+        # Escrita com prazo: se o Electron travar e parar de ler, o write falha
+        # em 2 s em vez de segurar o app para sempre.
+        conexao.settimeout(_PRAZO_ESCRITA)
         canal = conexao.makefile("wb")
         with self._lock:
             if self._fechado:
@@ -328,7 +336,7 @@ class PonteElectron:
                 return
             dado = json.loads(texto)
             verbo = dado["verbo"]
-        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, RecursionError):
             sys.stderr.write(f"ponte: linha inválida vinda do Electron: {linha!r}\n")
             return
         if verbo == "pronto":
@@ -624,6 +632,8 @@ class PonteElectron:
     def _escrever(self, msg: dict):
         linha = (json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8")
         with self._lock:
+            if self._conexao_perdida:
+                return
             # Caminho real: o soquete aceito de `_aceitar_conexao`. Caminho
             # de teste: nenhum soquete foi aberto (ninguém chamou `abrir()`
             # de verdade), então cai no `processo.stdin` do dublê — é assim
@@ -633,13 +643,36 @@ class PonteElectron:
             if canal is None:
                 processo = self._processo
                 canal = processo.stdin if processo is not None else None
-            if canal is None:
-                return
+            real = canal is not None and canal is self._canal_saida
+        if canal is None:
+            return
+        falhou = False
+        with self._lock_escrita:
             try:
                 canal.write(linha)
                 canal.flush()
             except (BrokenPipeError, OSError, ValueError) as e:
                 sys.stderr.write(f"ponte: falha ao escrever para o Electron: {e}\n")
+                falhou = True
+        if falhou and real:
+            self._perder_conexao(canal)
+
+    def _perder_conexao(self, canal):
+        """Escrita falhou ou estourou o prazo: dá o soquete por perdido, sem
+        segurar o lock durante o fechamento."""
+        with self._lock:
+            if self._canal_saida is not canal:
+                return
+            conexao = self._conexao
+            self._canal_saida = None
+            self._conexao = None
+            self._conexao_perdida = True
+        for alvo in (conexao, canal):
+            try:
+                if alvo is not None:
+                    alvo.close()
+            except (OSError, ValueError):
+                pass
 
     # ---- encerrar -------------------------------------------------------
 
@@ -655,27 +688,30 @@ class PonteElectron:
             canal = self._canal_saida
             conexao = self._conexao
             servidor = self._servidor
-            if canal is not None:
-                try:
-                    canal.close()
-                except (OSError, ValueError):
-                    pass
-            if conexao is not None:
-                try:
-                    conexao.close()
-                except OSError:
-                    pass
-            if servidor is not None:
-                try:
-                    servidor.close()
-                except OSError:
-                    pass
-            if canal is None and processo is not None:
-                try:
-                    if processo.stdin is not None:
-                        processo.stdin.close()
-                except (OSError, ValueError):
-                    pass
+        # Fecha fora do lock: o flush do canal pode esperar o prazo do soquete
+        # e o app não pode ficar congelado por causa disso. Soquete primeiro,
+        # para destravar uma escrita em andamento.
+        if conexao is not None:
+            try:
+                conexao.close()
+            except OSError:
+                pass
+        if canal is not None:
+            try:
+                canal.close()
+            except (OSError, ValueError):
+                pass
+        if servidor is not None:
+            try:
+                servidor.close()
+            except OSError:
+                pass
+        if canal is None and processo is not None:
+            try:
+                if processo.stdin is not None:
+                    processo.stdin.close()
+            except (OSError, ValueError):
+                pass
         if processo is None:
             return
         try:

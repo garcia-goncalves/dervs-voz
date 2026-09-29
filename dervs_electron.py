@@ -137,6 +137,9 @@ class Motor(dervs.PopUp):
     # A sessão do Claude Code responde de OUTRA thread (a do laço asyncio); o
     # chat e a voz são da thread da tela — o sinal enfileirado faz a travessia.
     _claude_fala = QtCore.pyqtSignal(str)
+    # A resposta do cartão de plano também chega na thread leitora da ponte, e
+    # tratá-la mexe em widget e QThread (confirmar_passo, cancelar_plano...).
+    _resposta_plano = QtCore.pyqtSignal(str, bool, object)
 
     def __init__(self, ponte: PonteElectron):
         self.ponte = ponte
@@ -175,6 +178,10 @@ class Motor(dervs.PopUp):
         self._pedido_microfone.connect(self._microfone_na_tela)
         self._pedido_reuniao.connect(self._reuniao_na_tela)
         self._claude_fala.connect(self._claude_falar_na_tela)
+        self._resposta_plano.connect(self._plano_na_tela)
+
+    def _plano_na_tela(self, resposta, autorizado, cartao_id):
+        self._tratar_plano(resposta, autorizado, cartao_id)
 
     # ---- Claude Code: voz e resposta final -----------------------------------
     def executar(self):
@@ -536,7 +543,7 @@ def _construir_ao_plano(motor: Motor):
     também descarta uma segunda resposta duplicada da MESMA mensagem
     original.
     """
-    def _ao_plano(resposta, autorizado=False, cartao_id=None):
+    def _tratar(resposta, autorizado, cartao_id):
         if motor._cartao_pendente is None or cartao_id != motor._cartao_pendente:
             return   # resposta desatualizada — nenhum cartão espera por ela
         motor._cartao_pendente = None
@@ -544,6 +551,12 @@ def _construir_ao_plano(motor: Motor):
             _confirmar_do_electron(motor, bool(autorizado))
         elif resposta == "cancelar":
             motor.cancelar_plano()
+    motor._tratar_plano = _tratar
+
+    def _ao_plano(resposta, autorizado=False, cartao_id=None):
+        # Chamado na thread leitora da ponte: o sinal atravessa para a thread da
+        # tela (na própria thread da tela ele roda direto, sem fila).
+        motor._resposta_plano.emit(str(resposta), bool(autorizado), cartao_id)
     return _ao_plano
 
 

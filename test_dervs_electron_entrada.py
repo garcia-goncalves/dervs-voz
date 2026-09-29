@@ -757,3 +757,32 @@ def test_encerrar_tambem_encerra_a_sessao_do_claude(motor, monkeypatch):
     motor.claude = SessaoClaudeFalsa()
     dervs_electron._encerrar(motor, motor.ponte, PosseFalsa(), threading.Event())
     assert ("encerrar",) in motor.claude.chamadas
+
+
+def test_ao_plano_de_outra_thread_age_na_thread_da_tela(motor, monkeypatch):
+    # a resposta do cartão chega na thread leitora da ponte; confirmar_passo
+    # mexe em widget/QThread e tem de rodar na thread da tela
+    registro = []
+    monkeypatch.setattr(motor, "confirmar_passo",
+                        lambda: registro.append(threading.current_thread()))
+    cartao_id = motor._novo_cartao_id()
+    ao_plano = dervs_electron._construir_ao_plano(motor)
+    t = threading.Thread(target=ao_plano, args=("confirmar", False, cartao_id))
+    t.start()
+    t.join()
+    _app.processEvents()
+    assert registro == [threading.main_thread()], (
+        "o plano foi tratado fora da thread da tela — derruba o app")
+
+
+def test_cancelar_plano_de_outra_thread_age_na_thread_da_tela(motor, monkeypatch):
+    registro = []
+    monkeypatch.setattr(motor, "cancelar_plano",
+                        lambda: registro.append(threading.current_thread()))
+    cartao_id = motor._novo_cartao_id()
+    ao_plano = dervs_electron._construir_ao_plano(motor)
+    t = threading.Thread(target=ao_plano, args=("cancelar", False, cartao_id))
+    t.start()
+    t.join()
+    _app.processEvents()
+    assert registro == [threading.main_thread()]
