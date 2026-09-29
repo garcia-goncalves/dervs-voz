@@ -9,6 +9,7 @@
 <title>DERVS Painel</title>
 <link rel="stylesheet" href="estilo.css">
 <link rel="stylesheet" href="painel.css">
+<link rel="stylesheet" href="painel-central.css">
 </head>
 <body class="painel">
   <div class="cantos" aria-hidden="true">
@@ -63,6 +64,12 @@
       <span class="p-chip-ponto" aria-hidden="true"></span>
       <span class="p-chip-rotulo">REUNIÃO 1H</span>
       <span class="p-chip-valor" id="p-reuniao">--</span>
+    </button>
+    <!-- Central do PC (onda D): nota de saúde, análise e limpeza com quarentena. -->
+    <button type="button" class="p-chip" id="p-abrir-central" title="Abre a Central do PC: nota de saúde, análise e limpeza">
+      <span class="p-chip-ponto" aria-hidden="true"></span>
+      <span class="p-chip-rotulo">CENTRAL DO PC</span>
+      <span class="p-chip-valor" id="p-central-nota">--</span>
     </button>
     <!-- Só ABRE a URL no navegador (main.js, shell.openExternal). -->
     <button type="button" class="p-chip" id="p-abrir-app-dervs" title="Abre o DERVS App no navegador">
@@ -189,8 +196,74 @@
     </section>
   </dialog>
 
+  <!-- Central do PC: só a tela PEDE. Aprovar exige o clique do dono em cada item
+       (caixas sempre começam desmarcadas); nada é apagado, tudo vai para a quarentena. -->
+  <dialog id="p-dialogo-central" class="p-dialogo p-dialogo-largo" aria-labelledby="central-titulo">
+    <section class="cartao central">
+      <header class="central-topo">
+        <h2 class="p-titulo" id="central-titulo">CENTRAL DO PC <span class="p-titulo-nota" id="central-quando"></span></h2>
+        <button type="button" id="central-fechar" class="p-mini" autofocus>FECHAR</button>
+      </header>
+      <div class="central-corpo">
+        <div class="central-cabeca">
+          <p class="central-nota" id="central-nota" data-faixa="sem" aria-label="Nota de saúde do PC">--</p>
+          <div>
+            <p class="central-nota-de">de 100 · <span id="central-faixa">ainda não analisado</span></p>
+            <button type="button" id="central-analisar" class="p-mini p-mini-forte">ANALISAR AGORA</button>
+            <p class="central-nota-pequena" id="central-progresso" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+        <ul class="central-lista" id="central-resumo" aria-label="Resumo do dia"></ul>
+        <p class="p-claude-aviso" id="central-aviso-leitura" hidden></p>
+
+        <h3 class="central-sub">O QUE PESOU NA NOTA</h3>
+        <ul class="central-lista" id="central-descontos"></ul>
+        <p class="p-vazio" id="central-descontos-vazio">Nenhum desconto: nada de errado encontrado.</p>
+
+        <h3 class="central-sub">DISCOS</h3>
+        <ul class="central-lista" id="central-discos"></ul>
+        <p class="central-nota-pequena" id="central-tendencia"></p>
+
+        <h3 class="central-sub">LIMPEZA</h3>
+        <p class="central-nota-pequena">Nada é apagado: o que você marcar vai para a quarentena do DERVS e dá para desfazer com um clique.</p>
+        <ul class="central-lista" id="central-temporarios"></ul>
+        <ul class="central-lista" id="central-informativos"></ul>
+        <button type="button" id="central-propor" class="p-mini p-mini-forte">VER SUGESTÃO DE LIMPEZA</button>
+        <div id="central-relatorio" hidden>
+          <p class="central-detalhe" id="central-relatorio-resumo" role="status"></p>
+          <ul class="central-lista" id="central-relatorio-itens"></ul>
+          <h4 class="central-sub" id="central-relatorio-recusados-titulo" hidden>FICARAM DE FORA</h4>
+          <ul class="central-lista" id="central-relatorio-recusados"></ul>
+          <button type="button" id="central-aprovar" class="p-mini p-mini-forte" disabled>MOVER OS MARCADOS PARA A QUARENTENA</button>
+          <p class="p-claude-aviso" id="central-aprovar-dica"></p>
+        </div>
+        <p class="central-detalhe" id="central-resultado" role="status" aria-live="polite"></p>
+
+        <h3 class="central-sub">NA QUARENTENA <span class="p-titulo-nota">dá para desfazer</span></h3>
+        <ul class="central-lista" id="central-quarentena"></ul>
+        <p class="p-vazio" id="central-quarentena-vazio">Nada na quarentena.</p>
+
+        <h3 class="central-sub">PARA FICAR DE OLHO <span class="p-titulo-nota">só leitura, nada é alterado</span></h3>
+        <p class="central-nota-pequena">Erros do Windows na última semana</p>
+        <ul class="central-lista" id="central-eventos"></ul>
+        <p class="p-vazio" id="central-eventos-vazio">Nenhum erro grave registrado.</p>
+        <p class="central-nota-pequena">Programas com versão nova</p>
+        <ul class="central-lista" id="central-programas"></ul>
+        <p class="p-vazio" id="central-programas-vazio">Tudo atualizado.</p>
+        <p class="central-nota-pequena">O que abre com o Windows</p>
+        <p class="central-detalhe" id="central-inicializacao"></p>
+        <p class="central-nota-pequena">Programas que mais pesam agora</p>
+        <ul class="central-lista" id="central-processos"></ul>
+        <p class="central-nota-pequena">Projetos com trabalho ainda não enviado ao GitHub</p>
+        <ul class="central-lista" id="central-repositorios"></ul>
+        <p class="p-vazio" id="central-repositorios-vazio">Tudo enviado.</p>
+      </div>
+    </section>
+  </dialog>
+
   <script src="painel-formato.js"></script>
   <script src="painel-markdown.js"></script>
   <script src="painel.js"></script>
+  <script src="painel-central.js"></script>
 </body>
 </html>

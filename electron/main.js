@@ -477,6 +477,43 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo claude_fim sem ok booleano, ignorado");
       }
       break;
+    // Central do PC (onda D): a tela só desenha; todo texto entra por textContent.
+    case "central":
+      if (Array.isArray(mensagem.resumo)) {
+        const { verbo: _v, ...visao } = mensagem;
+        difundir("dervs:central", visao);
+      } else {
+        console.error("electron: verbo central sem resumo, ignorado");
+      }
+      break;
+    case "central_progresso":
+      if (typeof mensagem.coletor === "string" && Number.isInteger(mensagem.feitos)
+          && Number.isInteger(mensagem.total)) {
+        difundir("dervs:central-progresso", {
+          coletor: mensagem.coletor, feitos: mensagem.feitos, total: mensagem.total });
+      } else {
+        console.error("electron: verbo central_progresso com campo faltando, ignorado");
+      }
+      break;
+    case "central_relatorio":
+      if (mensagem.relatorio && typeof mensagem.relatorio === "object"
+          && Array.isArray(mensagem.relatorio.itens)) {
+        difundir("dervs:central-relatorio", {
+          relatorio: mensagem.relatorio,
+          cartao: typeof mensagem.cartao === "string" ? mensagem.cartao : null });
+        mostrarPainel();
+      } else {
+        console.error("electron: verbo central_relatorio sem relatorio, ignorado");
+      }
+      break;
+    case "central_resultado":
+      if (typeof mensagem.ok === "boolean" && typeof mensagem.motivo === "string") {
+        const { verbo: _r, ...resultado } = mensagem;
+        difundir("dervs:central-resultado", resultado);
+      } else {
+        console.error("electron: verbo central_resultado com campo faltando, ignorado");
+      }
+      break;
     default:
       console.error(`electron: verbo desconhecido do Python, ignorado: ${String(verbo)}`);
   }
@@ -599,6 +636,46 @@ ipcMain.on("dervs:claude-responder", (_evento, dado) => {
 
 ipcMain.on("dervs:claude-nova-conversa", () => {
   enviarAoPython({ verbo: "claude_nova_conversa" });
+});
+
+// Central do PC (onda D): a tela só PEDE. O clique de aprovar leva o cartão que o
+// Python entregou junto do relatório; o motor confere tudo de novo do lado de lá.
+const ID_CURTO = /^[A-Za-z0-9_-]{1,64}$/;
+const listaDeIds = (v) => Array.isArray(v) && v.length <= 50 && v.every((i) => typeof i === "string" && ID_CURTO.test(i));
+
+for (const [canal, verbo] of [["dervs:central-pedir", "central_pedir"],
+    ["dervs:central-analisar", "central_analisar"],
+    ["dervs:central-propor-limpeza", "central_propor_limpeza"]]) {
+  ipcMain.on(canal, () => { enviarAoPython({ verbo }); });
+}
+
+ipcMain.on("dervs:central-aprovar", (_evento, dado) => {
+  const valido = dado && typeof dado === "object" && typeof dado.relatorioId === "string"
+    && ID_CURTO.test(dado.relatorioId) && typeof dado.cartao === "string"
+    && dado.cartao.length > 0 && dado.cartao.length <= 200
+    && listaDeIds(dado.ids) && dado.ids.length > 0 && listaDeIds(dado.dupla || []);
+  if (!valido) {
+    console.error("electron: aprovação da Central inválida, ignorada");
+    return;
+  }
+  enviarAoPython({ verbo: "central_aprovar", relatorio_id: dado.relatorioId, ids: dado.ids,
+    cartao: dado.cartao, dupla: dado.dupla || [] });
+});
+
+ipcMain.on("dervs:central-desfazer", (_evento, desfazerId) => {
+  if (typeof desfazerId !== "string" || !ID_CURTO.test(desfazerId)) {
+    console.error("electron: desfazer da Central inválido, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "central_desfazer", desfazer_id: desfazerId });
+});
+
+ipcMain.on("dervs:central-explicar", (_evento, codigo) => {
+  if (typeof codigo !== "string" || !/^[a-z_]{1,40}$/.test(codigo)) {
+    console.error("electron: pedido de explicação da Central inválido, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "central_explicar", codigo });
 });
 
 // Painel grande: os botões da janela só PEDEM; quem mexe na janela é este processo.

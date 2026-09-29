@@ -88,6 +88,15 @@ Verbos Python → Electron (só estes):
             "expira_s", "escondidos", "rede"} — o Claude pede permissão. O `id`
             vale UMA resposta; `escondidos` é quantos caracteres NÃO couberam na
             tela (a tela avisa); `rede` marca o que sai deste PC.
+  central {…}                        — onda D (Central do PC): a visão da última
+            análise (nota 0–100, descontos, resumo, discos, eventos...), já
+            cortada para a tela (`dervs_central_painel.visao_para_tela`).
+  central_progresso {"coletor", "feitos", "total"} — andamento da análise.
+  central_relatorio {"relatorio", "cartao"} — proposta de limpeza montada pelo
+            motor de aprovação, com o CARTÃO (a senha do clique). Só vai para a
+            tela; nunca para o Claude.
+  central_resultado {"ok", "motivo", "itens", …} — o que a aprovação, a limpeza
+            ou o desfazer fez (ou recusou, com o motivo).
   claude_fim {"ok", "custo", "erro"}  — o turno acabou. `custo` é o equivalente
             em dólar da assinatura (medida, não cobrança).
 
@@ -119,6 +128,11 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
             estrita de `autorizado`); `id` é texto não vazio. Quem decide se o
             id ainda vale é `dervs_claude_code.py` (cada id vale uma vez).
   claude_nova_conversa                — botão Nova conversa.
+  central_pedir · central_analisar · central_propor_limpeza — sem campos.
+  central_aprovar {"relatorio_id", "ids", "cartao", "dupla"} — o CLIQUE do dono:
+            só a lista explícita de itens marcados; `dupla` lista os de risco alto.
+  central_desfazer {"desfazer_id"}    — devolve um item da quarentena.
+  central_explicar {"codigo"}         — manda UM item da nota ao Claude.
 
 Regras duras (valem para os dois lados da ponte, e este arquivo cumpre a
 parte do Python):
@@ -161,6 +175,9 @@ _LIMITE_PERGUNTA = 8000        # caracteres da caixa de texto do Claude Code
 _LIMITE_ERRO_CLAUDE = 300      # mensagem de erro de um turno do Claude
 _LIMITE_RESUMO_PEDIDO = 500    # o comando/caminho do pedido de permissão aparece inteiro até aqui
 _LIMITE_ENTRADA_PEDIDO = 1000  # o resto dos parâmetros (o corte é avisado em `escondidos`)
+_VERBOS_CENTRAL = ("central_pedir", "central_analisar", "central_propor_limpeza",
+                   "central_aprovar", "central_desfazer", "central_explicar")
+_LIMITE_TEXTO_CENTRAL = 600    # cada texto de item da Central (nomes de arquivo, explicações)
 _ESTRANGULA_SEG = 0.05         # 50 ms = no máximo 20 mensagens de volume/s
 
 _EXECUTAVEL_PADRAO = os.path.join(
@@ -184,7 +201,7 @@ class PonteElectron:
     """
 
     def __init__(self, ao_sair, ao_plano, ao_pronto, ao_microfone=None,
-                 ao_reuniao=None, ao_claude=None):
+                 ao_reuniao=None, ao_claude=None, ao_central=None):
         """`ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`.
         `ao_microfone(ligar: bool)` roda na thread de leitura da ponte — quem
         o fornece precisa atravessar para a thread da tela antes de mexer em
@@ -196,6 +213,7 @@ class PonteElectron:
         `claude_nova_conversa`) já validados, também na thread de leitura. A
         sessão (`dervs_claude_code.SessaoClaudeCode`) é segura entre threads."""
         self._ao_claude = ao_claude
+        self._ao_central = ao_central   # verbos `central_*` já validados (onda D)
         self._ao_microfone = ao_microfone
         self._ao_reuniao = ao_reuniao
         self._ultimo_microfone_guardado = None
@@ -426,8 +444,42 @@ class PonteElectron:
         elif verbo in ("claude_perguntar", "claude_parar", "claude_resposta",
                        "claude_nova_conversa"):
             self._tratar_claude(verbo, dado)
+        elif verbo in _VERBOS_CENTRAL:
+            self._tratar_central(verbo, dado)
         else:
             sys.stderr.write(f"ponte: verbo desconhecido vindo do Electron: {verbo!r}\n")
+
+    def _tratar_central(self, verbo, dado):
+        """Valida os verbos da Central do PC. O clique de aprovar é o mais sensível:
+        só o formato exato passa, e o motor confere tudo de novo."""
+        def texto(campo, limite=64):
+            v = dado.get(campo)
+            return v if isinstance(v, str) and 0 < len(v) <= limite else None
+
+        def lista(campo):
+            v = dado.get(campo, [])
+            ok = isinstance(v, list) and len(v) <= _LIMITE_LISTA and all(
+                isinstance(i, str) and 0 < len(i) <= 64 for i in v)
+            return v if ok else None
+        dados = {}
+        if verbo == "central_aprovar":
+            dados = {"relatorio_id": texto("relatorio_id"), "cartao": texto("cartao", 200),
+                     "ids": lista("ids"), "dupla": lista("dupla")}
+            if None in dados.values() or not dados["ids"]:
+                sys.stderr.write("ponte: central_aprovar inválido, ignorado\n")
+                return
+        elif verbo == "central_desfazer":
+            dados = {"desfazer_id": texto("desfazer_id")}
+            if dados["desfazer_id"] is None:
+                sys.stderr.write("ponte: central_desfazer inválido, ignorado\n")
+                return
+        elif verbo == "central_explicar":
+            dados = {"codigo": texto("codigo", 40)}
+            if dados["codigo"] is None or not dados["codigo"].replace("_", "").isalnum():
+                sys.stderr.write("ponte: central_explicar inválido, ignorado\n")
+                return
+        if self._ao_central is not None:
+            self._chamar(self._ao_central, verbo, dados)
 
     def _tratar_claude(self, verbo, dado):
         """Valida os verbos do Claude Code ANTES de entregar: tudo aqui vem de
@@ -671,6 +723,44 @@ class PonteElectron:
             self.enviar_claude_pedido(dados)
         elif verbo == "claude_fim":
             self.enviar_claude_fim(dados.get("ok"), dados.get("custo"), dados.get("erro"))
+
+    # ---- Central do PC (onda D) -----------------------------------------------
+    # Sem guarda de "só se mudou": cada análise é um evento. Todo texto é cortado
+    # (nome de arquivo e de programa são conteúdo hostil) e a linha inteira tem
+    # de caber no limite da ponte; se não couber, as listas são esvaziadas.
+
+    def _limpar_central(self, valor, fundo=0):
+        if isinstance(valor, str):
+            return valor[:_LIMITE_TEXTO_CENTRAL]
+        if fundo > 6:
+            return None
+        if isinstance(valor, dict):
+            return {str(k)[:64]: self._limpar_central(v, fundo + 1) for k, v in valor.items()}
+        if isinstance(valor, (list, tuple)):
+            return [self._limpar_central(v, fundo + 1) for v in list(valor)[:_LIMITE_LISTA]]
+        if isinstance(valor, (bool, int, float)) or valor is None:
+            return valor
+        return str(valor)[:_LIMITE_TEXTO_CENTRAL]
+
+    def _escrever_central(self, msg: dict):
+        limpa = self._limpar_central(msg)
+        if len(json.dumps(limpa, ensure_ascii=False)) > _LIMITE_PLANO:
+            limpa = {k: ([] if isinstance(v, list) else v) for k, v in limpa.items()}
+        self._escrever(limpa)
+
+    def enviar_central(self, visao: dict):
+        self._escrever_central({"verbo": "central", **visao})
+
+    def enviar_central_progresso(self, coletor, feitos, total):
+        self._escrever_central({"verbo": "central_progresso", "coletor": str(coletor)[:40],
+                                "feitos": int(feitos), "total": int(total)})
+
+    def enviar_central_relatorio(self, relatorio: dict, cartao):
+        self._escrever_central({"verbo": "central_relatorio", "relatorio": relatorio,
+                                "cartao": cartao if isinstance(cartao, str) else None})
+
+    def enviar_central_resultado(self, resultado: dict):
+        self._escrever_central({"verbo": "central_resultado", **resultado})
 
     def enviar_reuniao(self, restante_s):
         """Segundos restantes do modo reunião, ou `None` quando não há."""

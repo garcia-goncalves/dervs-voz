@@ -277,7 +277,7 @@ def _quarentenar(motor, item: dict, info: dict, registro: dict) -> dict:
     except Exception:
         pass  # o "vai_executar" já está gravado; o desfazer desta sessão usa a memória
     return {"ok": True, "motivo": "movido para a quarentena — dá para desfazer",
-            "desfazer_id": desfazer_id}
+            "desfazer_id": desfazer_id, "tamanho_bytes": info["tamanho"]}
 
 
 def executar(motor, registro_id, token, item_id, origem) -> dict:

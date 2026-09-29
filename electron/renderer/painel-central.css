@@ -1,0 +1,64 @@
+/* Central do PC (onda D). Só tokens já usados no painel; sem cor nova. */
+
+.p-dialogo-largo { max-width: 860px; }
+
+.central { display: flex; flex-direction: column; max-height: calc(100vh - 48px); }
+.central-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.central-topo .p-titulo { flex: 1 1 auto; margin: 0; }
+.central-topo .p-mini { float: none; margin-top: 2px; }
+.central-corpo { overflow-y: auto; padding-right: 6px; display: flex; flex-direction: column; gap: 6px; }
+
+.central-cabeca { display: flex; align-items: center; gap: 18px; margin: 8px 0 4px; }
+.central-nota {
+  margin: 0;
+  font-family: var(--fonte-display);
+  font-size: 56px;
+  line-height: 1;
+  color: var(--texto-primario);
+  min-width: 2.2ch;
+  text-align: right;
+}
+.central-nota[data-faixa="ok"] { color: var(--acento); }
+.central-nota[data-faixa="alerta"] { color: var(--erro); }
+.central-nota-de { margin: 0 0 6px; font-size: 12px; letter-spacing: .12em; color: var(--texto-secundario); }
+
+.central-sub {
+  margin: 14px 0 2px;
+  font-family: var(--fonte-display);
+  font-size: 12px;
+  letter-spacing: .18em;
+  color: var(--acento);
+  border-bottom: 1px solid var(--acento-fraco);
+  padding-bottom: 3px;
+}
+h4.central-sub { color: var(--texto-secundario); border-bottom: 0; margin-top: 8px; }
+
+.central-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.central-frase { font-size: 14px; }
+.central-linha { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 13px; }
+.central-rotulo { color: var(--texto-primario); font-family: var(--fonte-display); font-size: 12px; letter-spacing: .06em; }
+.central-nota-pequena { margin: 0; font-size: 11px; color: var(--texto-secundario); }
+.central-detalhe { margin: 0; font-size: 12px; color: var(--texto-primario); overflow-wrap: anywhere; }
+
+.central-desconto { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; }
+.central-pontos { font-family: var(--fonte-display); color: var(--erro); min-width: 3ch; }
+.central-desconto-corpo { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+
+.central-disco { display: flex; flex-direction: column; gap: 3px; }
+
+.central-item {
+  border: 1px solid var(--acento-fraco);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.central-item[data-risco="alto"] { border-color: var(--erro); }
+.central-item-titulo { display: flex; align-items: baseline; gap: 4px; font-size: 13px; cursor: pointer; }
+.central-item-titulo input { accent-color: var(--acento); }
+.central-confirma { color: var(--erro); font-size: 12px; }
+
+#central-resultado[data-ok="0"] { color: var(--erro); }
+#central-resultado[data-ok="1"] { color: var(--acento); }
+
+.p-chip[data-estado=""] .p-chip-ponto { background: transparent; }

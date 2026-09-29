@@ -104,4 +104,28 @@ contextBridge.exposeInMainWorld("dervs", {
     }
   },
   claudeNovaConversa: () => { ipcRenderer.send("dervs:claude-nova-conversa"); },
+
+  // ---- Central do PC (onda D) — lista ESTREITA, de propósito ------------------
+  // Python -> tela: a visão da análise, o andamento, o relatório de limpeza (com o
+  // cartão do clique) e o resultado. Tudo texto de fonte hostil: só textContent.
+  aoCentral: aoCanal("dervs:central"),
+  aoCentralProgresso: aoCanal("dervs:central-progresso"),
+  aoCentralRelatorio: aoCanal("dervs:central-relatorio"),
+  aoCentralResultado: aoCanal("dervs:central-resultado"),
+  // Tela -> Python: só estes seis pedidos; formato conferido aqui, no main.js e no Python.
+  centralPedir: () => { ipcRenderer.send("dervs:central-pedir"); },
+  centralAnalisar: () => { ipcRenderer.send("dervs:central-analisar"); },
+  centralProporLimpeza: () => { ipcRenderer.send("dervs:central-propor-limpeza"); },
+  centralAprovar: ({ relatorioId, ids, cartao, dupla } = {}) => {
+    if (typeof relatorioId === "string" && typeof cartao === "string" && Array.isArray(ids) && ids.length) {
+      ipcRenderer.send("dervs:central-aprovar", {
+        relatorioId, cartao, ids: ids.map(String), dupla: Array.isArray(dupla) ? dupla.map(String) : [] });
+    }
+  },
+  centralDesfazer: (desfazerId) => {
+    if (typeof desfazerId === "string" && desfazerId) ipcRenderer.send("dervs:central-desfazer", desfazerId);
+  },
+  centralExplicar: (codigo) => {
+    if (typeof codigo === "string" && codigo) ipcRenderer.send("dervs:central-explicar", codigo);
+  },
 });

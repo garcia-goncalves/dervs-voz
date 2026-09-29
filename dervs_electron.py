@@ -33,6 +33,7 @@ from PyQt6 import QtCore, QtWidgets
 
 import dervs
 import dervs_aprovacao as aprovacao
+import dervs_central_painel as central_painel
 import dervs_claude_code as claude_code
 import dervs_config as config
 import dervs_diario as diario
@@ -171,6 +172,10 @@ class Motor(dervs.PopUp):
             ao_aviso=self._claude_aviso,
             fachada_fabrica=self._fachada_aprovacao,
             perfil=config.carregar()["claude_perfil"])
+        # A Central do PC (onda D): analisa, propõe limpeza e devolve o clique ao motor.
+        self.central_pc = central_painel.CentralDoPc(
+            self.ponte, self._motor_aprovacao, falar=lambda t: self._claude_fala.emit(t),
+            perguntar_claude=lambda texto: self.claude.perguntar(texto, origem="painel"))
         super().__init__()
         # Etapa 4: a `Voz` já sabe emitir o nível de amplitude enquanto fala,
         # se alguém ligar `ao_nivel`. Quem liga aqui é a ponte.
@@ -191,6 +196,11 @@ class Motor(dervs.PopUp):
         fluxo de sempre."""
         texto = self.entrada.toPlainText().strip()
         if texto and self._tarefa is None and not self._aguardando_ok:
+            if central_painel.eh_pergunta_de_saude(texto):
+                self._diz("dono", texto)
+                self.entrada.clear()
+                self.central_pc.diagnostico_por_voz()
+                return
             if self.claude.ocupado and claude_code.eh_comando_parar(texto):
                 self._diz("dono", texto)
                 self.entrada.clear()
@@ -207,14 +217,19 @@ class Motor(dervs.PopUp):
                 return
         super().executar()
 
+    def _motor_aprovacao(self):
+        """O Motor de aprovação, criado na primeira necessidade. Só a ponte do
+        painel (a Central do PC) o usa; o Claude recebe apenas a Fachada."""
+        if self.aprovacao is None:
+            self.aprovacao = aprovacao.Motor()
+        return self.aprovacao
+
     def _fachada_aprovacao(self):
         """O Claude recebe a `Fachada` (só `analisar` e `status`), NUNCA o Motor:
         aprovar, cartão e senha de uso ficam com a ponte do painel (onda D). O
-        Motor cria pasta e arquivos em %LOCALAPPDATA%\dervs, por isso só nasce aqui,
+        Motor cria pasta e arquivos em %LOCALAPPDATA%/dervs, por isso só nasce aqui,
         na primeira proposta."""
-        if self.aprovacao is None:
-            self.aprovacao = aprovacao.Motor()
-        return aprovacao.Fachada(self.aprovacao)
+        return aprovacao.Fachada(self._motor_aprovacao())
 
     def _claude_texto_final(self, texto, origem):
         """Thread do laço do Claude. Só a pergunta feita por VOZ é respondida
@@ -671,6 +686,11 @@ def main():
     ao_microfone_alvo = []
     ao_reuniao_alvo = []
     ao_claude_alvo = []
+    ao_central_alvo = []
+
+    def _ao_central_inicial(verbo, dados):
+        if ao_central_alvo:
+            ao_central_alvo[0](verbo, dados)
 
     def _ao_microfone_inicial(ligar):
         if ao_microfone_alvo:
@@ -686,9 +706,11 @@ def main():
 
     ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial,
                           ao_pronto=lambda: None, ao_microfone=_ao_microfone_inicial,
-                          ao_reuniao=_ao_reuniao_inicial, ao_claude=_ao_claude_inicial)
+                          ao_reuniao=_ao_reuniao_inicial, ao_claude=_ao_claude_inicial,
+                          ao_central=_ao_central_inicial)
     motor = Motor(ponte)
     ao_claude_alvo.append(_construir_ao_claude(motor))
+    ao_central_alvo.append(motor.central_pc.tratar)
     ao_microfone_alvo.append(motor.pedir_microfone)
     ao_reuniao_alvo.append(motor.pedir_reuniao)
     ao_plano_alvo.append(_construir_ao_plano(motor))
@@ -713,6 +735,8 @@ def main():
     diario.iniciar_loop_diario(ponte, parar_sistema)
     # Dados do painel grande: agenda, entradas do diário, gasto do dia e voz.
     painel.iniciar_loop_painel(ponte, parar_sistema, voz=motor.voz)
+    # Central do PC: análise diária com o PC ocioso (só lê e avisa).
+    motor.central_pc.iniciar_rotina_diaria(parar_sistema)
 
     app.aboutToQuit.connect(lambda: _encerrar(motor, ponte, posse, parar_sistema))
     app.exec()
