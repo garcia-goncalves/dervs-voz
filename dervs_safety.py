@@ -139,7 +139,7 @@ _SEGREDOS = [
     r"\bcredentials\b", r"\.pem\b", r"\.key\b", r"\.pfx\b", r"\.p12\b",
     r"\.aws\b", r"\.gnupg\b", r"\bunattend\.xml\b", r"\bNTDS\.dit\b",
     r"\bSAM\b", r"\bSYSTEM\.sav\b", r"/etc/shadow\b", r"\bshadow\b",
-    r"\.npmrc\b", r"\.pypirc\b", r"\.git-credentials\b",
+    r"\.npmrc\b", r"\.pypirc\b", r"\.git-credentials\b", r"\.claude\.json\b",
     r"\bLogin Data\b", r"\bCookies\b", r"\.kdbx\b",
 ]
 
@@ -234,6 +234,8 @@ _SEGUROS = [
 # Um comando "seguro" que emenda outro não é seguro — o segundo é que manda.
 _ENCADEIA = re.compile(
     r"[;&|`^\n>]"         # ; & && | || ` ^ quebra de linha e > (ver abaixo)
+    r"|[()\[\]{}]|::"     # ( ) [ ] { } e :: — no PowerShell `(...)` é subexpressão e
+                          # `[IO.File]::Delete(...)` chama .NET: executam código
     r"|\$\("               # $(...)  subexpressão
     r"|(?<![\w-])-e(?:nc\w*)?\b",  # -enc / -EncodedCommand
     re.IGNORECASE,

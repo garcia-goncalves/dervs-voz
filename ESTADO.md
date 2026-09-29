@@ -415,6 +415,10 @@ Contrato em `docs/esteira/dervs-painel-jarvis/briefing.md`; como usar, em
   controles do painel; o texto de fora (conversa, título de lembrete) entra só por
   `textContent` — provado com `<img onerror>` na conversa, que apareceu como texto.
 
+### 3.10. Auditoria de segurança do Claude Code no painel (29/09/2026)
+
+Cinco furos fechados, cada um com teste que falhava antes. O gancho deixava rodar **sem cartão** um comando que o `dervs_safety` chama de "reversível" mesmo apontando para segredo ou para a pasta que você marcou como protegida (`git diff --no-index ~/.claude.json /dev/null` lia o arquivo com o token dos conectores); agora segredo e pasta protegida valem para todo comando, de qualquer nível, e o `/c/...` do Git Bash, o `~` e o `%VAR%` também são conferidos. A leitura (`Read`/`Grep`/`Glob`/`LS`) decide por contenção contra as pastas protegidas já resolvidas: `Grep` em `C:\`, na pasta que contém a protegida ou por uma junção (`My Documents`) agora é negado, e caminho que não resolve fecha em vez de abrir. No PowerShell, `( ) [ ] { } ::` derrubam o "reversível" (`echo ([IO.File]::Delete(...))` executava código). Nomes curtos 8.3 (`ENV~1`) são expandidos antes da regex de segredo. O soquete da ponte com o Electron agora exige um token aleatório por subida, passado por variável de ambiente e mandado como primeira linha; conexão sem ele é fechada. Consequência a saber: `dir`/`ls` em pasta de sistema continuam livres, mas listar uma pasta protegida pelo dono passa a pedir cartão.
+
 ---
 
 ## 4. O que ainda falta

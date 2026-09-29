@@ -11,6 +11,7 @@ Rodar: python -m pytest test_dervs_ponte_electron.py -q
 """
 import io
 import json
+import threading
 import time
 
 import pytest
@@ -373,9 +374,8 @@ def test_abrir_com_env_extra_repassa_ao_subprocesso(tmp_path, monkeypatch):
     assert kwargs["env"]["UMA_VARIAVEL_HERDADA"] == "valor-herdado"
 
 
-def test_abrir_sem_env_extra_nao_passa_env_nenhum(tmp_path, monkeypatch):
-    """Sem `env_extra`, o `Popen` não recebe `env` — o filho herda o ambiente
-    do pai do jeito padrão do `subprocess`, como sempre foi."""
+def test_abrir_sem_env_extra_so_passa_o_token_da_ponte(tmp_path, monkeypatch):
+    """Sem `env_extra`, o `Popen` recebe só o ambiente herdado mais o segredo da ponte."""
     executavel_de_mentira = tmp_path / "electron.exe"
     executavel_de_mentira.write_bytes(b"")
 
@@ -395,7 +395,8 @@ def test_abrir_sem_env_extra_nao_passa_env_nenhum(tmp_path, monkeypatch):
 
     assert len(chamadas) == 1
     _, kwargs = chamadas[0]
-    assert "env" not in kwargs
+    assert "DERVS_APP_URL" not in kwargs["env"]      # só o segredo da ponte vai a mais
+    assert kwargs["env"]["DERVS_PONTE_TOKEN"]
 
 
 # ---- microfone: o liga/desliga que voltou ao HUD -------------------------
@@ -660,9 +661,11 @@ def test_escrita_num_soquete_cujo_par_nao_le_perde_a_conexao_sem_travar():
     cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     cliente.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
     cliente.connect(servidor.getsockname())     # conecta e NUNCA lê
+    cliente.sendall(FICHA_FALSA.encode() + b"\n")      # mas diz o segredo da ponte
     p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a, **k: None,
                                 ao_pronto=lambda: None)
     p._servidor = servidor
+    p._token = FICHA_FALSA
     p._aceitar_conexao()
     assert p._canal_saida is not None
     grande = {"verbo": "fala", "papel": "x", "texto": "a" * 60000}
@@ -684,3 +687,114 @@ def test_escrita_num_soquete_cujo_par_nao_le_perde_a_conexao_sem_travar():
     p._lock.release()
     p.fechar()
     cliente.close()
+
+
+# ---- segredo do soquete: 127.0.0.1 nao basta (auditoria 29/09) --------------
+
+FICHA_FALSA = "ficha-falsa-de-teste"      # valor de teste, nao e segredo
+
+
+def _ponte_com_servidor(ficha=FICHA_FALSA):
+    import socket
+    servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    servidor.bind(("127.0.0.1", 0))
+    servidor.listen(4)
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a, **k: None,
+                                ao_pronto=lambda: None)
+    p._servidor = servidor
+    p._token = ficha
+    return p, servidor
+
+
+def _cliente(servidor, primeira_linha=None):
+    import socket
+    c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    c.connect(servidor.getsockname())
+    if primeira_linha is not None:
+        c.sendall(primeira_linha)
+    return c
+
+
+def test_conexao_com_o_token_certo_e_aceita():
+    p, servidor = _ponte_com_servidor()
+    c = _cliente(servidor, FICHA_FALSA.encode() + b"\n")
+    p._aceitar_conexao()
+    assert p._canal_saida is not None
+    p.fechar()
+    c.close()
+
+
+def test_conexao_sem_token_ou_com_token_errado_e_recusada_e_a_certa_passa():
+    p, servidor = _ponte_com_servidor()
+    errado = _cliente(servidor, b"outro-segredo\n")
+    calado = _cliente(servidor)                      # conecta e nao diz nada
+    certo = _cliente(servidor, FICHA_FALSA.encode() + b"\n")
+    t0 = time.monotonic()
+    p._aceitar_conexao()
+    assert p._canal_saida is not None
+    assert time.monotonic() - t0 < 10
+    errado.settimeout(3)
+    assert errado.recv(10) == b"", "a conexao de token errado devia ter sido fechada"
+    calado.settimeout(3)
+    assert calado.recv(10) == b"", "a conexao calada devia ter sido fechada"
+    p.fechar()
+    for c in (errado, calado, certo):
+        c.close()
+
+
+def test_sem_token_configurado_ninguem_entra():
+    p, servidor = _ponte_com_servidor(ficha=None)
+    c = _cliente(servidor, b"\n")
+    p._aceitar_conexao(prazo=0.5)
+    assert p._canal_saida is None
+    p.fechar()
+    c.close()
+
+
+def test_abrir_passa_o_token_por_variavel_de_ambiente_e_nunca_por_argumento(tmp_path, monkeypatch):
+    executavel_de_mentira = tmp_path / "electron.exe"
+    executavel_de_mentira.write_bytes(b"")
+    chamadas = []
+
+    class PopenFalso(ProcessoFalso):
+        def __init__(self, args, **kwargs):
+            super().__init__()
+            chamadas.append((args, kwargs))
+
+    monkeypatch.setattr(ponte_mod.subprocess, "Popen", PopenFalso)
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a, **k: None,
+                                ao_pronto=lambda: None)
+    p.abrir(str(tmp_path), executavel=str(executavel_de_mentira))
+    args, kwargs = chamadas[0]
+    token = kwargs["env"]["DERVS_PONTE_TOKEN"]
+    assert len(token) >= 32 and token == p._token
+    assert all(token not in str(a) for a in args)
+    p.fechar()
+    p2 = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a, **k: None,
+                                 ao_pronto=lambda: None)
+    p2.abrir(str(tmp_path), executavel=str(executavel_de_mentira))
+    assert chamadas[1][1]["env"]["DERVS_PONTE_TOKEN"] != token, "o token tem de ser novo a cada subida"
+    p2.fechar()
+
+
+def test_electron_falso_que_manda_o_token_como_primeira_linha_conversa_com_a_ponte():
+    """Ponta a ponta com soquete de verdade: o filho falso faz o que o main.js faz."""
+    import socket
+    p, servidor = _ponte_com_servidor("abc123")
+    porta = servidor.getsockname()[1]
+    recebido = []
+
+    def electron_falso():
+        c = socket.create_connection(("127.0.0.1", porta))
+        c.sendall(b"abc123\n")
+        c.settimeout(5)
+        recebido.append(c.recv(1000))
+        c.close()
+    th = threading.Thread(target=electron_falso, daemon=True)
+    th.start()
+    p._aceitar_conexao()
+    p._pronto = True
+    p.enviar_estado("ouvindo", "oi")
+    th.join(6)
+    assert recebido and b"ouvindo" in recebido[0]
+    p.fechar()

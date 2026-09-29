@@ -1246,3 +1246,99 @@ def test_resultado_de_turno_anterior_a_nova_conversa_nao_regrava_a_sessao(tmp_pa
         cena.fechar()
     assert cena.sessao._session_id is None
     assert not (tmp_path / "claude_sessao.json").exists()
+
+
+# --- auditoria de seguranca 29/09: o que o gancho deixava passar -----------------------
+
+def _acao(nome, entrada):
+    return cc.decisao_do_gancho(nome, entrada)[0]
+
+
+def _extra_protegido(tmp_path, monkeypatch):
+    """Pasta Documents/Pacientes marcada pelo dono."""
+    docs = tmp_path / "Documents"
+    pac = docs / "Pacientes"
+    pac.mkdir(parents=True)
+    (pac / "ficha.txt").write_text("dado", encoding="utf-8")
+    monkeypatch.setattr(cc._cp, "carregar_extras", lambda *a, **k: [str(pac)])
+    return docs, pac
+
+
+def test_git_diff_no_index_de_segredo_nao_roda_sem_cartao():
+    """Bloqueante 1: `--no-index` deixa o git ler QUALQUER arquivo, e o comando
+    saia como reversivel (None, None): rodava sem cartao."""
+    for cmd in ("git diff --no-index ~/.claude.json /dev/null",
+                r"git diff --no-index C:\Users\x\.claude.json NUL"):
+        assert _acao("Bash", {"command": cmd}) in ("deny", "ask"), cmd
+
+
+def test_comando_reversivel_em_pasta_extra_do_dono_e_negado(tmp_path, monkeypatch):
+    docs, pac = _extra_protegido(tmp_path, monkeypatch)
+    s = str(pac)
+    git_bash = "/" + s[0].lower() + s[2:].replace("\\", "/")
+    for cmd in (f"dir {s}", f"ls {s}\\ficha.txt", f"dir {git_bash}",
+                f"Get-ChildItem {s.replace(chr(92), '/')}"):
+        assert _acao("Bash", {"command": cmd}) == "deny", cmd
+        assert _acao("PowerShell", {"command": cmd}) == "deny", cmd
+
+
+def test_caminho_de_claude_json_em_comando_e_negado():
+    assert _acao("Bash", {"command": r"dir C:\Users\x\.claude.json"}) == "deny"
+
+
+def test_leitura_da_pasta_extra_por_caminho_que_antes_escapava(tmp_path, monkeypatch):
+    """Bloqueante 2: raiz do disco, pasta que CONTEM a extra e juncao davam None."""
+    docs, pac = _extra_protegido(tmp_path, monkeypatch)
+    junc = tmp_path / "My Documents"
+    r = os.system(f'mklink /J "{junc}" "{docs}" >nul 2>&1')
+    raiz = os.path.splitdrive(str(pac))[0] + "\\"
+    for busca in (raiz, str(docs), str(tmp_path)):
+        assert cc.leitura_proibida(busca, busca=True), busca
+        assert _acao("Grep", {"path": busca, "pattern": "CPF"}) == "deny", busca
+        assert _acao("LS", {"path": busca}) == "deny", busca
+        assert _acao("Glob", {"pattern": "*.txt", "path": busca}) == "deny", busca
+    assert cc.leitura_proibida(str(pac / "ficha.txt"))
+    assert _acao("Read", {"file_path": str(pac / "ficha.txt")}) == "deny"
+    if r == 0 and junc.exists():
+        assert cc.leitura_proibida(str(junc / "Pacientes" / "ficha.txt"))
+        assert _acao("Read", {"file_path": str(junc / "Pacientes" / "ficha.txt")}) == "deny"
+
+
+def test_leitura_que_nao_resolve_fecha_quando_ha_pasta_extra(tmp_path, monkeypatch):
+    _extra_protegido(tmp_path, monkeypatch)
+    for estranho in (r"\\servidor\share\x.txt", r"C:\a\b:fluxo", "C:\\a*\\b\\.."):
+        assert cc.leitura_proibida(estranho), estranho
+
+
+def test_leitura_fora_da_pasta_extra_continua_liberada(tmp_path, monkeypatch):
+    _extra_protegido(tmp_path, monkeypatch)
+    outra = tmp_path / "outra"
+    outra.mkdir()
+    (outra / "a.txt").write_text("x", encoding="utf-8")
+    assert cc.leitura_proibida(str(outra / "a.txt")) is None
+    assert cc.leitura_proibida(str(outra), busca=True) is None
+    assert _acao("Grep", {"path": str(outra), "pattern": "x"}) is None
+
+
+def test_nome_curto_8_3_de_segredo_e_expandido_antes_da_regex(monkeypatch):
+    """Menor 4 (com duble): `ENV~1` e o `.env`; a regex so via o texto."""
+    monkeypatch.setattr(cc, "_nome_longo",
+                        lambda p: r"C:\Users\x\.env" if "ENV~1" in p else None)
+    assert cc.leitura_proibida(r"C:\Users\x\ENV~1")
+    assert _acao("Read", {"file_path": r"C:\Users\x\ENV~1"}) == "deny"
+    assert _acao("Bash", {"command": r"dir C:\Users\x\ENV~1"}) == "deny"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="8.3 so existe no Windows")
+def test_nome_curto_8_3_real_de_segredo_e_negado(tmp_path):
+    import ctypes
+    pasta = tmp_path / ".ssh_backup_pasta"
+    pasta.mkdir()
+    chave = pasta / "id_ed25519"
+    chave.write_text("x", encoding="utf-8")
+    buf = ctypes.create_unicode_buffer(1024)
+    n = ctypes.windll.kernel32.GetShortPathNameW(str(chave), buf, 1024)
+    curto = buf.value if n else str(chave)
+    if "~" not in curto.replace(str(tmp_path), ""):
+        pytest.skip("o volume nao gera nomes 8.3")
+    assert cc.leitura_proibida(curto)

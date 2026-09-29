@@ -493,7 +493,17 @@ function ligarCanalDoPython() {
     console.error(`electron: porta do soquete do Python inválida: ${process.argv[process.argv.length - 1]}`);
     return;
   }
+  // Segredo da ponte: 127.0.0.1 é alcançável por qualquer programa da máquina, então
+  // o Python só aceita quem abre a conversa com este token (variável de ambiente,
+  // nunca argumento). Sem ele, nem conecta: o Python recusaria de qualquer jeito.
+  const token = process.env.DERVS_PONTE_TOKEN;
+  delete process.env.DERVS_PONTE_TOKEN;   // não herdar para processos filhos
+  if (!token) {
+    console.error("electron: sem DERVS_PONTE_TOKEN — a ponte com o Python não abre");
+    return;
+  }
   const soquete = net.createConnection({ host: "127.0.0.1", port: porta }, () => {
+    soquete.write(token + "\n");          // primeira linha: o segredo
     const rl = readline.createInterface({ input: soquete, terminal: false });
     rl.on("line", tratarLinhaDoPython);
   });

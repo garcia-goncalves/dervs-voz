@@ -365,3 +365,20 @@ def test_inofensivos_continuam_reversiveis(comando):
 def test_desconhecido_cai_em_muda_estado_nunca_em_reversivel(comando):
     d = decidir_risco(comando, risco_do_claude="reversivel")
     assert d["nivel"] != "reversivel", comando
+
+
+# --- auditoria de seguranca 29/09: subexpressao do PowerShell executa codigo ----------
+
+@pytest.mark.parametrize("cmd", [
+    r"echo ([IO.File]::Delete('C:\Users\Desktop\x.txt'))",
+    r"echo ([IO.File]::WriteAllText('C:\x.txt', 'oi'))",
+    r"echo (Set-Content C:\x.txt '')",
+    r"echo {Remove-Item C:\x.txt}",
+    r"echo [System.IO.File]::Delete('C:\x.txt')",
+])
+def test_subexpressao_do_powershell_nao_e_reversivel(cmd):
+    assert decidir_risco(cmd)["nivel"] != "reversivel", cmd
+
+
+def test_claude_json_e_segredo():
+    assert decidir_risco(r"type C:\Users\x\.claude.json")["le_segredo"]

@@ -136,8 +136,10 @@ parte do Python):
   - o filho sobe com `CREATE_NO_WINDOW` no Windows — sem isso volta a "janela
     preta" já corrigida.
 """
+import hmac
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -148,6 +150,8 @@ WINDOWS = sys.platform == "win32"
 
 _LIMITE_LINHA = 64 * 1024      # 64 KiB — linha maior que isso é descartada
 _PRAZO_ESCRITA = 2.0           # s — write no soquete do Electron que não lê
+_PRAZO_TOKEN = 2.0             # s — para a primeira linha (o segredo) chegar
+VARIAVEL_DA_FICHA = "DERVS_PONTE_TOKEN"   # o mesmo nome em electron/main.js
 _LIMITE_TEXTO = 4000           # texto livre é cortado antes de ser enviado
 _LIMITE_PLANO = 60000          # caracteres — teto abaixo de _LIMITE_LINHA,
                                 # para sobrar folga para o resto do JSON
@@ -213,6 +217,7 @@ class PonteElectron:
         self._ultimo_envio_volume = 0.0
         self._sair_notificado = False
         self._servidor = None       # soquete que escuta a conexão do Electron
+        self._token = None          # segredo da ponte: sem ele ninguém conecta
         self._conexao = None        # soquete aceito, já conversando com o Electron
         self._canal_saida = None    # onde `_escrever` escreve de verdade
                                      # (o objeto do soquete, via makefile) —
@@ -244,41 +249,84 @@ class PonteElectron:
                 f"'npm install' dentro da pasta 'electron/' e tente de novo")
         servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         servidor.bind(("127.0.0.1", 0))
-        servidor.listen(1)
+        servidor.listen(4)
+        # Segredo só desta subida: loopback não basta, qualquer programa da máquina
+        # chega em 127.0.0.1 e a primeira conexão ganhava o canal. Vai ao filho por
+        # variável de ambiente (argumento de linha de comando aparece na lista de
+        # processos); o Electron o manda como primeira linha ao conectar.
+        self._token = secrets.token_hex(32)
         porta = servidor.getsockname()[1]
         self._servidor = servidor
         threading.Thread(target=self._aceitar_conexao, daemon=True).start()
         kwargs = {}
         if WINDOWS:
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        if env_extra:
-            ambiente = dict(os.environ)
-            ambiente.update(env_extra)
-            kwargs["env"] = ambiente
+        ambiente = dict(os.environ)
+        ambiente.update(env_extra or {})
+        ambiente[VARIAVEL_DA_FICHA] = self._token
+        kwargs["env"] = ambiente
         processo = subprocess.Popen(
             [executavel, caminho_app, str(porta)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             **kwargs)
         self._iniciar(processo)
 
-    def _aceitar_conexao(self):
+    def _token_confere(self, conexao) -> bool:
+        """A primeira linha da conexão tem de ser o segredo da subida (prazo curto).
+        Sem segredo configurado, ninguém entra."""
+        if not self._token:
+            return False
+        esperado = (self._token + "\n").encode("ascii")
+        recebido = b""
+        fim = time.monotonic() + _PRAZO_TOKEN
+        try:
+            while not recebido.endswith(b"\n") and len(recebido) < len(esperado):
+                restante = fim - time.monotonic()
+                if restante <= 0:
+                    return False
+                conexao.settimeout(restante)
+                pedaco = conexao.recv(1)
+                if not pedaco:
+                    return False
+                recebido += pedaco
+        except OSError:
+            return False
+        return hmac.compare_digest(recebido, esperado)
+
+    def _aceitar_conexao(self, prazo: float = 15.0):
         """Espera o Electron conectar no soquete de escuta.
 
         15 s é folgado de propósito: o Electron só conecta depois de subir o
         runtime do Chromium, que em máquina carregada pode não ser instantâneo.
         Endereço de origem é conferido por segurança em profundidade — o
         soquete já só escuta em `127.0.0.1`, mas nunca custa checar de novo
-        quem está do outro lado antes de tratar a conexão como o Electron."""
+        quem está do outro lado antes de tratar a conexão como o Electron. E só
+        vale quem diz o segredo da subida como primeira linha: as outras
+        conexões são fechadas e a espera continua até o prazo."""
         servidor = self._servidor
+        fim = time.monotonic() + prazo
+        while True:
+            restante = fim - time.monotonic()
+            if restante <= 0:
+                return
+            try:
+                servidor.settimeout(restante)
+                conexao, endereco = servidor.accept()
+            except OSError:
+                return
+            if endereco[0] != "127.0.0.1":
+                sys.stderr.write(f"ponte: conexão recusada de {endereco!r} (não é loopback)\n")
+                conexao.close()
+                continue
+            if not self._token_confere(conexao):
+                sys.stderr.write("ponte: conexão recusada (segredo da ponte ausente ou errado)\n")
+                conexao.close()
+                continue
+            break
         try:
-            servidor.settimeout(15.0)
-            conexao, endereco = servidor.accept()
+            servidor.close()        # já tem dono: as demais tentativas nem conectam
         except OSError:
-            return
-        if endereco[0] != "127.0.0.1":
-            sys.stderr.write(f"ponte: conexão recusada de {endereco!r} (não é loopback)\n")
-            conexao.close()
-            return
+            pass
         # Escrita com prazo: se o Electron travar e parar de ler, o write falha
         # em 2 s em vez de segurar o app para sempre.
         conexao.settimeout(_PRAZO_ESCRITA)

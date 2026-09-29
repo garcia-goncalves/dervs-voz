@@ -105,8 +105,6 @@ try:
 except ImportError:
     _cp = None
 
-_MOTIVO_EXTRA = "pasta que você marcou como protegida"      # texto da onda C
-
 
 def protegido_com_motivo(caminho, **kw):
     """`(protegido, motivo)`. Qualquer dúvida é `True`."""
@@ -132,19 +130,93 @@ _AREA_SENSIVEL = re.compile(
     r"BraveSoftware|Opera Software|[\\/]Chromium[\\/]", re.IGNORECASE)
 
 
+def _nome_longo(caminho: str):
+    """`GetLongPathNameW`: o nome completo de um caminho que EXISTE, ou `None`."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    buf = ctypes.create_unicode_buffer(32768)
+    n = ctypes.windll.kernel32.GetLongPathNameW(caminho, buf, 32768)
+    return buf.value if 0 < n < 32768 else None
+
+
+def _expandir_83(texto: str) -> str:
+    """`ENV~1` é o `.env` e `SSH~1\\ID_ED2~1` é a chave SSH: a regex só vê o texto, então
+    o nome curto (8.3) é expandido antes dela. Caminho que não existe fica como está."""
+    if "~" not in texto:
+        return texto
+    try:
+        return _nome_longo(texto) or texto
+    except Exception:
+        return texto
+
+
 def _parece_segredo(texto: str) -> bool:
-    return any(re.search(p, texto, re.IGNORECASE) for p in seg._SEGREDOS)
+    return any(re.search(p, t, re.IGNORECASE) for t in {texto, _expandir_83(texto)}
+               for p in seg._SEGREDOS)
 
 
-def leitura_proibida(caminho):
+def _para_windows(texto: str) -> str:
+    """`~`, `%VAR%`, `$env:VAR` e o `/c/...` do Git Bash viram caminho do Windows."""
+    t = texto.strip()
+    m = re.match(r"^\$env:(\w+)(.*)$", t, re.IGNORECASE)
+    if m:
+        t = os.environ.get(m.group(1), "") + m.group(2)
+    if t.startswith("~"):
+        t = os.path.expanduser(t)
+    if "%" in t:
+        t = os.path.expandvars(t)
+    m = re.match(r"^/([A-Za-z])(?:/(.*))?$", t)
+    if m:
+        t = m.group(1).upper() + ":\\" + (m.group(2) or "").replace("/", "\\")
+    return t
+
+
+_CURINGA_DE_BUSCA = re.compile(r"[*?\[]")
+_TEM_UNIDADE_OU_RAIZ = re.compile(r"^(?:[A-Za-z]:|[\\/])")
+
+
+def _chaves_de_leitura(texto: str, busca: bool):
+    """`(chaves, motivo)`: as formas (escrita e real) do caminho, já como chave de
+    comparação, ou o motivo de não dar para resolver (aí a leitura fecha). Numa
+    busca, o curinga fica de fora: vale a pasta literal antes dele."""
+    t = _para_windows(texto)
+    if busca:
+        m = _CURINGA_DE_BUSCA.search(t)
+        if m:
+            t = t[:m.start()]
+            t = t[:max(t.rfind("\\"), t.rfind("/")) + 1]
+    if not t or not _TEM_UNIDADE_OU_RAIZ.match(t):
+        bases = (PASTA_HARNESS, os.getcwd())          # relativo: a pasta da sessão
+        candidatos = [os.path.join(b, t) for b in bases]
+    else:
+        candidatos = [t]
+    chaves = []
+    for c in candidatos:
+        lexico = _cp._lexico(c)
+        real = _cp.normalizar(lexico) if lexico else None
+        if lexico is None or real is None:
+            return None, "não deu para resolver o caminho (relativo, de rede, disfarçado)"
+        if _cp.link_no_caminho(lexico) or _cp.link_no_caminho(real):
+            return None, "passa por uma junção ou atalho — o destino pode ser trocado"
+        chaves += [_cp._chave(lexico), _cp._chave(real)]
+    return chaves, ""
+
+
+def leitura_proibida(caminho, busca: bool = False):
     """Motivo pelo qual o Claude NÃO pode LER este caminho (segredo, ou pasta que
     o dono marcou como protegida — dado de paciente), ou `None`. Vale para
-    qualquer perfil: o perfil `equipe` não tem regra de `deny` de Read."""
+    qualquer perfil: o perfil `equipe` não tem regra de `deny` de Read.
+
+    `busca=True` (Grep/Glob/LS): a raiz da busca também não pode CONTER uma pasta
+    protegida — `Grep` em `C:\\` varre a pasta do paciente. A decisão é por contenção
+    contra as pastas do dono, já resolvidas; NÃO se pergunta ao motor de protegidos
+    (ele já negava a raiz do disco por outro motivo, e isso liberava a leitura)."""
     if not isinstance(caminho, str) or not caminho:
         return None
     if _parece_segredo(caminho):
         return "parece um arquivo de segredo (chave, senha, credencial)"
-    if _AREA_SENSIVEL.search(caminho):
+    if any(_AREA_SENSIVEL.search(t) for t in {caminho, _expandir_83(caminho)}):
         return "é área de login do dono (perfil de navegador ou ~/.claude.json)"
     if _cp is None:
         return "o motor de caminhos protegidos (onda C) não está disponível"
@@ -154,10 +226,24 @@ def leitura_proibida(caminho):
         return "a lista de pastas protegidas está ilegível — nada é lido até consertar"
     if not extras:
         return None
-    sem, _ = protegido_com_motivo(caminho, extras=[])
-    com, motivo = protegido_com_motivo(caminho, extras=extras)
-    if com and (not sem or motivo == _MOTIVO_EXTRA):
-        return "fica numa pasta que o dono marcou como protegida"
+    try:
+        pastas = []
+        for extra in extras:
+            resolvido = _cp.normalizar(extra) or _cp._lexico(extra)
+            if resolvido is None:
+                return "um caminho da lista de pastas protegidas é inválido — nada é lido"
+            pastas.append(_cp._chave(resolvido))
+        chaves, erro = _chaves_de_leitura(caminho, busca)
+        if chaves is None:
+            return f"{erro} — com pasta protegida configurada, a leitura fecha"
+        for c in chaves:
+            for p in pastas:
+                if _cp._dentro(c, p):
+                    return "fica numa pasta que o dono marcou como protegida"
+                if busca and _cp._dentro(p, c):
+                    return "a busca abrangeria uma pasta que o dono marcou como protegida"
+    except Exception as e:
+        return f"erro ao conferir as pastas protegidas ({type(e).__name__}) — a leitura fecha"
     return None
 
 
@@ -183,16 +269,17 @@ _GIT_BRANCH_LISTA = re.compile(
     r"^\s*git\s+branch(?:\s+(?:-a|-r|-v|-vv|--list|--all|--remotes))*\s*$", re.IGNORECASE)
 _GIT_PERIGO = re.compile(
     r"--output|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|--git-dir|"
-    r"--work-tree|--open-files-in-pager|(?:^|\s)-c(?:\s|$)", re.IGNORECASE)
+    r"--work-tree|--open-files-in-pager|--no-index|(?:^|\s)-c(?:\s|$)", re.IGNORECASE)
 # Sem argumento: `date`/`whoami /all`/`hostname -x` mudam ou despejam coisa em alguns shells.
 _LEITURA_SEM_ARGUMENTO = re.compile(
     r"^\s*(?:pwd|whoami|hostname|get-location|get-date|date(?:\s+/t)?)\s*$", re.IGNORECASE)
 _LEITURA_COM_ARGUMENTO = re.compile(
     r"^\s*(?:dir|ls|get-childitem|gci|get-process|test-path|echo)(?:\s+(?P<args>.*))?$",
     re.IGNORECASE | re.DOTALL)
-# Argumento limpo: só letras, números, espaço e `. _ - \ / : ~ * ? ' " , ( ) [ ]`. Fora
-# `$ ; & | > < ` % ^ = @ { }` (expansão, encadeamento, redirecionamento, variável).
-_ARGUMENTO_LIMPO = re.compile(r"^[\w\s.\\/:~*?'\",()\[\]-]*$")
+# Argumento limpo: só letras, números, espaço e `. _ - \ / : ~ * ? ' " ,`. Fora
+# `$ ; & | > < ` % ^ = @ { } ( ) [ ]` (expansão, encadeamento, redirecionamento,
+# variável e subexpressão do PowerShell: `echo ([IO.File]::Delete(...))` executa).
+_ARGUMENTO_LIMPO = re.compile(r"^[\w\s.\\/:~*?'\",-]*$")
 # `Env:`, `HKCU:`, `Cert:`, `Variable:` despejam segredo/registro; só unidade de uma letra.
 _UNIDADE_ESTRANHA = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z0-9_]{2,}:")
 _NOME_DE_REDE = re.compile(r"fetch|http|browser|navigate|web|url|download|request|search",
@@ -276,7 +363,9 @@ _FERRAMENTAS_DE_LEITURA_COM_CAMINHO = ("Read", "Glob", "Grep", "LS", "NotebookRe
 
 
 _URL = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
-_ABSOLUTO = re.compile(r"^(?:[A-Za-z]:|\\|~|%|\$env:)", re.IGNORECASE)
+# `/x/...` é o caminho do Git Bash (`/c/Users/...`); `/s` ou `/t` sozinho é opção.
+_ABSOLUTO = re.compile(r"^(?:[A-Za-z]:|\\|/[^\\/]+[\\/]|~|%|\$env:)", re.IGNORECASE)
+_NOME_CURTO_83 = re.compile(r"(?:^|[\\/])[^\\/]{1,8}~\d")
 _PEDACO_SENSIVEL = re.compile(r"(?:^|[\\/])\.(?:git|claude|ssh)(?:[\\/]|$)", re.IGNORECASE)
 
 
@@ -290,7 +379,7 @@ def _caminhos_no_comando(comando: str):
     for t in _TOKEN.findall(comando or ""):
         if _URL.match(t):
             continue
-        if _ABSOLUTO.match(t) or _PEDACO_SENSIVEL.search(t):
+        if _ABSOLUTO.match(t) or _PEDACO_SENSIVEL.search(t) or _NOME_CURTO_83.search(t):
             yield t
 
 
@@ -310,10 +399,15 @@ def motivo_de_bloqueio(nome: str, entrada: dict, protegido=esta_protegido,
         if d["nivel"] == "destrutivo":
             porque = "; ".join(d["motivos"]) or "destrutivo"
             return f"O DERVS bloqueou este comando ({porque}). {proposta}"
-        if d["nivel"] != "reversivel":
-            for c in _caminhos_no_comando(comando):
-                if protegido(c):
-                    return f"O DERVS bloqueou: o comando mexe em caminho protegido ({c}). {proposta}"
+        # Segredo e pasta do dono valem para QUALQUER nível: "reversível" é só o que o
+        # `dervs_safety` reconhece, e ele não sabe quais pastas o dono protegeu.
+        # `protegido` (escrita) só onde o comando muda algo: listar `C:\Windows` é liberado.
+        for c in _caminhos_no_comando(comando):
+            if d["nivel"] != "reversivel" and protegido(c):
+                return f"O DERVS bloqueou: o comando mexe em caminho protegido ({c}). {proposta}"
+            porque = leitura(c)
+            if porque:
+                return f"O DERVS bloqueou: o comando toca {c[:120]} e {porque}. {proposta}"
         return None
     if nome in FERRAMENTAS_DE_ESCRITA:
         caminho = (entrada.get("file_path") or entrada.get("notebook_path")
@@ -331,7 +425,7 @@ def motivo_de_bloqueio(nome: str, entrada: dict, protegido=esta_protegido,
             # `pattern` do Grep é o TEXTO procurado, não um caminho.
             if chave == "pattern" and nome == "Grep":
                 continue
-            motivo = leitura(valor)
+            motivo = leitura(valor, busca=nome not in ("Read", "NotebookRead"))
             if motivo:
                 return f"O DERVS não deixa o Claude ler {valor[:120]}: {motivo}."
     return None
