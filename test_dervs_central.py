@@ -276,20 +276,33 @@ def test_temporarios_arquivo_travado_nao_vira_candidato(tmp_path, monkeypatch):
 
 
 # ------------------------------------------------------------------ repositórios
-def test_repositorios_interpreta_ahead_sujo_e_sem_upstream():
-    a = repositorios.interpretar("# branch.head main\n# branch.upstream origin/main\n# branch.ab +2 -0\n1 .M x")
-    assert a["ahead"] == 2 and a["sujo"] is True and a["sem_upstream"] is False
-    b = repositorios.interpretar("# branch.head feat\n")
+def _refs(atual, *ramos):
+    """O que `rodar_git` devolve: 'HEAD<TAB>branch' e uma linha por branch local."""
+    tab, nl = chr(9), chr(10)
+    return nl.join([f"HEAD{tab}{atual}"] + [tab.join(r) for r in ramos]) + nl
+
+
+def test_repositorios_interpreta_ahead_e_sem_upstream():
+    a = repositorios.interpretar(_refs("main", ("main", "origin/main", "[ahead 2, behind 1]"), ("feat", "", "")))
+    assert a["ahead"] == 2 and a["behind"] == 1 and a["sem_upstream"] is False and a["branch"] == "main"
+    b = repositorios.interpretar(_refs("feat", ("main", "origin/main", ""), ("feat", "", "")))
     assert b["sem_upstream"] is True and b["ahead"] == 0
 
 
 def test_repositorios_acha_repos_e_lista_so_os_pendentes(tmp_path):
     for nome in ("a", "b"):
         os.makedirs(tmp_path / nome / ".git")
-    saidas = {str(tmp_path / "a"): "# branch.head main\n# branch.upstream o/m\n# branch.ab +1 -0\n",
-              str(tmp_path / "b"): "# branch.head main\n# branch.upstream o/m\n# branch.ab +0 -0\n"}
+    saidas = {str(tmp_path / "a"): _refs("main", ("main", "origin/main", "[ahead 1]")),
+              str(tmp_path / "b"): _refs("main", ("main", "origin/main", ""))}
     r = repositorios.coletar([str(tmp_path)], rodar_git_fn=lambda repo: saidas[repo])
     assert [i["nome"] for i in r["itens"]] == ["a"]
+
+
+def test_repositorios_nunca_usa_git_status(monkeypatch):
+    comandos = []
+    monkeypatch.setattr(repositorios, "_git", lambda repo, *args: comandos.append(args) or "x")
+    repositorios.rodar_git("C:/qualquer")
+    assert comandos and all("status" not in c for c in comandos)
 
 
 # ------------------------------------------------------------------ drivers e energia

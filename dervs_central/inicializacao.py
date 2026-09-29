@@ -25,8 +25,7 @@ def coletar(rodar=None) -> dict:
     for c in comandos:
         nome = c.get("Name") or ""
         estado = estados.get(nome)
-        itens.append({"nome": nome, "comando": (c.get("Command") or "")[:300],
-                      "local": c.get("Location") or "", "usuario": c.get("User") or "",
+        itens.append({"nome": nome, "local": c.get("Location") or "", "usuario": c.get("User") or "",
                       "ativo": estado is None or estado % 2 == 0})
     tarefas = []
     try:

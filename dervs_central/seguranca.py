@@ -24,7 +24,7 @@ def coletar_defender(rodar=None) -> dict:
     precisa_admin, ameacas, terceiros = False, [], []
     try:
         ameacas = [{"processo": texto_curto(a.get("ProcessName"), 80),
-                    "alvo": texto_curto(a.get("Resources"), 160)} for a in consultar(rodar, _AMEACAS)]
+                    "alvo": ""} for a in consultar(rodar, _AMEACAS)]
     except ErroConsulta as erro:
         precisa_admin = erro.admin
     try:

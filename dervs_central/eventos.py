@@ -27,7 +27,7 @@ def coletar(rodar=None) -> dict:
         chave = (str(e.get("ProviderName") or "?"), e.get("Id"))
         g = grupos.setdefault(chave, {"fonte": chave[0], "id": chave[1],
                                       "nivel": e.get("LevelDisplayName") or "", "quantidade": 0,
-                                      "ultima": "", "exemplo": texto_curto(e.get("Msg"))})
+                                      "ultima": ""})
         g["quantidade"] += 1
         g["ultima"] = max(g["ultima"], str(e.get("Quando") or ""))
     itens = sorted(grupos.values(), key=lambda g: (-g["quantidade"], g["fonte"]))
