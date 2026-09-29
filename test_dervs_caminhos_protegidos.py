@@ -71,6 +71,57 @@ def test_padroes_sao_protegidos(caminho):
     assert motivo  # sempre diz o porquê, em português
 
 
+@pytest.mark.parametrize("caminho", [
+    os.path.join(HOME, "AppData", "Roaming", "Microsoft", "Protect", "S-1-5-21", "chave"),
+    os.path.join(HOME, "AppData", "Roaming", "Microsoft", "Credentials", "x"),
+    os.path.join(HOME, "AppData", "Local", "Microsoft", "Credentials", "x"),
+    os.path.join(HOME, "AppData", "Local", "Google", "Chrome", "User Data", "Default", "Cookies"),
+    os.path.join(HOME, "AppData", "Local", "Microsoft", "Edge", "User Data", "Default"),
+    os.path.join(HOME, "AppData", "Local", "BraveSoftware", "Brave-Browser", "User Data"),
+    os.path.join(HOME, "AppData", "Roaming", "Mozilla", "Firefox", "Profiles", "abc.default"),
+    r"C:\Recovery\WindowsRE",
+])
+def test_cofres_de_senha_e_perfis_de_navegador_sao_protegidos(caminho):
+    """Revisão de 29/09: as chaves do Windows (DPAPI), as credenciais e os
+    perfis de navegador (senhas, cookies) ficavam de fora."""
+    protegido, motivo = _protegido(caminho)
+    assert protegido and motivo
+
+
+def test_item_com_atributo_de_sistema_e_protegido(tmp_path):
+    import ctypes
+    alvo = tmp_path / "desktop.ini"
+    alvo.write_text("x")
+    assert not _protegido(str(alvo))[0]
+    ctypes.windll.kernel32.SetFileAttributesW(str(alvo), 0x4)  # FILE_ATTRIBUTE_SYSTEM
+    try:
+        protegido, motivo = _protegido(str(alvo))
+        assert protegido and "sistema" in motivo
+    finally:
+        ctypes.windll.kernel32.SetFileAttributesW(str(alvo), 0x80)
+
+
+def test_pasta_com_item_de_sistema_dentro_e_recusada(tmp_path):
+    import ctypes
+    (tmp_path / "p").mkdir()
+    alvo = tmp_path / "p" / "desktop.ini"
+    alvo.write_text("x")
+    ctypes.windll.kernel32.SetFileAttributesW(str(alvo), 0x4)
+    try:
+        assert "sistema" in cp.problema_dentro(str(tmp_path / "p"))
+    finally:
+        ctypes.windll.kernel32.SetFileAttributesW(str(alvo), 0x80)
+
+
+def test_pastas_pessoais_de_verdade_vem_do_windows():
+    """Documentos pode ter sido redirecionado (para D:, para o OneDrive): a
+    pasta que o Windows diz que é a de Documentos é a que vale."""
+    reais = cp.pastas_conhecidas()
+    assert reais, "o Windows não informou nenhuma pasta conhecida"
+    for pasta in reais:
+        assert _protegido(pasta)[0], pasta
+
+
 def test_pasta_que_contem_protegido_tambem_e_protegida():
     """Apagar `~\\source` apagaria os repositórios; apagar `~\\AppData` levaria
     a config do DERVS junto. Ancestral de protegido é protegido."""

@@ -19,8 +19,8 @@ Sem prova visual ainda: a foto da janela com os três botões e o cartão de pla
 **Onda C da central do PC (29/09/2026): a trava de aprovação existe, mas ainda
 não está ligada a nenhum botão.** É a sua regra virada código: "não pode apagar
 nada sem antes analisar tudo e me dizer o que é cada coisa; sempre com minha
-aprovação". Quatro peças, todas testadas sozinhas (158 testes novos; suíte
-inteira: 1026 verdes):
+aprovação". Quatro peças, todas testadas sozinhas (192 testes novos; suíte
+inteira: 1060 verdes depois da revisão de segurança do mesmo dia):
 
 - `dervs_caminhos_protegidos.py` — o que **nunca** se apaga, nem com clique:
   Windows, Arquivos de Programas, ProgramData, a raiz de qualquer disco, o seu
@@ -37,15 +37,30 @@ inteira: 1026 verdes):
   existe "aprovar tudo"), risco alto com confirmação dupla, vale 15 minutos e
   uma vez só.
 - `dervs_executor_seguro.py` — o único que mexe no disco. Confere tudo de novo
-  na hora (se o arquivo mudou depois da análise, recusa) e **nunca apaga**:
-  move para a quarentena (`%LOCALAPPDATA%\dervs\quarentena\`), de onde o
-  Desfazer devolve o item exatamente para onde estava. A Lixeira do Windows e
+  na hora (se o arquivo mudou depois da análise, ou foi trocado por uma cópia
+  idêntica, recusa) e **nunca apaga**: move para a quarentena
+  (`%LOCALAPPDATA%\dervs\quarentena\`), de onde o Desfazer devolve o item
+  exatamente para onde estava. A revisão de segurança provou que dava para
+  trocar a pasta de uma "isca" por um atalho para uma pasta protegida no
+  instante entre conferir e mover; agora o item é **segurado aberto** enquanto
+  é conferido e movido (o Windows não deixa ninguém trocá-lo nesse meio
+  tempo), e o ataque do revisor falhou 10 de 10 vezes. Antes de mover, grava
+  "vai executar" no registro — se não conseguir gravar, não move. A Lixeira do Windows e
   as ações de programa/sistema (desinstalar, serviço, registro, firewall)
   passam pelas mesmas travas e param em "não implementado nesta versão".
 - `dervs_log_acoes.py` — `%LOCALAPPDATA%\dervs\acoes.jsonl`: tudo que foi
   analisado, proposto, aprovado, recusado (com o motivo), executado e
-  desfeito. Cada linha carrega o hash da anterior, então mexer numa linha do
-  meio fica visível. Chave, token e senha são apagados antes de gravar.
+  desfeito. Cada linha carrega o hash da anterior: isso denuncia linha
+  estragada ou mexida sem cuidado, mas **não** quem recalcula todos os hashes
+  de propósito. Com o DERVS aberto há uma segunda defesa: ele lembra onde
+  parou e grava um "alerta" se o arquivo mudou por fora. Chave, token e senha
+  são apagados antes de gravar.
+
+Também entram na lista do que nunca se apaga: as chaves e senhas guardadas
+pelo Windows (`Microsoft\Protect`, `Credentials`, `Vault`), os perfis dos
+navegadores (Chrome, Edge, Brave, Firefox), `C:\Recovery`, qualquer item
+marcado como "de sistema", e as pastas Documentos/Área de Trabalho/Downloads
+de verdade, perguntadas ao Windows (valem mesmo se foram mudadas para o D:).
 
 **LEIA-ME — onde ficam os dados de paciente.** Na primeira vez que o motor
 rodar, ele cria `%APPDATA%\dervs\caminhos_protegidos.json`. Ponha ali as pastas
@@ -56,9 +71,11 @@ se recusa a apagar **qualquer coisa** até ele ser consertado. Esses caminhos
 são lidos só na sua máquina e nunca vão para o Claude nem para a OpenAI.
 **Isso depende de você: diga quais programas guardam dado de paciente.**
 
-O que falta para chegar à tela: a onda B liga o `propor_acao` do Claude ao
-`analisar` e o clique do painel ao `aprovar`/`executar`/`desfazer` (o cartão
-do relatório só vai para o painel, nunca para o Claude); a onda D usa o motor
+O que falta para chegar à tela: a onda B liga o `propor_acao` do Claude à
+`Fachada` (só analisar e consultar) e o clique do painel ao
+`aprovar`/`executar`/`desfazer`. **Regra dura para a onda B: o Claude recebe
+só a `Fachada`, nunca o `Motor`** — o cartão do relatório e a senha de
+aprovação só vão para o painel; a onda D usa o motor
 na limpeza de temporários, e decide o que fazer com `C:\Windows\Temp`, que
 hoje é protegido junto com todo o `C:\Windows`.
 

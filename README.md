@@ -176,8 +176,8 @@ clique do dono. As peças, todas puras (sem Electron nem Claude):
 | Arquivo | Papel |
 |---|---|
 | `dervs_caminhos_protegidos.py` | `esta_protegido(caminho)` — o que nunca se apaga; lista extra em `%APPDATA%\dervs\caminhos_protegidos.json` |
-| `dervs_aprovacao.py` | `Motor`: `analisar` → `abrir_cartao` → `aprovar(origem="clique")` → `consumir_aprovacao` |
-| `dervs_executor_seguro.py` | `executar` / `desfazer` — único que toca o disco; apagar = quarentena reversível |
+| `dervs_aprovacao.py` | `Motor` (só para a ponte do painel): `analisar` → `abrir_cartao` → `aprovar(origem="clique")` → `consumir_aprovacao`. `Fachada` (a ÚNICA coisa que o Claude recebe): `analisar` e `status` |
+| `dervs_executor_seguro.py` | `executar` / `desfazer` — único que toca o disco; segura o item aberto enquanto confere e move; apagar = quarentena reversível |
 | `dervs_log_acoes.py` | `%LOCALAPPDATA%\dervs\acoes.jsonl`, só acrescenta, encadeado por hash, sem segredo |
 
 Testes: `test_dervs_caminhos_protegidos.py`, `test_dervs_aprovacao.py`,

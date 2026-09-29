@@ -24,6 +24,14 @@ O ciclo:
   4. `consumir_aprovacao(...)` — usado pelo executor: confere e queima o item
      de uma vez, sob trava.
 
+QUEM FALA COM O CLAUDE RECEBE SÓ A `Fachada` (analisar e status). O `Motor`
+em si — com `abrir_cartao`, `aprovar` e as senhas de uso — fica só com a
+ponte do painel. Se o MCP do Claude receber o Motor, ele consegue aprovar
+sozinho: a trava inteira depende disso.
+
+A impressão digital guarda também o NÚMERO do arquivo no disco (`st_ino`):
+uma cópia idêntica, com a mesma data, é outro arquivo e não passa.
+
 Os registros de aprovação moram SÓ na memória deste processo, de propósito:
 um arquivo em disco poderia ser forjado por quem escreve em disco. O relatório
 também é gravado em `%LOCALAPPDATA%\\dervs\\relatorios\\<id>.json`, mas só para a
@@ -43,6 +51,8 @@ import dervs_caminhos_protegidos as cp
 from dervs_log_acoes import LogAcoes
 
 VALIDADE_S = 15 * 60
+LIMITE_RELATORIOS = 50
+LIMITE_EXPLICACAO = 500
 LIMITE_PESSOAIS_POR_VEZ = 3
 LIMITE_ITENS = 500
 LIMITE_TEXTO = 2000
@@ -95,7 +105,7 @@ class Recusado(Exception):
 # ------------------------------------------------------------ impressão digital
 
 def _digest_arquivo(caminho: str, st) -> str:
-    h = hashlib.sha256(f"arquivo|{st.st_size}|{st.st_mtime_ns}|".encode())
+    h = hashlib.sha256(f"arquivo|{st.st_dev}|{st.st_ino}|{st.st_size}|{st.st_mtime_ns}|".encode())
     with open(caminho, "rb") as f:
         if st.st_size <= _HASH_INTEIRO_ATE:
             for bloco in iter(lambda: f.read(1024 * 1024), b""):
@@ -118,10 +128,11 @@ def conteudo_de(caminho: str) -> dict:
         raise Recusado("é uma junção ou atalho simbólico")
     if os.path.isfile(caminho) and not os.path.isdir(caminho):
         return {"tipo": "arquivo", "tamanho": st.st_size, "mtime_ns": st.st_mtime_ns,
-                "digest": _digest_arquivo(caminho, st), "arquivos": 1}
+                "digest": _digest_arquivo(caminho, st), "arquivos": 1,
+                "dev": st.st_dev, "ino": st.st_ino}
     if not os.path.isdir(caminho):
         raise Recusado("não é arquivo nem pasta comum")
-    h = hashlib.sha256(b"pasta|")
+    h = hashlib.sha256(f"pasta|{st.st_dev}|{st.st_ino}|".encode())
     total, arquivos, linhas = 0, 0, []
     for raiz, pastas, nomes in os.walk(caminho, followlinks=False, onerror=_falha_ao_ler):
         pastas.sort()
@@ -132,7 +143,8 @@ def conteudo_de(caminho: str) -> dict:
                 raise Recusado("tem uma junção ou atalho simbólico dentro")
             eh_pasta = nome in pastas
             linhas.append(f"{os.path.relpath(completo, caminho)}|{'p' if eh_pasta else 'a'}|"
-                          f"{0 if eh_pasta else s.st_size}|{0 if eh_pasta else s.st_mtime_ns}")
+                          f"{s.st_ino}|{0 if eh_pasta else s.st_size}|"
+                          f"{0 if eh_pasta else s.st_mtime_ns}")
             if not eh_pasta:
                 total += s.st_size
                 arquivos += 1
@@ -142,7 +154,8 @@ def conteudo_de(caminho: str) -> dict:
     for linha in linhas:
         h.update(linha.encode("utf-8") + b"\n")
     return {"tipo": "pasta", "tamanho": total, "mtime_ns": st.st_mtime_ns,
-            "digest": h.hexdigest(), "arquivos": arquivos, "subpastas": len(linhas) - arquivos}
+            "digest": h.hexdigest(), "arquivos": arquivos, "subpastas": len(linhas) - arquivos,
+            "dev": st.st_dev, "ino": st.st_ino}
 
 
 def _falha_ao_ler(erro):
@@ -188,15 +201,20 @@ def _o_que_e(caminho_real: str, info: dict, ambiente) -> str:
     return " ".join(partes)
 
 
-def _texto(valor, campo: str, obrigatorio: bool, minimo: int = 10) -> str:
+def _texto(valor, campo: str, obrigatorio: bool, minimo: int = 10,
+           limite: int = LIMITE_TEXTO) -> str:
+    """Texto vindo de fora vira UMA linha, sem caractere de controle e com
+    teto: quebra de linha no meio da explicação serviria para forjar, na tela,
+    uma linha que parece do DERVS ("FALSO: aprovado")."""
     if valor is None and not obrigatorio:
         return ""
     if not isinstance(valor, str):
         raise Recusado(f"o campo '{campo}' veio num formato que não é texto")
-    valor = "".join(c for c in valor if c.isprintable() or c == "\n").strip()
+    valor = "".join(c if c.isprintable() else " " for c in valor[:limite * 2])
+    valor = " ".join(valor.split())
     if obrigatorio and len(valor) < minimo:
         raise Recusado(f"falta explicar {campo.replace('_', ' ')} ({campo})")
-    return valor[:LIMITE_TEXTO]
+    return valor[:limite]
 
 
 def _risco_max(*riscos) -> str:
@@ -207,7 +225,7 @@ def _risco_max(*riscos) -> str:
 
 class Motor:
     def __init__(self, pasta: str | None = None, *, arquivo_extras: str | None = None,
-                 ambiente: dict | None = None, relogio=time.time):
+                 ambiente: dict | None = None, relogio=time.time, monotonico=time.monotonic):
         self.ambiente = ambiente
         local = cp._env(ambiente, "LOCALAPPDATA") or os.path.join(
             os.path.expanduser("~"), "AppData", "Local")
@@ -219,13 +237,15 @@ class Motor:
             cp.garantir_arquivo_extras(self.arquivo_extras)
         except OSError:
             pass  # sem o modelo, carregar_extras devolve lista vazia; nada afrouxa
-        self.relogio = relogio
+        self.relogio = relogio          # só para mostrar data e hora
+        self.monotonico = monotonico    # para validade: não anda para trás
         self.log = LogAcoes(os.path.join(self.pasta, "acoes.jsonl"), relogio=relogio)
         self._trava = threading.RLock()
         self._relatorios = {}   # id -> {"dados": relatório, "hash": str}
         self._cartoes = {}      # relatorio_id -> senha do cartão
         self._registros = {}    # registro_id -> registro (com a senha de uso)
         self._aprovados = set()  # (relatorio_id, item_id) já aprovados uma vez
+        self._quarentenas = {}  # desfazer_id -> o que o executor moveu nesta sessão
 
     # --------------------------------------------------- caminhos protegidos
     def checar_protegido(self, caminho, em_massa: bool = False) -> tuple[bool, str]:
@@ -242,8 +262,26 @@ class Motor:
         return cp.dentro_de_pasta_pessoal(caminho_real, self.ambiente)
 
     def recusar(self, etapa: str, motivo: str, **dados) -> dict:
-        self.log.registrar("recusou", dict(dados, etapa=etapa, motivo=motivo))
+        try:
+            self.log.registrar("recusou", dict(dados, etapa=etapa, motivo=motivo))
+        except Exception:
+            pass  # recusar não depende do registro; executar, sim
         return {"ok": False, "motivo": motivo}
+
+    def _limpar(self):
+        """Tira da memória relatório velho (nenhuma aprovação dele vale mais) e
+        mantém no máximo LIMITE_RELATORIOS. Chamar sob a trava."""
+        agora = self.monotonico()
+        velhos = [r for r, g in self._relatorios.items() if agora - g["criado"] > 2 * VALIDADE_S]
+        por_idade = sorted(self._relatorios, key=lambda r: self._relatorios[r]["criado"])
+        excesso = len(self._relatorios) - len(velhos) - (LIMITE_RELATORIOS - 1)
+        velhos += [r for r in por_idade if r not in velhos][:max(0, excesso)]
+        for r in velhos:
+            self._relatorios.pop(r, None)
+            self._cartoes.pop(r, None)
+        self._aprovados = {a for a in self._aprovados if a[0] in self._relatorios}
+        self._registros = {k: v for k, v in self._registros.items()
+                           if v["relatorio_id"] in self._relatorios and agora <= v["expira_em"]}
 
     # --------------------------------------------------- 1. analisar
     def _item_de_arquivo(self, proposta: dict, acao: str) -> dict:
@@ -286,7 +324,7 @@ class Motor:
             "data": time.strftime("%d/%m/%Y %H:%M", time.localtime(info["mtime_ns"] / 1e9)),
             "o_que_e": _o_que_e(real, info, self.ambiente), "o_que_muda": o_que_muda,
             "como_desfazer": como_desfazer, "reversivel": True, "risco": risco,
-            "impressao": impressao_de(real, info["digest"]),
+            "impressao": impressao_de(real, info["digest"]), "identidade": info["ino"],
         }
 
     def _item_de_sistema(self, proposta: dict, acao: str) -> dict:
@@ -309,7 +347,8 @@ class Motor:
         if acao not in ACOES_DE_ARQUIVO + ACOES_DE_SISTEMA:
             raise Recusado(f"ação desconhecida ({str(acao)[:40]!r}) — o motor não faz o que não conhece")
         por_que = _texto(proposta.get("por_que_seguro"), "por_que_seguro", True)
-        explicacao = _texto(proposta.get("explicacao"), "explicacao", False)
+        explicacao = _texto(proposta.get("explicacao"), "explicacao", False,
+                            limite=LIMITE_EXPLICACAO)
         muda_extra = _texto(proposta.get("o_que_muda"), "o_que_muda", False)
         risco_proposto = proposta.get("risco", "baixo")
         if risco_proposto not in RISCOS:
@@ -356,8 +395,10 @@ class Motor:
             "total_bytes": sum(i["tamanho_bytes"] for i in aceitos),
         }
         with self._trava:
+            self._limpar()
             self._relatorios[relatorio_id] = {"dados": copy.deepcopy(relatorio),
-                                              "hash": _hash_do_relatorio(aceitos)}
+                                              "hash": _hash_do_relatorio(aceitos),
+                                              "criado": self.monotonico()}
         pasta = os.path.join(self.pasta, "relatorios")
         os.makedirs(pasta, exist_ok=True)
         with open(os.path.join(pasta, relatorio_id + ".json"), "w", encoding="utf-8",
@@ -377,9 +418,11 @@ class Motor:
 
     # --------------------------------------------------- 2. cartão da tela
     def abrir_cartao(self, relatorio_id: str) -> str | None:
-        """Senha que acompanha o relatório SÓ até o painel. O clique devolve."""
+        """Senha que acompanha o relatório SÓ até o painel. O clique devolve.
+        Vence junto com o relatório (15 min) e queima no primeiro uso."""
         with self._trava:
-            if relatorio_id not in self._relatorios:
+            guardado = self._relatorios.get(relatorio_id)
+            if guardado is None or self.monotonico() - guardado["criado"] > VALIDADE_S:
                 return None
             senha = secrets.token_urlsafe(32)
             self._cartoes[relatorio_id] = senha
@@ -398,9 +441,13 @@ class Motor:
             guardado = self._relatorios.get(relatorio_id) if isinstance(relatorio_id, str) else None
             if guardado is None:
                 return recusa("relatório não encontrado — analise de novo")
+            if self.monotonico() - guardado["criado"] > VALIDADE_S:
+                self._cartoes.pop(relatorio_id, None)
+                return recusa("o relatório venceu (vale 15 minutos) — analise de novo")
             senha = self._cartoes.get(relatorio_id)
             if not (isinstance(cartao, str) and senha and secrets.compare_digest(cartao, senha)):
                 return recusa("a aprovação não veio do cartão deste relatório no painel")
+            del self._cartoes[relatorio_id]  # cartão usado uma vez só
             if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
                 return recusa("marque os itens um a um — não existe 'aprovar tudo' às cegas")
             if len(set(ids)) != len(ids):
@@ -421,7 +468,7 @@ class Motor:
             if len(pessoais) > LIMITE_PESSOAIS_POR_VEZ:
                 return recusa(f"exclusão em massa em pasta pessoal: no máximo "
                               f"{LIMITE_PESSOAIS_POR_VEZ} itens por vez")
-            agora = self.relogio()
+            agora = self.monotonico()
             registro = {
                 "id": secrets.token_hex(8), "token": secrets.token_urlsafe(32),
                 "relatorio_id": relatorio_id, "relatorio_hash": guardado["hash"],
@@ -446,7 +493,7 @@ class Motor:
                 return {"ok": False, "motivo": "não há aprovação registrada para isto"}
             if not (isinstance(token, str) and secrets.compare_digest(token, reg["token"])):
                 return {"ok": False, "motivo": "a aprovação apresentada não confere com a registrada"}
-            if self.relogio() > reg["expira_em"]:
+            if self.monotonico() > reg["expira_em"]:
                 return {"ok": False, "motivo": "a aprovação venceu (vale 15 minutos) — "
                                                "analise e aprove de novo"}
             if not isinstance(item_id, str) or item_id not in reg["ids"]:
@@ -462,3 +509,42 @@ class Motor:
             reg["usados"].append(item_id)
             publico = {k: v for k, v in reg.items() if k != "token"}
             return {"ok": True, "item": copy.deepcopy(item), "registro": copy.deepcopy(publico)}
+
+    # --------------------------------------------------- para a tela e a fachada
+    def status(self, relatorio_id) -> dict | None:
+        """Estado de cada item, SEM senha nenhuma."""
+        with self._trava:
+            guardado = self._relatorios.get(relatorio_id) if isinstance(relatorio_id, str) else None
+            if guardado is None:
+                return None
+            executados = {i for r in self._registros.values()
+                          if r["relatorio_id"] == relatorio_id for i in r["usados"]}
+            itens = []
+            for item in guardado["dados"]["itens"]:
+                estado = ("executado" if item["id"] in executados else
+                          "aprovado" if (relatorio_id, item["id"]) in self._aprovados else
+                          "aguardando")
+                itens.append({"id": item["id"], "acao": item["acao"],
+                              "alvo": item["caminho_real"] or item["alvo"],
+                              "risco": item["risco"], "estado": estado})
+            return {"relatorio_id": relatorio_id, "itens": itens,
+                    "vencido": self.monotonico() - guardado["criado"] > VALIDADE_S}
+
+
+class Fachada:
+    """O que o Claude (e qualquer canal que a onda B exponha a ele) pode
+    usar: PROPOR e CONSULTAR. Não tem aprovar, cartão, senha de uso nem o
+    Motor à vista. O Motor fica só com a ponte do painel, que é quem recebe o
+    clique do dono."""
+
+    __slots__ = ("_analisar", "_status")
+
+    def __init__(self, motor: "Motor"):
+        self._analisar = motor.analisar
+        self._status = motor.status
+
+    def analisar(self, itens) -> dict:
+        return self._analisar(itens, origem="claude")
+
+    def status(self, relatorio_id) -> dict | None:
+        return self._status(relatorio_id)

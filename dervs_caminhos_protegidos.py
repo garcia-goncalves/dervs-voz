@@ -33,12 +33,17 @@ formato `{"caminhos": ["D:\\\\Consultorio", ...]}`. Se o arquivo existir e
 estiver ilegível, TUDO fica protegido até ele ser consertado. Esses caminhos
 são lidos só aqui, localmente — nunca vão para serviço de fora.
 """
+import ctypes
+import functools
 import json
 import os
 import re
 import stat
+import sys
+import uuid
 
 _REPARSE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+_SISTEMA = getattr(stat, "FILE_ATTRIBUTE_SYSTEM", 0x4)
 
 _MODELO_EXTRAS = {
     "LEIA-ME": ("Pastas que o DERVS NUNCA apaga, nem com aprovação. Ponha aqui as pastas "
@@ -203,6 +208,8 @@ def problema_dentro(pasta: str, limite: int = 20000) -> str:
                         return f"tem uma junção ou atalho simbólico dentro ({e.name})"
                     if e.name.casefold() in _COMPONENTES:
                         return f"tem dentro {_COMPONENTES[e.name.casefold()]}"
+                    if eh_de_sistema(e.path):
+                        return f"tem dentro um item marcado como de sistema pelo Windows ({e.name})"
                     if e.is_dir(follow_symlinks=False):
                         pilha.append(e.path)
         except OSError:
@@ -221,7 +228,27 @@ def _pastas_padrao(ambiente) -> list[tuple[str, str]]:
     dados_sistema = "dados de programas do sistema (ProgramData)"
     dervs_conf = "configuração e chaves do próprio DERVS"
     dervs_local = "registro e quarentena do próprio DERVS"
-    return [
+    cofre = "chaves e senhas guardadas pelo Windows"
+    navegador = "perfil de navegador (senhas, cookies, histórico)"
+    roamings = {appdata, os.path.join(perfil, "AppData", "Roaming")}
+    locais = {local, os.path.join(perfil, "AppData", "Local")}
+    sensiveis = []
+    for r in roamings:
+        sensiveis += [(os.path.join(r, "Microsoft", "Protect"), cofre),
+                      (os.path.join(r, "Microsoft", "Credentials"), cofre),
+                      (os.path.join(r, "Microsoft", "Crypto"), cofre),
+                      (os.path.join(r, "Microsoft", "SystemCertificates"), cofre),
+                      (os.path.join(r, "Mozilla", "Firefox", "Profiles"), navegador),
+                      (os.path.join(r, "Opera Software"), navegador)]
+    for l in locais:
+        sensiveis += [(os.path.join(l, "Microsoft", "Credentials"), cofre),
+                      (os.path.join(l, "Microsoft", "Vault"), cofre),
+                      (os.path.join(l, "Google", "Chrome", "User Data"), navegador),
+                      (os.path.join(l, "Microsoft", "Edge", "User Data"), navegador),
+                      (os.path.join(l, "BraveSoftware", "Brave-Browser", "User Data"), navegador),
+                      (os.path.join(l, "Mozilla", "Firefox", "Profiles"), navegador)]
+    return sensiveis + [
+        (r"C:\Recovery", "partição de recuperação do Windows"),
         (windows, sistema), (r"C:\Windows", sistema),
         (_env(ambiente, "ProgramFiles", r"C:\Program Files"), programas),
         (_env(ambiente, "ProgramFiles(x86)", r"C:\Program Files (x86)"), programas),
@@ -237,8 +264,46 @@ def _pastas_padrao(ambiente) -> list[tuple[str, str]]:
     ]
 
 
-def _pessoais(perfil: str) -> list[str]:
+# Pastas conhecidas do Windows (Área de Trabalho, Documentos, Downloads,
+# Imagens, Vídeos, Músicas). Podem ter sido redirecionadas para o D: ou para
+# o OneDrive — então quem diz onde estão é o próprio Windows.
+_PASTAS_CONHECIDAS = (
+    "B4BFCC3A-DB2C-424C-B029-7FE99A87C641", "FDD39AD0-238F-46AF-ADB4-6C85480369C7",
+    "374DE290-123F-4565-9164-39C4925E467B", "33E28130-4E1E-4676-835A-98395C3BC3BB",
+    "18989B1D-99B5-455B-841C-AB7C74E4DDFC", "4BD8D571-6D19-48D3-BE97-422220080E43",
+)
+
+
+@functools.lru_cache(maxsize=1)
+def pastas_conhecidas() -> tuple:
+    if sys.platform != "win32":
+        return ()
+    saida = []
+    for texto in _PASTAS_CONHECIDAS:
+        guid = ctypes.create_string_buffer(uuid.UUID(texto).bytes_le, 16)
+        resultado = ctypes.c_wchar_p()
+        try:
+            erro = ctypes.windll.shell32.SHGetKnownFolderPath(guid, 0, None, ctypes.byref(resultado))
+        except OSError:
+            continue
+        if erro == 0 and resultado.value:
+            saida.append(resultado.value)
+        if resultado:
+            ctypes.windll.ole32.CoTaskMemFree(resultado)
+    return tuple(saida)
+
+
+def eh_de_sistema(caminho: str) -> bool:
+    try:
+        return bool(getattr(os.lstat(caminho), "st_file_attributes", 0) & _SISTEMA)
+    except FileNotFoundError:
+        return False
+
+
+def _pessoais(perfil: str, reais: bool = True) -> list[str]:
     saida = [os.path.join(perfil, p) for p in _PESSOAIS]
+    if reais:
+        saida += list(pastas_conhecidas())
     saida.append(os.path.join(perfil, "OneDrive"))
     try:
         for e in os.scandir(perfil):
@@ -257,7 +322,7 @@ def _perfil(ambiente) -> str:
 
 def dentro_de_pasta_pessoal(caminho_real: str, ambiente=None) -> bool:
     chave = _chave(caminho_real)
-    return any(_dentro(chave, _chave(p)) for p in _pessoais(_perfil(ambiente)))
+    return any(_dentro(chave, _chave(p)) for p in _pessoais(_perfil(ambiente), ambiente is None))
 
 
 def _dentro_de_repositorio(real: str) -> bool:
@@ -322,6 +387,8 @@ def esta_protegido(caminho, *, em_massa: bool = False, extras=None,
                 return True, "nome curto do Windows (8.3) que não foi possível expandir"
         if link_no_caminho(lexico) or link_no_caminho(real):
             return True, "passa por uma junção ou atalho simbólico — o destino pode ser trocado"
+        if eh_de_sistema(real):
+            return True, "item marcado como de sistema pelo Windows"
         if extras is None:
             try:
                 extras = carregar_extras(arquivo_extras(ambiente))
@@ -334,7 +401,7 @@ def esta_protegido(caminho, *, em_massa: bool = False, extras=None,
                 return True, "um caminho da lista de protegidos é inválido — nada se apaga até consertar"
             subarvores.append((_chave(resolvido), "pasta que você marcou como protegida"))
         perfil = _perfil(ambiente)
-        pessoais = [_chave(p) for p in _pessoais(perfil)]
+        pessoais = [_chave(p) for p in _pessoais(perfil, ambiente is None)]
         for alvo in (lexico, real):
             motivo = _avaliar(_chave(alvo), subarvores, _chave(perfil), pessoais, em_massa)
             if motivo:

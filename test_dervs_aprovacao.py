@@ -45,7 +45,7 @@ def motor(tmp_path, relogio):
     extras = tmp_path / "caminhos_protegidos.json"
     extras.write_text(json.dumps({"caminhos": []}), encoding="utf-8")
     return ap.Motor(pasta=str(tmp_path / "dervs-local"), arquivo_extras=str(extras),
-                    relogio=relogio)
+                    relogio=relogio, monotonico=relogio)
 
 
 @pytest.fixture
@@ -196,7 +196,8 @@ def test_exclusao_em_massa_em_pasta_pessoal_e_recusada(tmp_path, relogio):
     ambiente = {"USERPROFILE": str(perfil), "APPDATA": str(perfil / "AppData" / "Roaming"),
                 "LOCALAPPDATA": str(perfil / "AppData" / "Local")}
     m = ap.Motor(pasta=str(perfil / "AppData" / "Local" / "dervs"), ambiente=ambiente,
-                 arquivo_extras=str(tmp_path / "nao-existe.json"), relogio=relogio)
+                 arquivo_extras=str(tmp_path / "nao-existe.json"), relogio=relogio,
+                 monotonico=relogio)
     arquivos = [_arquivo(docs, f"f{n}.txt") for n in range(5)]
     rel = _propor(m, *arquivos)
     assert len(rel["itens"]) == 5
@@ -479,3 +480,298 @@ def test_cada_passo_fica_no_log_encadeado(motor, alvos):
     assert log_acoes.LogAcoes(arquivo).verificar_cadeia()[0] is True
     texto = open(arquivo, encoding="utf-8").read()
     assert reg["token"] not in texto  # a senha de uso único nunca vai para o log
+
+
+# ------------------------------------------------------------ troca no meio (TOCTOU)
+# Achado da revisão de segurança de 29/09/2026: um Claude comprometido cria uma
+# "isca" idêntica a um arquivo protegido e, entre a conferência e a mudança,
+# troca a pasta da isca por uma junção para a pasta protegida. O executor
+# movia o arquivo PROTEGIDO para a quarentena.
+
+def _cenario_isca(tmp_path, tamanho=1600):
+    import shutil
+    protegida = tmp_path / "PROTEGIDA"
+    protegida.mkdir()
+    real = protegida / "prontuario.db"
+    real.write_bytes(os.urandom(tamanho))
+    extras = tmp_path / "extras-isca.json"
+    extras.write_text(json.dumps({"caminhos": [str(protegida)]}), encoding="utf-8")
+    m = ap.Motor(pasta=str(tmp_path / "dervs-isca"), arquivo_extras=str(extras))
+    pai = tmp_path / "limpeza"
+    pai.mkdir()
+    isca = pai / "prontuario.db"
+    shutil.copyfile(real, isca)
+    st = real.stat()
+    os.utime(isca, ns=(st.st_atime_ns, st.st_mtime_ns))
+    rel = m.analisar([{"acao": "quarentena", "alvo": str(isca), "por_que_seguro": POR_QUE}])
+    reg = m.aprovar(rel["id"], ["item-1"], origem="clique",
+                    cartao=m.abrir_cartao(rel["id"]))["registro"]
+    return m, reg, real, pai, protegida
+
+
+def _trocar_por_juncao(pai, protegida):
+    import _winapi
+    try:
+        os.rename(pai, str(pai) + "_velha")
+    except OSError:
+        return False  # o executor segura a isca: a troca não acontece
+    _winapi.CreateJunction(str(protegida), str(pai))
+    return True
+
+
+def _protegido_intacto(real, conteudo):
+    return real.exists() and real.read_bytes() == conteudo
+
+
+def test_toctou_troca_antes_de_abrir_nao_move_protegido(tmp_path, monkeypatch):
+    m, reg, real, pai, protegida = _cenario_isca(tmp_path)
+    conteudo = real.read_bytes()
+    original = ap.conteudo_de
+    chamadas = []
+
+    def espiao(caminho):
+        info = original(caminho)
+        chamadas.append(caminho)
+        if len(chamadas) == 1:  # a conferência do executor acabou de passar
+            _trocar_por_juncao(pai, protegida)
+        return info
+    monkeypatch.setattr(ap, "conteudo_de", espiao)
+    res = ex.executar(m, reg["id"], reg["token"], "item-1", origem="clique")
+    assert _protegido_intacto(real, conteudo), res
+    assert res["ok"] is False
+
+
+def test_toctou_troca_depois_do_manifesto_nao_move_protegido(tmp_path, monkeypatch):
+    m, reg, real, pai, protegida = _cenario_isca(tmp_path)
+    conteudo = real.read_bytes()
+    original = ex._gravar_manifesto
+
+    def espiao(pasta, manifesto):
+        original(pasta, manifesto)
+        if manifesto["estado"] == "movendo":
+            _trocar_por_juncao(pai, protegida)
+    monkeypatch.setattr(ex, "_gravar_manifesto", espiao)
+    res = ex.executar(m, reg["id"], reg["token"], "item-1", origem="clique")
+    assert _protegido_intacto(real, conteudo), res
+
+
+def test_toctou_corrida_com_atacante_em_paralelo(tmp_path):
+    """A versão de verdade: outra thread vigia a quarentena e troca a pasta
+    no instante em que o executor começa."""
+    import threading
+    import time as _t
+    for rodada in range(4):
+        base = tmp_path / f"r{rodada}"
+        base.mkdir()
+        m, reg, real, pai, protegida = _cenario_isca(base, tamanho=3 * 1024 * 1024)
+        conteudo = real.read_bytes()
+        quarentena = os.path.join(m.pasta, "quarentena")
+        os.makedirs(quarentena, exist_ok=True)
+        pronto = threading.Event()
+
+        def atacante():
+            pronto.set()
+            fim = _t.monotonic() + 10
+            while _t.monotonic() < fim:
+                if os.listdir(quarentena):
+                    _trocar_por_juncao(pai, protegida)
+                    return
+        t = threading.Thread(target=atacante)
+        t.start()
+        pronto.wait()
+        ex.executar(m, reg["id"], reg["token"], "item-1", origem="clique")
+        t.join()
+        assert _protegido_intacto(real, conteudo), f"rodada {rodada}"
+
+
+def test_executor_recusa_copia_com_mesmo_conteudo_e_data(motor, alvos):
+    """Mesmo conteúdo e mesma data, mas é OUTRO arquivo (outro número no
+    disco): a impressão digital tem de mudar."""
+    import shutil
+    f = _arquivo(alvos)
+    _, reg = _fluxo_ate_aprovar(motor, f)
+    st = f.stat()
+    shutil.copyfile(f, alvos / "copia")
+    os.replace(alvos / "copia", f)
+    os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
+    res = _executar(motor, reg)
+    assert res["ok"] is False and "mudou" in res["motivo"]
+
+
+def test_impressao_de_pasta_muda_se_item_de_dentro_foi_trocado(alvos):
+    import shutil
+    (alvos / "cache").mkdir()
+    f = _arquivo(alvos / "cache")
+    antes = ap.conteudo_de(str(alvos / "cache"))["digest"]
+    st = f.stat()
+    shutil.copyfile(f, alvos / "copia")
+    os.replace(alvos / "copia", f)
+    os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert ap.conteudo_de(str(alvos / "cache"))["digest"] != antes
+
+
+def test_desfazer_troca_do_destino_por_juncao_nao_grava_em_protegida(motor, alvos, tmp_path,
+                                                                     monkeypatch):
+    protegida = tmp_path / "PROTEGIDA-D"
+    protegida.mkdir()
+    (alvos / "pai").mkdir()
+    f = _arquivo(alvos / "pai")
+    _, reg = _fluxo_ate_aprovar(motor, f)
+    res = _executar(motor, reg)
+    assert res["ok"] is True
+    (tmp_path / "caminhos_protegidos.json").write_text(
+        json.dumps({"caminhos": [str(protegida)]}), encoding="utf-8")
+    original = ap.conteudo_de
+
+    def espiao(caminho):
+        info = original(caminho)
+        _trocar_por_juncao(alvos / "pai", protegida)
+        return info
+    monkeypatch.setattr(ap, "conteudo_de", espiao)
+    volta = ex.desfazer(motor, res["desfazer_id"], origem="clique")
+    assert volta["ok"] is False
+    assert list(protegida.iterdir()) == []
+    guardado = os.path.join(motor.pasta, "quarentena", res["desfazer_id"], "conteudo", "sobra.tmp")
+    assert os.path.exists(guardado)
+
+
+# ------------------------------------------------------------ registro que falha
+
+def test_executor_recusa_se_nao_consegue_registrar_antes(motor, alvos, monkeypatch):
+    f = _arquivo(alvos)
+    _, reg = _fluxo_ate_aprovar(motor, f)
+    original = motor.log.registrar
+
+    def quebrado(evento, dados=None):
+        if evento == "vai_executar":
+            raise OSError("disco cheio")
+        return original(evento, dados)
+    monkeypatch.setattr(motor.log, "registrar", quebrado)
+    res = _executar(motor, reg)
+    assert res["ok"] is False and "registro" in res["motivo"]
+    assert f.exists()
+
+
+def test_cauda_corrompida_do_registro_nao_derruba_o_motor(motor, alvos):
+    f = _arquivo(alvos)
+    _, reg = _fluxo_ate_aprovar(motor, f)
+    with open(motor.log.arquivo, "a", encoding="utf-8") as saida:
+        saida.write('{"seq": 99, "corta')
+    res = _executar(motor, reg)
+    assert res["ok"] is True, res
+    texto = open(motor.log.arquivo, encoding="utf-8").read()
+    assert '"evento": "alerta"' in texto and '"evento": "executou"' in texto
+
+
+# ------------------------------------------------------------ manifesto autenticado
+
+def test_desfazer_recusa_manifesto_desviado_para_outro_lugar_comum(motor, alvos, tmp_path):
+    f = _arquivo(alvos)
+    _, reg = _fluxo_ate_aprovar(motor, f)
+    res = _executar(motor, reg)
+    outra = tmp_path / "outra"
+    outra.mkdir()
+    caminho = os.path.join(motor.pasta, "quarentena", res["desfazer_id"], "manifesto.json")
+    manifesto = json.loads(open(caminho, encoding="utf-8").read())
+    manifesto["origem"] = str(outra / "sobra.tmp")
+    with open(caminho, "w", encoding="utf-8") as saida:
+        json.dump(manifesto, saida)
+    assert ex.desfazer(motor, res["desfazer_id"], origem="clique")["ok"] is False
+    assert not (outra / "sobra.tmp").exists()
+
+
+def test_desfazer_depois_de_reiniciar_usa_o_registro(motor, alvos, tmp_path, relogio):
+    f = _arquivo(alvos)
+    _, reg = _fluxo_ate_aprovar(motor, f)
+    res = _executar(motor, reg)
+    novo = ap.Motor(pasta=motor.pasta, arquivo_extras=str(tmp_path / "caminhos_protegidos.json"),
+                    relogio=relogio, monotonico=relogio)
+    assert ex.desfazer(novo, res["desfazer_id"], origem="clique")["ok"] is True
+    assert f.exists()
+
+
+def test_desfazer_depois_de_reiniciar_com_manifesto_desviado_e_recusado(motor, alvos, tmp_path,
+                                                                        relogio):
+    f = _arquivo(alvos)
+    _, reg = _fluxo_ate_aprovar(motor, f)
+    res = _executar(motor, reg)
+    caminho = os.path.join(motor.pasta, "quarentena", res["desfazer_id"], "manifesto.json")
+    manifesto = json.loads(open(caminho, encoding="utf-8").read())
+    (tmp_path / "outra").mkdir()
+    manifesto["origem"] = str(tmp_path / "outra" / "sobra.tmp")
+    with open(caminho, "w", encoding="utf-8") as saida:
+        json.dump(manifesto, saida)
+    novo = ap.Motor(pasta=motor.pasta, arquivo_extras=str(tmp_path / "caminhos_protegidos.json"),
+                    relogio=relogio, monotonico=relogio)
+    assert ex.desfazer(novo, res["desfazer_id"], origem="clique")["ok"] is False
+
+
+# ------------------------------------------------------------ cartão, fachada, limites
+
+def test_cartao_e_queimado_ao_usar(motor, alvos):
+    f1, f2 = _arquivo(alvos, "a.tmp"), _arquivo(alvos, "b.tmp")
+    rel = _propor(motor, f1, f2)
+    cartao = motor.abrir_cartao(rel["id"])
+    assert motor.aprovar(rel["id"], ["item-1"], origem="clique", cartao=cartao)["ok"] is True
+    assert motor.aprovar(rel["id"], ["item-2"], origem="clique", cartao=cartao)["ok"] is False
+
+
+def test_cartao_vence_com_o_relatorio(motor, alvos, relogio):
+    rel = _propor(motor, _arquivo(alvos))
+    cartao = motor.abrir_cartao(rel["id"])
+    relogio.agora += 15 * 60 + 1
+    res = motor.aprovar(rel["id"], ["item-1"], origem="clique", cartao=cartao)
+    assert res["ok"] is False and "venc" in res["motivo"]
+    assert motor.abrir_cartao(rel["id"]) is None
+
+
+def test_validade_usa_relogio_monotonico(tmp_path, alvos):
+    parede, mono = Relogio(), Relogio()
+    m = ap.Motor(pasta=str(tmp_path / "d"), arquivo_extras=str(tmp_path / "x.json"),
+                 relogio=parede, monotonico=mono)
+    f = _arquivo(alvos)
+    _, reg = _fluxo_ate_aprovar(m, f)
+    mono.agora += 16 * 60
+    parede.agora -= 3600  # alguém atrasou o relógio do Windows
+    assert _executar(m, reg)["ok"] is False and f.exists()
+
+
+def test_fachada_do_claude_nao_tem_cartao_nem_token_nem_aprovar(motor, alvos):
+    fachada = ap.Fachada(motor)
+    rel = fachada.analisar([{"acao": "quarentena", "alvo": str(_arquivo(alvos)),
+                             "por_que_seguro": POR_QUE}])
+    assert rel["itens"][0]["id"] == "item-1"
+    for nome in ("aprovar", "abrir_cartao", "consumir_aprovacao", "motor"):
+        assert not hasattr(fachada, nome), nome
+    assert fachada.status(rel["id"])["itens"][0]["estado"] == "aguardando"
+    reg = _aprovar(motor, rel)["registro"]
+    estado = fachada.status(rel["id"])
+    assert estado["itens"][0]["estado"] == "aprovado"
+    assert reg["token"] not in json.dumps(estado)
+    _executar(motor, reg)
+    assert fachada.status(rel["id"])["itens"][0]["estado"] == "executado"
+    assert fachada.status("nao-existe") is None
+
+
+def test_relatorios_tem_limite_de_quantidade(motor, alvos):
+    f = _arquivo(alvos)
+    primeiro = _propor(motor, f)
+    for _ in range(ap.LIMITE_RELATORIOS):
+        _propor(motor, f)
+    assert len(motor._relatorios) <= ap.LIMITE_RELATORIOS
+    assert motor.abrir_cartao(primeiro["id"]) is None
+
+
+def test_relatorio_velho_sai_da_memoria(motor, alvos, relogio):
+    velho = _propor(motor, _arquivo(alvos))
+    relogio.agora += 2 * ap.VALIDADE_S + 1
+    _propor(motor, _arquivo(alvos, "b.tmp"))
+    assert velho["id"] not in motor._relatorios
+
+
+def test_explicacao_do_claude_vira_uma_linha_curta(motor, alvos):
+    rel = _propor(motor, _arquivo(alvos),
+                  explicacao="linha 1\nlinha 2\r\nFALSO: aprovado" + "x" * 5000)
+    item = rel["itens"][0]
+    assert "\n" not in item["o_que_e"] and "\r" not in item["o_que_e"]
+    assert len(item["explicacao_claude"]) <= ap.LIMITE_EXPLICACAO

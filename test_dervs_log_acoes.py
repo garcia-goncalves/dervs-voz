@@ -144,6 +144,64 @@ def test_impressao_digital_nao_e_confundida_com_segredo(log):
     assert impressao in open(log.arquivo, encoding="utf-8").read()
 
 
+def test_mais_segredos_pela_cara(log):
+    # Montados por partes de propósito: são FALSOS, e o detector de segredo
+    # do commit não deve confundi-los com chave de verdade.
+    tipo = "RSA PRIVATE" + " KEY"
+    pem = (f"-----BEGIN {tipo}-----\nMIIEowIBAAKCAQEAsegredoPEM1234567890\n"
+           f"-----END {tipo}-----")
+    log.registrar("executou", {"a": "sk_" + "live_51HxyzABCDEFGHIJKLMNOPQRS",
+                               "b": "AI" + "zaSyA1234567890abcdefghijklmnopqrstuv",
+                               "c": pem})
+    texto = open(log.arquivo, encoding="utf-8").read()
+    for segredo in ("51HxyzABCDEF", "SyA1234567890abc", "segredoPEM1234567890"):
+        assert segredo not in texto, segredo
+
+
+def test_nome_inocente_antes_nao_esconde_o_segredo_depois(log):
+    log.registrar("executou", {"u": "https://site/x?token=abcdef123456&y=2",
+                               "v": "modo: rapido senha: hunter2hunter2"})
+    texto = open(log.arquivo, encoding="utf-8").read()
+    assert "abcdef123456" not in texto and "hunter2hunter2" not in texto
+    assert "rapido" in texto
+
+
+def test_redator_nao_e_lento_com_texto_hostil(log):
+    """Revisão de 29/09: o padrão antigo levava 21 s para 3000 caracteres."""
+    import time
+    hostil = {"a": "key-" * 750, "b": "token." * 500, "c": ("x=" * 1500), "d": "k" * 20000 + "="}
+    inicio = time.monotonic()
+    log.registrar("analisou", hostil)
+    assert time.monotonic() - inicio < 1.0
+
+
+def test_cauda_ilegivel_nao_impede_registrar(log):
+    _preencher(log)
+    with open(log.arquivo, "a", encoding="utf-8") as f:
+        f.write('{"seq": 5, "cort')
+    log.registrar("desfez", {"desfazer_id": "x"})
+    linhas = _linhas(log)
+    assert json.loads(linhas[-2])["evento"] == "alerta"
+    assert json.loads(linhas[-1])["evento"] == "desfez"
+    assert json.loads(linhas[-1])["seq"] == json.loads(linhas[-2])["seq"] + 1
+    assert log.verificar_cadeia()[0] is False  # o trecho estragado continua visível
+
+
+def test_escrita_por_fora_entre_duas_minhas_gera_alerta(log):
+    """Quem recalcula os hashes passa pela corrente, mas não pela memória do
+    processo: a próxima escrita avisa."""
+    _preencher(log)
+    ultima = json.loads(_linhas(log)[-1])
+    forjada = {"seq": ultima["seq"] + 1, "quando": ultima["quando"], "evento": "aprovou",
+               "dados": {"ids": ["item-9"]}, "anterior": ultima["hash"]}
+    forjada["hash"] = la.hash_da_linha(forjada)
+    with open(log.arquivo, "a", encoding="utf-8") as f:
+        f.write(json.dumps(forjada, ensure_ascii=False, sort_keys=True) + "\n")
+    log.registrar("executou", {"x": 1})
+    eventos = [json.loads(l)["evento"] for l in _linhas(log)]
+    assert eventos[-2:] == ["alerta", "executou"]
+
+
 def test_linha_tem_limite_de_tamanho(log):
     log.registrar("analisou", {"texto": "x" * 200_000, "lista": ["y" * 1000] * 500})
     linha = _linhas(log)[0]
