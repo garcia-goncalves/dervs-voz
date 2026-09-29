@@ -135,8 +135,9 @@ mente sobre o microfone. A escolha fica em `escuta_ao_abrir`.
 
 **Quarta rodada (23/09/2026) — três funções novas no HUD:**
 
-- **Atalho global `Ctrl+Alt+D`** (`globalShortcut`, `electron/main.js`): esconde a
-  janela se ela está à vista, senão traz de volta e foca. Se outro programa já usa
+- **Atalho global `Ctrl+Alt+D`** (`globalShortcut`, `electron/main.js`): abre/fecha o
+  **painel grande** (`electron/renderer/painel.html`, ver `COMO-USAR.md`); o widget
+  compacto tem `Ctrl+Alt+Shift+D` (esconde se está à vista, senão traz de volta e foca). Se outro programa já usa
   a combinação, o Electron avisa no log e segue sem o atalho. A janela também não
   fica mais presa minimizada: quem a minimiza (Win+D) é desfeito na hora.
 - **Cartão do diário do porteiro:** `HOJE: N ouvidas · M acordei`, contado de

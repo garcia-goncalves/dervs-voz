@@ -222,8 +222,10 @@ microfone por uma hora e o reabre sozinho. Enquanto dura, mostra o tempo que fal
 ligar ou desligar o microfone pelo botão dele durante a reunião, ela é cancelada.
 Se fechar o DERVS no meio, ele abre ouvindo da próxima vez.
 
-**Atalho no teclado:** `Ctrl+Alt+D` esconde a janela do DERVS; apertando de novo
-ela volta.
+**Atalho no teclado:** `Ctrl+Alt+D` abre o **painel grande** (a tela JARVIS,
+explicada logo abaixo); apertando de novo, ele some. A janelinha compacta continua
+existindo: aperte `Ctrl+Alt+Shift+D` para escondê-la ou trazê-la de volta, ou
+clique no ícone do DERVS na bandeja do Windows.
 
 **Uma linha pequena** perto do rodapé diz **HOJE: N ouvidas · M acordei** — quantas
 frases o DERVS ouviu hoje e em quantas ele acordou. Só números; o que foi dito não
@@ -277,6 +279,47 @@ pasta. Dentro do arquivo, duas linhas importam:
   quem está conversando, não o de robô lendo.
 
 Mudou o arquivo? Feche e abra o DERVS para valer.
+
+---
+
+## O painel grande (a tela JARVIS)
+
+**Como abrir:** aperte `Ctrl+Alt+D`, ou clique no botão **PAINEL** da janelinha.
+Para fechar: `Ctrl+Alt+D` de novo, ou o **x** no canto do painel. Enquanto o painel
+está aberto, a janelinha some (e volta sozinha quando o painel fecha; se o DERVS
+precisar da sua confirmação num plano, ela volta na hora). O botão quadrado ao lado
+do **x** faz o painel ocupar a tela toda; a alça no canto de baixo à direita muda o
+tamanho.
+
+**O que cada parte mostra** (tudo é dado real, atualizado sozinho):
+
+- **Topo:** relógio e data, e a barra de estado — **microfone** (clique nele para
+  ligar/desligar), **voz** (NUVEM = a voz humana da OpenAI; LOCAL = a de reserva
+  do computador, que entra quando a internet cai), **internet** e o **gasto do dia**.
+- **Esquerda, SISTEMA:** CPU, memória, disco e rede, cada um com um gráfico dos
+  últimos 60 segundos.
+- **Centro:** o reator. Ele gira e brilha conforme você e o DERVS falam, e o arco
+  em volta cresce com o volume da voz.
+- **Direita, AGENDA:** os lembretes que você pediu (os mesmos de "Pedir um
+  lembrete"). Sem lembrete, aparece um texto explicando como pedir.
+  **DIÁRIO:** as últimas frases que o DERVS ouviu hoje — só a hora, se ele foi
+  chamado e a duração; o que foi dito **nunca** aparece.
+- **Embaixo:** a **conversa ao vivo** (as últimas falas suas e dele) e as **últimas
+  ações** (o que ele rodou, o resultado e os erros).
+
+**O "GASTO HOJE" é uma estimativa.** Cada vez que o DERVS fala com a voz de nuvem,
+transcreve o que você disse ou pensa na nuvem, ele anota uma linha no arquivo
+`gasto.jsonl` (na pasta `%LOCALAPPDATA%\dervs`, só neste computador; guarda data,
+tipo e valor, nunca texto nem chave). O valor sai de uma tabela: voz da nuvem
+≈ US$ 0,015 por minuto de áudio falado, transcrição ≈ US$ 0,006 por minuto de áudio
+enviado, e o cérebro pelos tokens que a OpenAI informa. **A fatura de verdade é a
+da OpenAI** — este número serve para você ver o ritmo do dia, não para conferir
+centavos. Ele zera à meia-noite.
+
+**Fica pesado?** Não: com o DERVS parado, o painel fechado ou aberto, o programa
+inteiro usa bem menos de um décimo de um núcleo do processador. A animação para
+quando o painel está escondido e cai para 10 quadros por segundo quando você está
+em outra janela.
 
 ---
 

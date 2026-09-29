@@ -3,7 +3,7 @@
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 28/09/2026. **830 testes verdes** no ambiente do
+Última verificação: 28/09/2026. **865 testes verdes** no ambiente do
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
@@ -308,6 +308,40 @@ Achados numa verificação ao vivo, clicando nos botões do HUD de verdade:
   (sem segredo) e força a escuta fechada. Três rodadas seguidas: 815 verdes.
 - **Confirmado ao vivo:** botão do microfone liga, botão REUNIÃO 1H liga e cancela,
   e o DERVS ouviu e respondeu a uma frase sua. O HUD mostra CPU, RAM e disco reais.
+
+### 3.9. O painel grande estilo JARVIS (28/09/2026, branch `feat/painel-jarvis`)
+
+Pedido do dono: "um painel incrível... como se fosse o JARVIS bem completo".
+Contrato em `docs/esteira/dervs-painel-jarvis/briefing.md`; como usar, em
+`COMO-USAR.md` ("O painel grande").
+
+- **Janela nova** (`electron/renderer/painel.html/.css/.js`, criada sob demanda em
+  `main.js`): 1280×800, translúcida, sem moldura, redimensionável pela alça e pelo
+  botão "ocupar a tela". **`Ctrl+Alt+D` agora alterna o painel**; o widget compacto
+  (420×700, igual a antes) ganhou o botão **PAINEL** e o atalho `Ctrl+Alt+Shift+D`.
+  Com o painel aberto o widget se esconde (senão tapa o canto), e volta sozinho se
+  um plano pedir confirmação.
+- **Dados reais:** CPU/RAM/disco/rede (rede é nova: KB/s por `psutil`, campo opcional
+  do verbo `sistema`), agenda (`dervs_lembretes.Agenda`), diário (`dervs_diario.
+  entradas_recentes`, só metadados), voz nuvem/local, internet, conversa e ações.
+  Verbos novos da ponte: `gasto`, `agenda`, `diario_entradas`, `voz`, `acao`
+  (`dervs_ponte_electron.py`, cabeçalho; laço em `dervs_painel.py`, a cada 5 s, sem
+  reenviar valor igual).
+- **Gasto do dia** (`dervs_gasto.py`): linha em `%LOCALAPPDATA%\dervs\gasto.jsonl` a
+  cada voz de nuvem (US$ 0,015/min de wav), transcrição (US$ 0,006/min) e resposta do
+  cérebro (por `usage`). **É estimativa.** Sob pytest não grava no arquivo real.
+- **CPU do DERVS parado, medida** (Python + Electron, 10 s): **0,34 núcleo antes,
+  0,11 depois**, e 0,04–0,12 com o painel aberto. O ganho veio de o widget deixar de
+  desenhar a 60 quadros/s parado (agora 10 sem foco e sem voz, ~30 no resto). No painel:
+  30 quadros/s com foco, 10 sem foco, 0 escondido.
+- **Testes:** `test_dervs_gasto.py` (registrador e os quatro pontos que o chamam),
+  `test_dervs_painel.py` (verbos, agenda, diário, rede), `test_dervs_painel_js.py`
+  (roda `electron/renderer/painel-formato.test.js` no Node), mais a ação no
+  `test_dervs_electron_entrada.py`. Rode com o Python do `dervs-venv` (o do sistema
+  não tem PyQt6 e falha 3 testes de lembretes por isso).
+- **Achados:** o preload compartilhado agora expõe também `alternarPainel` e os
+  controles do painel; o texto de fora (conversa, título de lembrete) entra só por
+  `textContent` — provado com `<img onerror>` na conversa, que apareceu como texto.
 
 ---
 
