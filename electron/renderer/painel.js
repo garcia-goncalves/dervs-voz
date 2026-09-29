@@ -205,8 +205,10 @@
   const botaoCancelar = $("botao-cancelar");
   let planoPrecisaAutorizacao = false;
   let planoCartaoId = null;
+  let planoPendente = false;   // cartão aberto e ainda sem resposta
 
   function fecharDialogoPlano() {
+    planoPendente = false;
     if (dialogoPlano.open) dialogoPlano.close();
     elPlanoPassos.textContent = "";
     elPlanoComando.hidden = true;
@@ -253,7 +255,11 @@
     }
     elAutorizacaoEnvolucro.hidden = !planoPrecisaAutorizacao;
 
+    planoPendente = true;
     if (!dialogoPlano.open) dialogoPlano.showModal();
+    // O foco inicial vai para Cancelar: um Enter/Espaço que o dono já estava
+    // apertando em outro programa nunca confirma um plano sem ele ter lido.
+    botaoCancelar.focus();
   }
 
   botaoConfirmar.addEventListener("click", () => {
@@ -275,6 +281,11 @@
 
   // Esc não pode fechar o cartão sem resposta: só os dois botões respondem.
   dialogoPlano.addEventListener("cancel", (e) => e.preventDefault());
+  // O Chromium deixa o Esc repetido fechar mesmo com preventDefault: se o cartão
+  // fechou sem resposta, reabre — o Python continua esperando esse cartaoId.
+  dialogoPlano.addEventListener("close", () => {
+    if (planoPendente && !dialogoPlano.open) dialogoPlano.showModal();
+  });
 
   // ---- listas ---------------------------------------------------------------
 

@@ -55,7 +55,8 @@ let arrastoAlca = null;  // { x, y, largura, altura } no começo do arrasto
 const ultimosPorCanal = new Map();   // canal -> último dado (só canais "de estado")
 const CANAIS_DE_ESTADO = new Set([
   "dervs:estado", "dervs:microfone", "dervs:sistema", "dervs:diario", "dervs:reuniao",
-  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz"]);
+  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz",
+  "dervs:plano"]);   // reload do painel com cartão pendente repõe o cartão
 const historicoFalas = [];           // últimas falas da conversa
 const historicoAcoes = [];           // últimas ações
 const MAX_HISTORICO = 30;
@@ -465,7 +466,11 @@ function ligarCanalDoPython() {
 // Resposta do cartão de plano vinda do renderer (via preload/contextBridge).
 // `dado` é `{ resposta, autorizado, cartaoId }` (preload.js atual); aceita
 // também uma string solta por compatibilidade com um preload mais velho.
+// Logoff/shutdown do Windows não pode ser bloqueado pelo "fechar esconde".
+app.on("before-quit", () => { app.isQuitting = true; });
+
 ipcMain.on("dervs:responder-plano", (_evento, dado) => {
+  ultimosPorCanal.delete("dervs:plano");   // respondido: reload não reabre o cartão
   const resposta = dado && typeof dado === "object" ? dado.resposta : dado;
   const autorizado = Boolean(dado && typeof dado === "object" && dado.autorizado);
   const cartaoId = dado && typeof dado === "object" && "cartaoId" in dado
