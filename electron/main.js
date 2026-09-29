@@ -43,8 +43,41 @@ function urlDoDervsApp() {
 
 const LIMITE_LINHA = 64 * 1024; // mesmo espírito do _LIMITE_LINHA de dervs_instancia.py
 
-let janela = null;
+let janela = null;       // o widget compacto (420x700)
+let painel = null;       // a janela grande (JARVIS), criada na primeira abertura
 let bandeja = null;
+let widgetEstavaVisivel = true;
+let painelAmpliado = false;
+let painelAntes = null;  // bounds antes de "ocupar a tela"
+let arrastoAlca = null;  // { x, y, largura, altura } no começo do arrasto
+
+// Últimas mensagens do Python, guardadas para a janela grande (criada sob
+// demanda) nascer já com tudo preenchido, sem esperar a próxima leitura.
+const ultimosPorCanal = new Map();   // canal -> último dado (só canais "de estado")
+const CANAIS_DE_ESTADO = new Set([
+  "dervs:estado", "dervs:microfone", "dervs:sistema", "dervs:diario", "dervs:reuniao",
+  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz"]);
+const historicoFalas = [];           // últimas falas da conversa
+const historicoAcoes = [];           // últimas ações
+const MAX_HISTORICO = 30;
+
+function janelaViva(j) {
+  return j && !j.isDestroyed() && !j.webContents.isDestroyed();
+}
+
+// Manda o mesmo evento ao widget e ao painel grande (se existir).
+function difundir(canal, dado) {
+  if (CANAIS_DE_ESTADO.has(canal)) ultimosPorCanal.set(canal, dado);
+  if (canal === "dervs:fala") {
+    historicoFalas.push(dado);
+    if (historicoFalas.length > MAX_HISTORICO) historicoFalas.shift();
+  } else if (canal === "dervs:acao") {
+    historicoAcoes.push(dado);
+    if (historicoAcoes.length > MAX_HISTORICO) historicoAcoes.shift();
+  }
+  if (janelaViva(janela)) janela.webContents.send(canal, dado);
+  if (janelaViva(painel)) painel.webContents.send(canal, dado);
+}
 
 const TOOLTIPS = {
   ocioso: "DERVS",
@@ -169,7 +202,10 @@ function mostrarJanela() {
 
 // Atalho global Ctrl+Alt+D: visível e não minimizada → esconde; senão traz
 // de volta e foca.
+// Ctrl+Alt+D alterna o PAINEL GRANDE (janela JARVIS). O widget compacto passa a
+// ter o seu próprio atalho, Ctrl+Alt+Shift+D, e continua na bandeja/menu.
 const ATALHO_GLOBAL = "Control+Alt+D";
+const ATALHO_WIDGET = "Control+Alt+Shift+D";
 
 function alternarJanela() {
   if (!janela) return;
@@ -181,12 +217,130 @@ function alternarJanela() {
 }
 
 function registrarAtalhoGlobal() {
-  try {
-    if (!globalShortcut.register(ATALHO_GLOBAL, alternarJanela)) {
-      console.error(`electron: atalho ${ATALHO_GLOBAL} já é de outro programa, sem atalho global`);
+  for (const [atalho, acao] of [[ATALHO_GLOBAL, alternarPainel], [ATALHO_WIDGET, alternarJanela]]) {
+    try {
+      if (!globalShortcut.register(atalho, acao)) {
+        console.error(`electron: atalho ${atalho} já é de outro programa, sem atalho global`);
+      }
+    } catch (erro) {
+      console.error(`electron: não consegui registrar ${atalho}: ${erro.message}`);
     }
-  } catch (erro) {
-    console.error(`electron: não consegui registrar ${ATALHO_GLOBAL}: ${erro.message}`);
+  }
+}
+
+// ---- painel grande (JARVIS) -----------------------------------------------
+// Janela própria, frameless e translúcida como o widget, mas NÃO fica por cima
+// de tudo (é uma tela de trabalho, não um adorno). Fechar só esconde. Enquanto
+// está aberta, o widget some (senão ele taparia o canto do painel) e volta
+// quando o painel fecha, se estava visível.
+
+const PAINEL_LARGURA = 1280;
+const PAINEL_ALTURA = 800;
+
+function criarPainel() {
+  const area = screen.getPrimaryDisplay().workArea;
+  const largura = Math.min(PAINEL_LARGURA, area.width);
+  const altura = Math.min(PAINEL_ALTURA, area.height);
+  painel = new BrowserWindow({
+    width: largura,
+    height: altura,
+    x: area.x + Math.round((area.width - largura) / 2),
+    y: area.y + Math.round((area.height - altura) / 2),
+    minWidth: 960,
+    minHeight: 620,
+    frame: false,
+    transparent: true,           // vidro, como o widget (sem backgroundMaterial: ver criarJanela)
+    backgroundColor: "#00000000",
+    show: false,
+    title: "DERVS Painel",
+    icon: path.join(__dirname, "assets", "bandeja-32.png"),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  painel.loadFile(path.join(__dirname, "renderer", "painel.html"));
+  painel.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  painel.webContents.on("will-navigate", (evento) => { evento.preventDefault(); });
+
+  // Nasce já preenchido: repete o último valor de cada canal de estado e o
+  // histórico de conversa/ações que o widget também recebeu.
+  painel.webContents.on("did-finish-load", () => {
+    if (!janelaViva(painel)) return;
+    for (const [canal, dado] of ultimosPorCanal) painel.webContents.send(canal, dado);
+    for (const f of historicoFalas) painel.webContents.send("dervs:fala", f);
+    for (const a of historicoAcoes) painel.webContents.send("dervs:acao", a);
+  });
+
+  painel.on("close", (evento) => {
+    if (!app.isQuitting) {
+      evento.preventDefault();
+      esconderPainel();
+    }
+  });
+  painel.on("minimize", () => {
+    setImmediate(() => { if (janelaViva(painel) && painel.isMinimized()) painel.restore(); });
+  });
+  return painel;
+}
+
+function painelVisivel() {
+  return janelaViva(painel) && painel.isVisible() && !painel.isMinimized();
+}
+
+function mostrarPainel() {
+  if (!painel || painel.isDestroyed()) criarPainel();
+  if (janelaViva(janela)) {
+    widgetEstavaVisivel = janela.isVisible();
+    if (widgetEstavaVisivel) janela.hide();
+  }
+  if (painel.isMinimized()) painel.restore();
+  painel.show();
+  painel.focus();
+}
+
+function esconderPainel() {
+  if (!janelaViva(painel)) return;
+  painel.hide();
+  if (janelaViva(janela) && widgetEstavaVisivel) janela.showInactive();
+}
+
+function alternarPainel() {
+  if (painelVisivel()) esconderPainel();
+  else mostrarPainel();
+}
+
+// "Ocupar a tela / voltar": a janela é transparente, então o maximize do
+// Windows não é confiável — troca os limites à mão.
+function ampliarPainel() {
+  if (!janelaViva(painel)) return;
+  if (!painelAmpliado) {
+    painelAntes = painel.getBounds();
+    const area = screen.getDisplayMatching(painelAntes).workArea;
+    painel.setBounds(area);
+    painelAmpliado = true;
+  } else {
+    if (painelAntes) painel.setBounds(painelAntes);
+    painelAmpliado = false;
+  }
+}
+
+function redimensionarPainel(dado) {
+  if (!janelaViva(painel) || !dado || !Number.isFinite(dado.x) || !Number.isFinite(dado.y)) return;
+  if (dado.fase === "inicio") {
+    const b = painel.getBounds();
+    arrastoAlca = { x: dado.x, y: dado.y, largura: b.width, altura: b.height };
+  } else if (dado.fase === "mover" && arrastoAlca) {
+    const b = painel.getBounds();
+    const [minL, minA] = painel.getMinimumSize();
+    painel.setBounds({
+      x: b.x, y: b.y,
+      width: Math.max(minL, Math.round(arrastoAlca.largura + dado.x - arrastoAlca.x)),
+      height: Math.max(minA, Math.round(arrastoAlca.altura + dado.y - arrastoAlca.y)),
+    });
+    painelAmpliado = false;
   }
 }
 
@@ -214,7 +368,8 @@ function montarBandeja() {
   bandeja.setToolTip(TOOLTIPS.ocioso);
 
   const menu = Menu.buildFromTemplate([
-    { label: "Abrir DERVS", click: mostrarJanela },
+    { label: "Abrir painel grande", click: mostrarPainel },
+    { label: "Abrir DERVS (widget)", click: mostrarJanela },
     { label: "Recolher janela", click: recolherJanela },
     { label: "Sair do DERVS", click: sairDoDervs },
   ]);
@@ -255,7 +410,7 @@ function tratarLinhaDoPython(linha) {
         return;
       }
       atualizarTooltip(mensagem.valor);
-      janela.webContents.send("dervs:estado", {
+      difundir("dervs:estado", {
         valor: mensagem.valor,
         texto: mensagem.texto || "",
         apoio: mensagem.apoio || "",
@@ -266,17 +421,17 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo volume sem campo valor numérico, ignorado");
         return;
       }
-      janela.webContents.send("dervs:volume", mensagem.valor);
+      difundir("dervs:volume", mensagem.valor);
       break;
     case "fala":
       if (typeof mensagem.papel !== "string" || typeof mensagem.texto !== "string") {
         console.error("electron: verbo fala com campo faltando, ignorado");
         return;
       }
-      janela.webContents.send("dervs:fala", { papel: mensagem.papel, texto: mensagem.texto });
+      difundir("dervs:fala", { papel: mensagem.papel, texto: mensagem.texto });
       break;
     case "plano":
-      janela.webContents.send("dervs:plano", {
+      difundir("dervs:plano", {
         passos: Array.isArray(mensagem.passos) ? mensagem.passos : [],
         nivel: mensagem.nivel || "reversivel",
         pergunta: mensagem.pergunta || "",
@@ -285,6 +440,13 @@ function tratarLinhaDoPython(linha) {
         // ausente (cartão que não espera resposta, ex.: lista vazia).
         cartaoId: "cartao_id" in mensagem ? mensagem.cartao_id : null,
       });
+      // O cartão de plano (confirmar/cancelar) mora no widget. Com o painel
+      // grande aberto o widget está escondido: traz ele de volta, sem roubar
+      // o foco, para o pedido de confirmação nunca ficar invisível.
+      if (Array.isArray(mensagem.passos) && mensagem.passos.length > 0
+          && painelVisivel() && janelaViva(janela) && !janela.isVisible()) {
+        janela.showInactive();
+      }
       break;
     case "mostrar":
       // Traz a janela para frente; substitui o Ponte.chegou do Qt. Não passa
@@ -298,11 +460,16 @@ function tratarLinhaDoPython(linha) {
       // manda dado pela metade para o painel desenhar).
       if (["cpu", "ram", "disco_livre_gb", "disco_total_gb"].every(
         (campo) => typeof mensagem[campo] === "number")) {
-        janela.webContents.send("dervs:sistema", {
+        difundir("dervs:sistema", {
           cpu: mensagem.cpu,
           ram: mensagem.ram,
           discoLivreGb: mensagem.disco_livre_gb,
           discoTotalGb: mensagem.disco_total_gb,
+          // Rede (KB/s): opcional; só vale se AMBOS forem numéricos.
+          redeBaixaKbs: typeof mensagem.rede_baixa_kbs === "number" && typeof mensagem.rede_sobe_kbs === "number"
+            ? mensagem.rede_baixa_kbs : null,
+          redeSobeKbs: typeof mensagem.rede_baixa_kbs === "number" && typeof mensagem.rede_sobe_kbs === "number"
+            ? mensagem.rede_sobe_kbs : null,
         });
       } else {
         console.error("electron: verbo sistema com campo faltando/invalido, ignorado");
@@ -315,12 +482,12 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo microfone sem campo ligado booleano, ignorado");
         return;
       }
-      janela.webContents.send("dervs:microfone", { ligado: mensagem.ligado });
+      difundir("dervs:microfone", { ligado: mensagem.ligado });
       break;
     case "diario":
       // Cartão do diário do porteiro: só dois inteiros, nunca texto.
       if (Number.isInteger(mensagem.ouvidas) && Number.isInteger(mensagem.acordou)) {
-        janela.webContents.send("dervs:diario", {
+        difundir("dervs:diario", {
           ouvidas: mensagem.ouvidas, acordou: mensagem.acordou });
       } else {
         console.error("electron: verbo diario com campo faltando/invalido, ignorado");
@@ -330,9 +497,53 @@ function tratarLinhaDoPython(linha) {
       // Segundos que faltam do modo reunião (inteiro) ou null (sem reunião).
       if (mensagem.restante_s === null
           || (Number.isInteger(mensagem.restante_s) && mensagem.restante_s >= 0)) {
-        janela.webContents.send("dervs:reuniao", { restanteS: mensagem.restante_s });
+        difundir("dervs:reuniao", { restanteS: mensagem.restante_s });
       } else {
         console.error("electron: verbo reuniao com restante_s invalido, ignorado");
+      }
+      break;
+    case "gasto":
+      // Gasto ESTIMADO do dia em dólar (painel grande). Só números finitos.
+      if (["total", "tts", "stt", "cerebro"].every((c) => Number.isFinite(mensagem[c]))) {
+        difundir("dervs:gasto", {
+          total: mensagem.total, tts: mensagem.tts, stt: mensagem.stt, cerebro: mensagem.cerebro });
+      } else {
+        console.error("electron: verbo gasto com campo faltando/invalido, ignorado");
+      }
+      break;
+    case "agenda":
+      if (Array.isArray(mensagem.itens)) {
+        difundir("dervs:agenda", { itens: mensagem.itens.slice(0, 50).map((i) => ({
+          quando: String((i && i.quando) || ""),
+          quando_txt: String((i && i.quando_txt) || ""),
+          texto: String((i && i.texto) || "") })) });
+      } else {
+        console.error("electron: verbo agenda sem lista de itens, ignorado");
+      }
+      break;
+    case "diario_entradas":
+      if (Array.isArray(mensagem.entradas)) {
+        difundir("dervs:diario-entradas", { entradas: mensagem.entradas.slice(0, 50).map((e) => ({
+          hora: String((e && e.hora) || ""),
+          acordou: Boolean(e && e.acordou === true),
+          palavras: Number.isInteger(e && e.palavras) ? e.palavras : 0,
+          duracao_s: Number.isFinite(e && e.duracao_s) ? e.duracao_s : 0 })) });
+      } else {
+        console.error("electron: verbo diario_entradas sem lista, ignorado");
+      }
+      break;
+    case "voz":
+      if (mensagem.motor === "nuvem" || mensagem.motor === "local") {
+        difundir("dervs:voz", { motor: mensagem.motor });
+      } else {
+        console.error("electron: verbo voz com motor invalido, ignorado");
+      }
+      break;
+    case "acao":
+      if (typeof mensagem.texto === "string") {
+        difundir("dervs:acao", { papel: String(mensagem.papel || ""), texto: mensagem.texto, ts: Date.now() });
+      } else {
+        console.error("electron: verbo acao sem texto, ignorado");
       }
       break;
     default:
@@ -412,6 +623,12 @@ ipcMain.on("dervs:alternar-reuniao", (_evento, ligar) => {
 ipcMain.on("dervs:abrir-app-dervs", () => {
   shell.openExternal(urlDoDervsApp());
 });
+
+// Painel grande: os botões da janela só PEDEM; quem mexe na janela é este processo.
+ipcMain.on("dervs:alternar-painel", alternarPainel);
+ipcMain.on("dervs:painel-esconder", esconderPainel);
+ipcMain.on("dervs:painel-ampliar", ampliarPainel);
+ipcMain.on("dervs:painel-redimensionar", (_evento, dado) => redimensionarPainel(dado));
 
 app.whenReady().then(() => {
   criarJanela();

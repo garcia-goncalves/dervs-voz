@@ -26,6 +26,11 @@
   <!-- Liga/desliga da escuta. Escondido até o Python dizer em que estado o
        microfone está — nunca chuta "ligado" antes de saber. -->
   <div class="botoes-escuta">
+    <!-- Abre o painel grande (JARVIS). Sempre visível: não depende do Python.
+         O mesmo painel abre/fecha com Ctrl+Alt+D. -->
+    <button type="button" id="botao-painel" class="botao-microfone botao-painel" title="Abrir o painel grande (Ctrl+Alt+D)">
+      <span>PAINEL</span>
+    </button>
     <button type="button" id="botao-microfone" class="botao-microfone" aria-pressed="false" hidden>
       <span class="microfone-ponto" aria-hidden="true"></span>
       <span id="botao-microfone-texto">Microfone</span>

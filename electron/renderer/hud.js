@@ -269,17 +269,39 @@
     desenhar(ts, deltaS);
     aplicarLeituraAmp();
 
-    requestAnimationFrame(passo);
+    agendarProximo();
+  }
+
+  // Cadência (critério 5 da esteira dervs-painel-jarvis): o widget vive por
+  // cima de tudo e quase nunca tem foco, então desenhar a 60 quadros/s o
+  // tempo todo era o maior gasto de CPU do DERVS parado. Sem foco e sem voz
+  // (ocioso, volume ~0) a animação cai para 10 quadros/s; com foco, ou
+  // quando há voz/pensamento/erro para mostrar, roda a ~30.
+  const MS_QUADRO_ATIVO = 33;
+  const MS_QUADRO_PARADO = 100;
+
+  function msDoProximoQuadro() {
+    const parado = hud.estado === "ocioso" && hud.volumeSuave < 0.02 && hud.volumeAlvo < 0.02;
+    return (parado && !document.hasFocus()) ? MS_QUADRO_PARADO : MS_QUADRO_ATIVO;
+  }
+
+  let temporizadorHud = null;
+
+  function agendarProximo() {
+    temporizadorHud = setTimeout(() => { if (rodando) requestAnimationFrame(passo); },
+      msDoProximoQuadro());
   }
 
   function iniciarLaco() {
     if (rodando) return;
+    clearTimeout(temporizadorHud);
     rodando = true;
     ultimoTs = 0;
     requestAnimationFrame(passo);
   }
 
   function pararLaco() {
+    clearTimeout(temporizadorHud);
     rodando = false;
   }
 
@@ -516,6 +538,12 @@
     elDiarioAcordou.textContent = String(acordou);
     elDiario.hidden = false;
   }
+
+  // --- botão "PAINEL": abre a janela grande (main.js esconde este widget) -----
+
+  document.getElementById("botao-painel").addEventListener("click", () => {
+    window.dervs.alternarPainel();
+  });
 
   // --- botão "Abrir DERVS App" ----------------------------------------------
 

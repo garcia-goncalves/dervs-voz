@@ -47,6 +47,21 @@ contextBridge.exposeInMainWorld("dervs", {
       }
     });
   },
+  // Painel grande (JARVIS): dados extras que o widget compacto não usa.
+  aoAgenda: aoCanal("dervs:agenda"),
+  aoDiarioEntradas: aoCanal("dervs:diario-entradas"),
+  aoGasto: aoCanal("dervs:gasto"),
+  aoVoz: aoCanal("dervs:voz"),
+  aoAcao: aoCanal("dervs:acao"),
+  // Controles da janela grande — só PEDEM; quem mexe na janela é o main.js.
+  alternarPainel: () => { ipcRenderer.send("dervs:alternar-painel"); },
+  painelEsconder: () => { ipcRenderer.send("dervs:painel-esconder"); },
+  painelAmpliar: () => { ipcRenderer.send("dervs:painel-ampliar"); },
+  painelRedimensionar: (fase, x, y) => {
+    if ((fase === "inicio" || fase === "mover") && Number.isFinite(x) && Number.isFinite(y)) {
+      ipcRenderer.send("dervs:painel-redimensionar", { fase, x, y });
+    }
+  },
   // Botão "Abrir DERVS App": só manda o pedido para o processo principal
   // abrir a URL no navegador — o renderer não tem `shell` nem rede.
   abrirAppDervs: () => {

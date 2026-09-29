@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Título exato "DERVS Painel": o script de foto acha a janela por ele. -->
+<title>DERVS Painel</title>
+<link rel="stylesheet" href="estilo.css">
+<link rel="stylesheet" href="painel.css">
+</head>
+<body class="painel">
+  <div class="cantos" aria-hidden="true">
+    <span class="canto canto-tl"></span>
+    <span class="canto canto-tr"></span>
+    <span class="canto canto-bl"></span>
+    <span class="canto canto-br"></span>
+  </div>
+
+  <!-- TOPO: nome, relógio e os botões da janela (sem moldura do Windows). -->
+  <header class="p-topo">
+    <div class="p-marca">
+      <h1 class="p-nome">DERVS</h1>
+      <p class="p-sub">PAINEL DE CONTROLE</p>
+    </div>
+    <div class="p-relogio-caixa">
+      <p class="p-relogio" id="p-relogio" aria-label="Hora atual">--:--:--</p>
+      <p class="p-data" id="p-data" aria-label="Data de hoje"></p>
+    </div>
+    <div class="p-janela-botoes">
+      <button type="button" id="p-botao-ampliar" class="p-botao-janela" title="Ocupar a tela / voltar ao tamanho">&#9633;</button>
+      <button type="button" id="p-botao-fechar" class="p-botao-janela" title="Esconder o painel (Ctrl+Alt+D)">&times;</button>
+    </div>
+  </header>
+
+  <!-- BARRA DE STATUS: microfone, voz, internet, gasto do dia. -->
+  <section class="p-status" aria-label="Estado das peças do DERVS">
+    <button type="button" class="p-chip" id="p-chip-microfone" aria-pressed="false" title="Clique para ligar ou desligar o microfone">
+      <span class="p-chip-ponto" aria-hidden="true"></span>
+      <span class="p-chip-rotulo">MICROFONE</span>
+      <span class="p-chip-valor" id="p-microfone">--</span>
+    </button>
+    <div class="p-chip" id="p-chip-voz">
+      <span class="p-chip-ponto" aria-hidden="true"></span>
+      <span class="p-chip-rotulo">VOZ</span>
+      <span class="p-chip-valor" id="p-voz">--</span>
+    </div>
+    <div class="p-chip" id="p-chip-internet">
+      <span class="p-chip-ponto" aria-hidden="true"></span>
+      <span class="p-chip-rotulo">INTERNET</span>
+      <span class="p-chip-valor" id="p-internet">--</span>
+    </div>
+    <div class="p-chip p-chip-gasto" id="p-chip-gasto" title="Estimativa local — a fatura real da OpenAI é a que vale">
+      <span class="p-chip-rotulo">GASTO HOJE</span>
+      <span class="p-chip-valor p-gasto-valor" id="p-gasto">US$ 0,00</span>
+      <span class="p-chip-detalhe" id="p-gasto-detalhe">voz 0,00 · escuta 0,00 · cérebro 0,00</span>
+    </div>
+    <div class="p-chip p-chip-reuniao" id="p-chip-reuniao" hidden>
+      <span class="p-chip-rotulo">REUNIÃO</span>
+      <span class="p-chip-valor" id="p-reuniao">--:--</span>
+    </div>
+  </section>
+
+  <main class="p-corpo">
+    <!-- ESQUERDA: sistema ao vivo, com o histórico dos últimos ~60 s. -->
+    <section class="p-coluna p-esquerda" aria-label="Sistema ao vivo">
+      <h2 class="p-titulo">SISTEMA <span class="p-titulo-nota">ao vivo · últimos 60 s</span></h2>
+      <div class="p-medidor" id="m-cpu">
+        <div class="p-medidor-linha"><span class="p-medidor-nome">CPU</span><span class="p-medidor-valor" id="v-cpu">--%</span></div>
+        <canvas class="p-spark" id="s-cpu" width="240" height="44" aria-hidden="true"></canvas>
+      </div>
+      <div class="p-medidor" id="m-ram">
+        <div class="p-medidor-linha"><span class="p-medidor-nome">MEMÓRIA</span><span class="p-medidor-valor" id="v-ram">--%</span></div>
+        <canvas class="p-spark" id="s-ram" width="240" height="44" aria-hidden="true"></canvas>
+      </div>
+      <div class="p-medidor" id="m-disco">
+        <div class="p-medidor-linha"><span class="p-medidor-nome">DISCO</span><span class="p-medidor-valor" id="v-disco-pct">--%</span></div>
+        <div class="p-barra" aria-hidden="true"><span class="p-barra-cheia" id="b-disco"></span></div>
+        <p class="p-medidor-nota" id="v-disco">-- / -- GB</p>
+      </div>
+      <div class="p-medidor" id="m-rede">
+        <div class="p-medidor-linha"><span class="p-medidor-nome">REDE</span><span class="p-medidor-valor" id="v-rede-baixa">--</span></div>
+        <canvas class="p-spark" id="s-rede" width="240" height="44" aria-hidden="true"></canvas>
+        <p class="p-medidor-nota">baixando (acima) · enviando: <span id="v-rede-sobe">--</span></p>
+      </div>
+      <p class="p-vazio" id="p-sistema-vazio">Aguardando a primeira leitura da máquina...</p>
+    </section>
+
+    <!-- CENTRO: o reator, que reage à voz. -->
+    <section class="p-centro" aria-label="Núcleo do DERVS">
+      <p class="p-estado" id="p-estado">EM ESPERA</p>
+      <div class="p-reator-area">
+        <canvas id="p-canvas" width="520" height="520" aria-label="Reator do DERVS"></canvas>
+      </div>
+      <p class="p-amp" id="p-amp">AMP 0.00</p>
+      <section class="cartao cartao-erro p-erro" id="p-cartao-erro" hidden>
+        <p class="cartao-erro-frase" id="p-erro-frase"></p>
+        <p class="cartao-erro-apoio" id="p-erro-apoio" hidden></p>
+      </section>
+    </section>
+
+    <!-- DIREITA: agenda e diário. -->
+    <section class="p-coluna p-direita" aria-label="Agenda e diário">
+      <h2 class="p-titulo">AGENDA <span class="p-titulo-nota" id="p-agenda-contagem"></span></h2>
+      <ul class="p-lista" id="p-agenda"></ul>
+      <p class="p-vazio" id="p-agenda-vazio">Nenhum lembrete marcado. Diga: &ldquo;DERVS, me lembra em 10 minutos de tomar água&rdquo;.</p>
+
+      <h2 class="p-titulo p-titulo-2">DIÁRIO <span class="p-titulo-nota" id="p-diario-resumo"></span></h2>
+      <ul class="p-lista p-lista-diario" id="p-diario"></ul>
+      <p class="p-vazio" id="p-diario-vazio">Nada ouvido hoje ainda. Quando o DERVS escutar uma frase, ela aparece aqui (só hora e duração, nunca o texto).</p>
+    </section>
+  </main>
+
+  <!-- EMBAIXO: conversa ao vivo e últimas ações. -->
+  <section class="p-rodape" aria-label="Conversa e ações">
+    <div class="p-painel-baixo">
+      <h2 class="p-titulo">CONVERSA AO VIVO</h2>
+      <ul class="p-conversa" id="p-conversa" aria-live="polite"></ul>
+      <p class="p-vazio" id="p-conversa-vazio">Ninguém falou ainda. Chame &ldquo;DERVS&rdquo; perto do microfone.</p>
+    </div>
+    <div class="p-painel-baixo">
+      <h2 class="p-titulo">ÚLTIMAS AÇÕES</h2>
+      <ul class="p-lista p-acoes" id="p-acoes"></ul>
+      <p class="p-vazio" id="p-acoes-vazio">O DERVS ainda não fez nada nesta sessão.</p>
+    </div>
+  </section>
+
+  <!-- Alça de redimensionar (a janela é transparente, sem borda do Windows). -->
+  <div class="p-alca" id="p-alca" title="Arraste para mudar o tamanho" aria-hidden="true"></div>
+
+  <script src="painel-formato.js"></script>
+  <script src="painel.js"></script>
+</body>
+</html>
