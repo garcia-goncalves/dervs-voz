@@ -325,8 +325,10 @@ em outra janela.
 
 ## Quanto custa por mês
 
-A voz e o porteiro são **de graça** — rodam na sua máquina, offline. O que é
-cobrado é só a transcrição do pedido e o cérebro que entende.
+O porteiro é **de graça** — roda na sua máquina, offline. Desde 28/09/2026 a voz
+falando também é da nuvem (soa como gente, com sotaque brasileiro) e passa a ser
+cobrada; se a internet cair, ele volta sozinho para a voz local, que é grátis.
+O painel grande mostra o **gasto do dia** em dólar (é estimativa).
 
 Estimativa para uso pesado, cerca de 300 pedidos por dia:
 
@@ -336,8 +338,8 @@ Estimativa para uso pesado, cerca de 300 pedidos por dia:
 | O porteiro (ouvir o nome) | seu PC | US$ 0 |
 | Transcrever o pedido | nuvem | ~US$ 3,40 |
 | O cérebro | nuvem | ~US$ 2,00 |
-| A voz falando | seu PC | US$ 0 |
-| **Total** | | **~US$ 5 a 6** |
+| A voz falando | nuvem | ~US$ 4,50 |
+| **Total** | | **~US$ 10** |
 
 Para comparar: sem o porteiro, deixando ligado 8 horas por dia, só a
 transcrição daria **~US$ 43 por mês**.
