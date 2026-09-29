@@ -79,4 +79,29 @@ contextBridge.exposeInMainWorld("dervs", {
     ipcRenderer.send("dervs:responder-plano",
       { resposta, autorizado: Boolean(autorizado), cartaoId });
   },
+
+  // ---- Claude Code no painel (onda B) — lista ESTREITA, de propósito --------
+  // Python -> tela: pedaços da resposta, uso de ferramenta, pedido de permissão
+  // e fim do turno. Tudo texto de fonte hostil: o painel só usa textContent.
+  aoClaudeDelta: aoCanal("dervs:claude-delta"),
+  aoClaudeFerramenta: aoCanal("dervs:claude-ferramenta"),
+  aoClaudePedido: aoCanal("dervs:claude-pedido"),
+  aoClaudeFim: aoCanal("dervs:claude-fim"),
+  // Tela -> Python: só estes quatro pedidos, cada um com o formato conferido
+  // aqui E de novo no main.js E de novo no Python (dervs_ponte_electron.py).
+  claudePerguntar: (texto) => {
+    if (typeof texto === "string" && texto.trim() && texto.length <= 8000) {
+      ipcRenderer.send("dervs:claude-perguntar", texto);
+    }
+  },
+  claudeParar: () => { ipcRenderer.send("dervs:claude-parar"); },
+  // `permitir` só é true se for o booleano true de verdade.
+  claudeResponder: (id, permitir, cartaoId = null) => {
+    if (typeof id === "string" && id) {
+      ipcRenderer.send("dervs:claude-responder", {
+        id, permitir: permitir === true,
+        cartaoId: typeof cartaoId === "string" ? cartaoId : null });
+    }
+  },
+  claudeNovaConversa: () => { ipcRenderer.send("dervs:claude-nova-conversa"); },
 });

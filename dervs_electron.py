@@ -32,6 +32,8 @@ import time
 from PyQt6 import QtCore, QtWidgets
 
 import dervs
+import dervs_aprovacao as aprovacao
+import dervs_claude_code as claude_code
 import dervs_config as config
 import dervs_diario as diario
 import dervs_instancia as instancia
@@ -132,6 +134,9 @@ class Motor(dervs.PopUp):
     # `QTimer` criado fora da thread do Qt nunca dispara (ver `dervs.Ponte`).
     _pedido_microfone = QtCore.pyqtSignal(bool)
     _pedido_reuniao = QtCore.pyqtSignal(bool)     # idem, para o modo reunião
+    # A sessão do Claude Code responde de OUTRA thread (a do laço asyncio); o
+    # chat e a voz são da thread da tela — o sinal enfileirado faz a travessia.
+    _claude_fala = QtCore.pyqtSignal(str)
 
     def __init__(self, ponte: PonteElectron):
         self.ponte = ponte
@@ -154,12 +159,71 @@ class Motor(dervs.PopUp):
         # é descartar resposta desatualizada, não segurança criptográfica.
         self._proximo_cartao_id = 0
         self._cartao_pendente = None
+        # O Claude Code (onda B). Só cria o objeto: o laço e o `claude` só sobem
+        # na primeira pergunta. O perfil vem da config (`claude_perfil`).
+        self.aprovacao = None        # o Motor da onda C: só a ponte do painel o vê
+        self.claude = claude_code.SessaoClaudeCode(
+            ao_evento=lambda verbo, dados: self.ponte.enviar_claude(verbo, dados),
+            ao_texto_final=self._claude_texto_final,
+            ao_aviso=self._claude_aviso,
+            fachada_fabrica=self._fachada_aprovacao,
+            perfil=config.carregar()["claude_perfil"])
         super().__init__()
         # Etapa 4: a `Voz` já sabe emitir o nível de amplitude enquanto fala,
         # se alguém ligar `ao_nivel`. Quem liga aqui é a ponte.
         self.voz.ao_nivel = ponte.enviar_volume
         self._pedido_microfone.connect(self._microfone_na_tela)
         self._pedido_reuniao.connect(self._reuniao_na_tela)
+        self._claude_fala.connect(self._claude_falar_na_tela)
+
+    # ---- Claude Code: voz e resposta final -----------------------------------
+    def executar(self):
+        """Antes do planejador: frase que PEDE TRABALHO ("pede pro Claude…",
+        "analisa…", "verifica meu PC") vira pergunta à sessão do Claude Code, e a
+        palavra "para" interrompe o que ele estiver fazendo. O resto segue o
+        fluxo de sempre."""
+        texto = self.entrada.toPlainText().strip()
+        if texto and self._tarefa is None and not self._aguardando_ok:
+            if self.claude.ocupado and claude_code.eh_comando_parar(texto):
+                self._diz("dono", texto)
+                self.entrada.clear()
+                self.claude.parar()
+                return
+            pedido = claude_code.frase_de_trabalho(texto)
+            if pedido:
+                self._diz("dono", texto)
+                self.entrada.clear()
+                if not self.claude.perguntar(pedido, origem="voz"):
+                    self._claude_falar_na_tela(
+                        "Ainda estou trabalhando na pergunta anterior. "
+                        "Diga 'para' se quiser interromper.")
+                return
+        super().executar()
+
+    def _fachada_aprovacao(self):
+        """O Claude recebe a `Fachada` (só `analisar` e `status`), NUNCA o Motor:
+        aprovar, cartão e senha de uso ficam com a ponte do painel (onda D). O
+        Motor cria pasta e arquivos em %LOCALAPPDATA%\dervs, por isso só nasce aqui,
+        na primeira proposta."""
+        if self.aprovacao is None:
+            self.aprovacao = aprovacao.Motor()
+        return aprovacao.Fachada(self.aprovacao)
+
+    def _claude_texto_final(self, texto, origem):
+        """Thread do laço do Claude. Só a pergunta feita por VOZ é respondida
+        em voz — e resumida em até 2 frases; o texto inteiro fica no painel."""
+        if origem == "voz":
+            fala = claude_code.resumir_para_fala(texto)
+            if fala:
+                self._claude_fala.emit(fala)
+
+    def _claude_aviso(self, texto):
+        self._claude_fala.emit(texto)
+
+    def _claude_falar_na_tela(self, fala):
+        self._diz("dervs", fala)
+        if self.voz.ligada:
+            self.voz.falar(fala)
 
     # ---- microfone: o liga/desliga do HUD --------------------------------
     def pedir_microfone(self, ligar: bool):
@@ -483,6 +547,26 @@ def _construir_ao_plano(motor: Motor):
     return _ao_plano
 
 
+def _construir_ao_claude(motor: Motor):
+    """Os quatro verbos do Claude Code que chegam do painel. Todos vêm de
+    CLIQUE (origem "clique"): a voz nunca passa por aqui. A sessão é segura entre
+    threads, então a chamada é direta, sem atravessar para a thread da tela."""
+    def _ao_claude(verbo, dados):
+        if verbo == "claude_perguntar":
+            if not motor.claude.perguntar(dados["texto"], origem="painel"):
+                motor.ponte.enviar_claude("claude_fim", {
+                    "ok": False, "custo": 0,
+                    "erro": "ainda estou respondendo a pergunta anterior"})
+        elif verbo == "claude_parar":
+            motor.claude.parar()
+        elif verbo == "claude_nova_conversa":
+            motor.claude.nova_conversa()
+        elif verbo == "claude_resposta":
+            motor.claude.responder(dados["id"], dados["permitir"],
+                                   dados.get("cartao_id"), origem="clique")
+    return _ao_claude
+
+
 def _confirmar_do_electron(motor: Motor, autorizado: bool):
     """A mesma decisão que `confirmar_passo()` (`dervs.py:1392`) toma com
     `self.b_auth.isChecked()` — só que a caixa marcada agora vem da resposta
@@ -532,6 +616,9 @@ def _encerrar(motor: Motor, ponte: PonteElectron, posse, parar_sistema: threadin
     para a thread do painel de sistema, fecha o processo do Electron, e libera
     a trava de instância única."""
     parar_sistema.set()
+    sessao_claude = getattr(motor, "claude", None)
+    if sessao_claude is not None:
+        sessao_claude.encerrar()         # não deixa `claude` órfão
     dervs.encerrar_tudo(motor)
     ponte.fechar()
     posse.soltar()
@@ -570,6 +657,7 @@ def main():
 
     ao_microfone_alvo = []
     ao_reuniao_alvo = []
+    ao_claude_alvo = []
 
     def _ao_microfone_inicial(ligar):
         if ao_microfone_alvo:
@@ -579,10 +667,15 @@ def main():
         if ao_reuniao_alvo:
             ao_reuniao_alvo[0](ligar)
 
+    def _ao_claude_inicial(verbo, dados):
+        if ao_claude_alvo:
+            ao_claude_alvo[0](verbo, dados)
+
     ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial,
                           ao_pronto=lambda: None, ao_microfone=_ao_microfone_inicial,
-                          ao_reuniao=_ao_reuniao_inicial)
+                          ao_reuniao=_ao_reuniao_inicial, ao_claude=_ao_claude_inicial)
     motor = Motor(ponte)
+    ao_claude_alvo.append(_construir_ao_claude(motor))
     ao_microfone_alvo.append(motor.pedir_microfone)
     ao_reuniao_alvo.append(motor.pedir_reuniao)
     ao_plano_alvo.append(_construir_ao_plano(motor))

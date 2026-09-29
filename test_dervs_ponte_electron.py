@@ -505,3 +505,134 @@ def test_pedido_de_reuniao_nao_booleano_e_ignorado(valor):
 def test_pedido_de_reuniao_sem_callback_nao_derruba_a_ponte():
     p, _ = _nova_ponte(b'{"verbo": "reuniao", "ligar": true}\n')
     time.sleep(0.1)
+
+
+# ---- Claude Code no painel (onda B) ----------------------------------------------
+
+def test_enviar_claude_delta_ferramenta_e_fim():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_claude_delta("olá ")
+    p.enviar_claude_ferramenta("Bash", "dir C:\\")
+    p.enviar_claude_fim(True, 0.0123456789, None)
+    p.enviar_claude_fim(False, 0, "interrompido")
+    dados = [json.loads(l) for l in _linhas_escritas(processo)]
+    assert dados == [
+        {"verbo": "claude_delta", "texto": "olá "},
+        {"verbo": "claude_ferramenta", "nome": "Bash", "resumo": "dir C:\\"},
+        {"verbo": "claude_fim", "ok": True, "custo": 0.012346, "erro": None},
+        {"verbo": "claude_fim", "ok": False, "custo": 0.0, "erro": "interrompido"},
+    ]
+
+
+def test_claude_texto_grande_e_cortado_antes_de_atravessar():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_claude_delta("x" * 100000)
+    p.enviar_claude_ferramenta("y" * 500, "z" * 5000)
+    p.enviar_claude_fim(False, 0, "e" * 5000)
+    linhas = _linhas_escritas(processo)
+    assert all(len(l) < ponte_mod._LIMITE_LINHA for l in linhas)
+    dados = [json.loads(l) for l in linhas]
+    assert len(dados[0]["texto"]) == ponte_mod._LIMITE_TEXTO
+    assert len(dados[1]["nome"]) <= 64 and len(dados[1]["resumo"]) <= 200
+    assert len(dados[2]["erro"]) <= 300
+
+
+def test_enviar_claude_pedido_leva_so_os_campos_do_contrato():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_claude_pedido({"id": "abc", "ferramenta": "Bash", "resumo": "pip install x",
+                            "entrada_cortada": "{}", "nivel": "muda_estado", "expira_s": 300,
+                            "escondidos": 12, "rede": True, "segredo": "não pode ir"})
+    dado = json.loads(_linhas_escritas(processo)[0])
+    assert dado == {"verbo": "claude_pedido", "id": "abc", "ferramenta": "Bash",
+                    "resumo": "pip install x", "entrada_cortada": "{}",
+                    "nivel": "muda_estado", "expira_s": 300, "escondidos": 12, "rede": True}
+
+
+def test_pedido_do_claude_leva_o_comando_inteiro_e_o_numero_de_caracteres_escondidos():
+    """O diálogo mostra o comando inteiro (até 500) e avisa do corte do resto."""
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    comando = "git push origin " + "b" * 480
+    p.enviar_claude_pedido({"id": "a", "ferramenta": "Bash", "resumo": comando,
+                            "entrada_cortada": "x" * 5000, "escondidos": "4000", "rede": "sim"})
+    dado = json.loads(_linhas_escritas(processo)[0])
+    assert dado["resumo"] == comando
+    assert len(dado["entrada_cortada"]) <= 1000
+    assert dado["escondidos"] == 4000 and dado["rede"] is True
+
+
+def test_enviar_claude_roteia_pelo_verbo_e_ignora_verbo_desconhecido():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_claude("claude_delta", {"texto": "a"})
+    p.enviar_claude("claude_fim", {"ok": True, "custo": 0, "erro": None})
+    p.enviar_claude("outro_verbo", {"x": 1})
+    verbos = [json.loads(l)["verbo"] for l in _linhas_escritas(processo)]
+    assert verbos == ["claude_delta", "claude_fim"]
+
+
+def _ponte_com_claude(linhas: list, recebido):
+    p = ponte_mod.PonteElectron(
+        ao_sair=lambda: None, ao_plano=lambda *a, **k: None, ao_pronto=lambda: None,
+        ao_claude=lambda verbo, dados: recebido.append((verbo, dados)))
+    bruto = b"".join((json.dumps(l) + "\n").encode() for l in linhas)
+    p._iniciar(ProcessoFalso(bruto))
+    return p
+
+
+def test_claude_perguntar_chega_com_o_texto():
+    recebido = []
+    _ponte_com_claude([{"verbo": "claude_perguntar", "texto": "olha meu disco"}], recebido)
+    assert _esperar(lambda: recebido == [("claude_perguntar", {"texto": "olha meu disco"})])
+
+
+def test_claude_perguntar_no_limite_passa_e_acima_dele_e_ignorado():
+    recebido = []
+    _ponte_com_claude([{"verbo": "claude_perguntar", "texto": "a" * 8000},
+                       {"verbo": "claude_perguntar", "texto": "a" * 8001}], recebido)
+    assert _esperar(lambda: len(recebido) == 1)
+    time.sleep(0.15)
+    assert len(recebido) == 1 and len(recebido[0][1]["texto"]) == 8000
+
+
+@pytest.mark.parametrize("texto", ["", "   ", None, 5, ["x"], {"a": 1}])
+def test_claude_perguntar_torto_e_ignorado(texto):
+    recebido = []
+    _ponte_com_claude([{"verbo": "claude_perguntar", "texto": texto},
+                       {"verbo": "claude_perguntar"}], recebido)
+    time.sleep(0.15)
+    assert recebido == []
+
+
+def test_claude_parar_e_nova_conversa_chegam_sem_dados():
+    recebido = []
+    _ponte_com_claude([{"verbo": "claude_parar"}, {"verbo": "claude_nova_conversa"}], recebido)
+    assert _esperar(lambda: recebido == [("claude_parar", {}), ("claude_nova_conversa", {})])
+
+
+def test_claude_resposta_so_vale_com_booleano_de_verdade():
+    recebido = []
+    _ponte_com_claude([
+        {"verbo": "claude_resposta", "id": "abc", "permitir": True, "cartao_id": "abc"},
+        {"verbo": "claude_resposta", "id": "def", "permitir": "true"},
+        {"verbo": "claude_resposta", "id": "ghi", "permitir": 1},
+        {"verbo": "claude_resposta", "id": "", "permitir": True},
+        {"verbo": "claude_resposta", "id": 7, "permitir": True},
+        {"verbo": "claude_resposta", "permitir": True},
+        {"verbo": "claude_resposta", "id": "jkl", "permitir": False},
+    ], recebido)
+    assert _esperar(lambda: len(recebido) == 2)
+    time.sleep(0.15)
+    assert recebido == [
+        ("claude_resposta", {"id": "abc", "permitir": True, "cartao_id": "abc"}),
+        ("claude_resposta", {"id": "jkl", "permitir": False, "cartao_id": None}),
+    ]
+
+
+def test_verbos_claude_sem_callback_nao_derrubam_a_ponte():
+    p, _ = _nova_ponte(b'{"verbo": "claude_parar"}\n{"verbo": "claude_perguntar", "texto": "x"}\n')
+    time.sleep(0.1)
+    assert p._processo is not None

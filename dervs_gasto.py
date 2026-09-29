@@ -12,6 +12,10 @@ Preços (US$, tabela de 09/2026, arredondados para cima de propósito):
   - cérebro: por tokens, tabela por modelo (padrão gpt-4.1-nano: 0,10 / 0,40
     por milhão de tokens de entrada / saída)
 
+Além dessas três, o Claude Code (`dervs_claude_code.py`) grava linhas do tipo
+"claude" com a etiqueta "assinatura (equivalente)": custo equivalente medido
+pelo SDK, que NÃO é cobrança e por isso não entra no total do dia.
+
 Regra de ouro do projeto: registrar gasto NUNCA derruba a fala nem a escuta.
 Toda função pública engole erro. Sob pytest, sem `DERVS_GASTO_ARQUIVO`, nada é
 gravado (o teste não pode sujar o arquivo real do dono).
@@ -136,6 +140,11 @@ def total_do_dia(caminho=None, hoje=None) -> dict:
                 except (ValueError, KeyError, TypeError):
                     continue
                 if usd != usd or usd < 0:       # NaN ou negativo: ignora
+                    continue
+                if r.get("tipo") == "claude":
+                    # Claude Code pela ASSINATURA: o valor é o equivalente em
+                    # dólar (medida de uso), não cobrança. Fica no arquivo, mas
+                    # não entra no "gasto de hoje" — senão o total mentiria.
                     continue
                 saida["total"] += usd
                 if r.get("tipo") in ("tts", "stt", "cerebro"):

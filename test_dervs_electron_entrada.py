@@ -59,6 +59,9 @@ class PonteFalsa:
     def enviar_reuniao(self, restante_s):
         self.chamadas.append(("reuniao", restante_s))
 
+    def enviar_claude(self, verbo, dados):
+        self.chamadas.append((verbo, dados))
+
     def fechar(self, espera=3.0):
         self.fechada = True
 
@@ -591,3 +594,160 @@ def test_pedido_de_reuniao_de_outra_thread_chega_na_thread_da_tela(reuniao):
     t.join()
     _app.processEvents()
     assert registro == [(True, threading.main_thread())]
+
+
+# ---- Claude Code por voz e pelo painel (onda B) --------------------------------------
+
+class SessaoClaudeFalsa:
+    """Só anota o que o Motor pediu à sessão do Claude Code."""
+
+    def __init__(self, ocupado=False, aceita=True):
+        self.ocupado = ocupado
+        self._aceita = aceita
+        self.chamadas = []
+
+    def perguntar(self, texto, origem="painel"):
+        self.chamadas.append(("perguntar", texto, origem))
+        return self._aceita
+
+    def parar(self):
+        self.chamadas.append(("parar",))
+        return True
+
+    def nova_conversa(self):
+        self.chamadas.append(("nova_conversa",))
+
+    def responder(self, id_, permitir, cartao_id=None, origem="clique"):
+        self.chamadas.append(("responder", id_, permitir, cartao_id, origem))
+        return True
+
+    def encerrar(self):
+        self.chamadas.append(("encerrar",))
+
+
+def _fala(motor, texto):
+    motor.entrada.setPlainText(texto)
+    motor.executar()
+
+
+def test_frase_que_pede_trabalho_vai_para_o_claude_code_e_nao_para_o_planejador(motor, monkeypatch):
+    motor.claude = SessaoClaudeFalsa()
+    monkeypatch.setattr(motor, "_pensar", lambda: pytest.fail("foi para o planejador"))
+    _fala(motor, "pede pro Claude analisar o disco")
+    assert motor.claude.chamadas == [("perguntar", "analisar o disco", "voz")]
+
+
+def test_frase_comum_segue_para_o_planejador(motor, monkeypatch):
+    motor.claude = SessaoClaudeFalsa()
+    motor._atalhos_ligados = False
+    pensou = []
+    monkeypatch.setattr(motor, "_pensar", lambda: pensou.append(1))
+    _fala(motor, "abre o site do banco")
+    assert motor.claude.chamadas == [] and pensou == [1]
+
+
+def test_claude_ocupado_avisa_em_vez_de_empilhar(motor, monkeypatch):
+    motor.claude = SessaoClaudeFalsa(aceita=False)
+    monkeypatch.setattr(motor, "_pensar", lambda: pytest.fail("foi para o planejador"))
+    _fala(motor, "verifica meu PC")
+    falas = [c for c in motor.ponte.de_tipo("fala") if c[1] == "dervs"]
+    assert falas and "trabalhando" in falas[-1][2]
+
+
+def test_palavra_para_interrompe_so_quando_o_claude_esta_trabalhando(motor, monkeypatch):
+    motor.claude = SessaoClaudeFalsa(ocupado=True)
+    monkeypatch.setattr(motor, "_pensar", lambda: pytest.fail("foi para o planejador"))
+    _fala(motor, "para")
+    assert motor.claude.chamadas == [("parar",)]
+
+    motor.claude = SessaoClaudeFalsa(ocupado=False)
+    motor._atalhos_ligados = False
+    pensou = []
+    monkeypatch.setattr(motor, "_pensar", lambda: pensou.append(1))
+    _fala(motor, "para")
+    assert motor.claude.chamadas == [] and pensou == [1], "sem Claude ocupado, 'para' é frase comum"
+
+
+def test_resposta_final_por_voz_vira_fala_curta_na_thread_da_tela(motor):
+    faladas = []
+    motor.voz.ligada = True
+    motor.voz.falar = faladas.append
+    registro = []
+    t = threading.Thread(target=lambda: motor._claude_texto_final(
+        "Achei **três** pastas grandes. A maior é Downloads. Detalhe extra. Mais um.", "voz"))
+    t.start()
+    t.join()
+    _app.processEvents()
+    assert faladas == ["Achei três pastas grandes. A maior é Downloads."]
+    assert ("fala", "dervs", faladas[0]) in motor.ponte.de_tipo("fala")
+
+
+def test_resposta_final_de_pergunta_digitada_nao_fala(motor):
+    faladas = []
+    motor.voz.ligada = True
+    motor.voz.falar = faladas.append
+    motor._claude_texto_final("Resposta longa. Outra frase.", "painel")
+    _app.processEvents()
+    assert faladas == []
+
+
+def test_aviso_de_limite_do_plano_e_falado(motor):
+    faladas = []
+    motor.voz.ligada = True
+    motor.voz.falar = faladas.append
+    t = threading.Thread(target=motor._claude_aviso, args=("Atingi o limite do plano, volta às 14:30.",))
+    t.start()
+    t.join()
+    _app.processEvents()
+    assert faladas == ["Atingi o limite do plano, volta às 14:30."]
+
+
+def test_verbos_do_painel_chegam_na_sessao(motor):
+    motor.claude = SessaoClaudeFalsa()
+    ao_claude = dervs_electron._construir_ao_claude(motor)
+    ao_claude("claude_perguntar", {"texto": "olha o disco"})
+    ao_claude("claude_parar", {})
+    ao_claude("claude_nova_conversa", {})
+    ao_claude("claude_resposta", {"id": "a1", "permitir": True, "cartao_id": "a1"})
+    ao_claude("verbo_inventado", {})
+    assert motor.claude.chamadas == [
+        ("perguntar", "olha o disco", "painel"), ("parar",), ("nova_conversa",),
+        ("responder", "a1", True, "a1", "clique")]
+
+
+def test_pergunta_recusada_do_painel_devolve_fim_com_erro(motor):
+    motor.claude = SessaoClaudeFalsa(aceita=False)
+    dervs_electron._construir_ao_claude(motor)("claude_perguntar", {"texto": "x"})
+    fim = motor.ponte.de_tipo("claude_fim")
+    assert fim and fim[0][1]["ok"] is False
+
+
+def test_motor_entrega_ao_claude_a_fachada_e_nunca_o_motor_de_aprovacao(motor, monkeypatch):
+    """Se o MCP recebesse o Motor da onda C, o Claude aprovaria sozinho."""
+    import dervs_aprovacao
+    criados = []
+
+    class MotorFalso:
+        def __init__(self, *a, **k):
+            criados.append(1)
+
+        def analisar(self, itens, origem="claude"):
+            return {"id": "r", "itens": [], "recusados": []}
+
+        def status(self, relatorio_id):
+            return None
+
+    monkeypatch.setattr(dervs_electron.aprovacao, "Motor", MotorFalso)
+    assert criados == [], "o motor de aprovação só nasce quando alguém propõe"
+    fachada = motor.claude.obter_fachada()
+    assert criados == [1]
+    assert isinstance(fachada, dervs_aprovacao.Fachada)
+    assert not hasattr(fachada, "aprovar") and not hasattr(fachada, "abrir_cartao")
+    assert motor.claude.obter_fachada() is fachada
+
+
+def test_encerrar_tambem_encerra_a_sessao_do_claude(motor, monkeypatch):
+    monkeypatch.setattr(dervs_electron.dervs, "encerrar_tudo", lambda alvo: None)
+    motor.claude = SessaoClaudeFalsa()
+    dervs_electron._encerrar(motor, motor.ponte, PosseFalsa(), threading.Event())
+    assert ("encerrar",) in motor.claude.chamadas

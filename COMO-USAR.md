@@ -308,8 +308,9 @@ o botão **REUNIÃO 1H** e o **ABRIR DERVS APP** (abre o outro projeto no navega
   lembrete"). Sem lembrete, aparece um texto explicando como pedir.
   **DIÁRIO:** as últimas frases que o DERVS ouviu hoje — só a hora, se ele foi
   chamado e a duração; o que foi dito **nunca** aparece.
-- **Embaixo:** a **conversa ao vivo** (as últimas falas suas e dele) e as **últimas
-  ações** (o que ele rodou, o resultado e os erros).
+- **Embaixo:** o **Claude Code** (a caixa de texto para pedir trabalho ao Claude),
+  a **conversa ao vivo** (as últimas falas suas e dele) e as **últimas ações** (o
+  que ele rodou, o resultado e os erros).
 
 **O "GASTO HOJE" é uma estimativa.** Cada vez que o DERVS fala com a voz de nuvem,
 transcreve o que você disse ou pensa na nuvem, ele anota uma linha no arquivo
@@ -324,6 +325,33 @@ centavos. Ele zera à meia-noite.
 inteiro usa bem menos de um décimo de um núcleo do processador. A animação para
 quando o painel está escondido e cai para 10 quadros por segundo quando você está
 em outra janela.
+
+---
+
+## Pedir trabalho ao Claude no painel
+
+No canto de baixo à esquerda do painel fica a caixa **CLAUDE CODE**. É o mesmo Claude
+do seu terminal (com as suas regras e ferramentas), usando a sua assinatura — não
+gasta chave de API.
+
+- **Como usar:** escreva o que quer ("olha o que está ocupando espaço no C:") e
+  aperte **Enter** (Shift+Enter pula linha). A resposta vai aparecendo palavra por
+  palavra. Ele lê o computador inteiro; para **mudar** qualquer coisa, aparece um
+  aviso no meio da tela perguntando se pode. O botão que já vem selecionado é
+  **Negar** — de propósito, para um Enter sem querer não liberar nada. Se você não
+  responder em 5 minutos, ele conta como "não".
+- **Por voz:** "pede pro Claude verificar meu PC", "analisa o uso de memória" ou
+  "verifica meu PC". A voz responde só um resumo de duas frases; o texto completo fica
+  no painel. Para interromper, diga **"para"**.
+- **Parar:** o botão **PARAR** (ou a palavra "para") interrompe. Se ele não obedecer
+  em 5 segundos, o DERVS encerra o processo dele à força.
+- **Nova conversa:** esquece tudo e começa do zero. Sem apertar, o DERVS lembra da
+  conversa mesmo depois de fechar e abrir de novo.
+- **O que ele não faz sozinho:** apagar, desinstalar ou mexer em pasta do sistema
+  (`C:\Windows`, `Program Files`, `.git`, `.ssh`). Ele só **propõe** e você decide;
+  por enquanto a execução dessas propostas ainda não existe (é a próxima etapa).
+- **Se ficar sem resposta:** confira se o `claude` está instalado e logado (abra um
+  terminal e digite `claude`); o erro aparece em vermelho na própria caixa.
 
 ---
 

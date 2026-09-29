@@ -204,6 +204,13 @@ PADRAO = {
     # outra integração (login, comando, cofre) existe nesta fase — ver
     # docs/esteira/dervs-painel-completo/briefing.md, "fora_de_escopo".
     "dervs_app_url": "http://localhost:4777",
+
+    # --- Claude Code dentro do painel (onda B da central do PC) ---
+    # Perfil da sessão do Claude Code: "dono" carrega o ~/.claude inteiro
+    # (CLAUDE.md, skills, agentes, MCPs, plugins) + o projeto; "equipe" carrega só
+    # o harness do projeto, para as regras valerem iguais em qualquer PC. Independe
+    # de "cerebro": o painel usa o Claude Code por texto de qualquer jeito.
+    "claude_perfil": "dono",
 }
 
 
@@ -283,6 +290,8 @@ def _validar(conf: dict) -> dict:
         # tratar como caminho de arquivo local ou outro protocolo — o botão
         # só serve para abrir uma página web.
         conf["dervs_app_url"] = PADRAO["dervs_app_url"]
+    if conf.get("claude_perfil") not in ("dono", "equipe"):
+        conf["claude_perfil"] = PADRAO["claude_perfil"]
     return conf
 
 

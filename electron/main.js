@@ -431,6 +431,52 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo acao sem texto, ignorado");
       }
       break;
+    case "claude_delta":
+      // Onda B: pedaço da resposta do Claude Code (texto hostil: só textContent na tela).
+      if (typeof mensagem.texto === "string") {
+        difundir("dervs:claude-delta", { texto: mensagem.texto });
+      } else {
+        console.error("electron: verbo claude_delta sem texto, ignorado");
+      }
+      break;
+    case "claude_ferramenta":
+      if (typeof mensagem.nome === "string" && typeof mensagem.resumo === "string") {
+        difundir("dervs:claude-ferramenta", { nome: mensagem.nome, resumo: mensagem.resumo });
+      } else {
+        console.error("electron: verbo claude_ferramenta com campo faltando, ignorado");
+      }
+      break;
+    case "claude_pedido":
+      // O Claude pede permissão: o pedido mora no painel, então traz o painel
+      // para frente — pedido invisível é pedido que estoura em 5 min.
+      if (typeof mensagem.id === "string" && mensagem.id
+          && typeof mensagem.ferramenta === "string" && typeof mensagem.resumo === "string") {
+        difundir("dervs:claude-pedido", {
+          id: mensagem.id,
+          ferramenta: mensagem.ferramenta,
+          resumo: mensagem.resumo,
+          entradaCortada: typeof mensagem.entrada_cortada === "string" ? mensagem.entrada_cortada : "",
+          escondidos: Number.isInteger(mensagem.escondidos) && mensagem.escondidos > 0 ? mensagem.escondidos : 0,
+          rede: mensagem.rede === true,
+          nivel: typeof mensagem.nivel === "string" ? mensagem.nivel : "muda_estado",
+          expiraS: Number.isFinite(mensagem.expira_s) ? mensagem.expira_s : 300,
+        });
+        mostrarPainel();
+      } else {
+        console.error("electron: verbo claude_pedido com campo faltando, ignorado");
+      }
+      break;
+    case "claude_fim":
+      if (typeof mensagem.ok === "boolean") {
+        difundir("dervs:claude-fim", {
+          ok: mensagem.ok,
+          custo: Number.isFinite(mensagem.custo) ? mensagem.custo : 0,
+          erro: typeof mensagem.erro === "string" ? mensagem.erro : null,
+        });
+      } else {
+        console.error("electron: verbo claude_fim sem ok booleano, ignorado");
+      }
+      break;
     default:
       console.error(`electron: verbo desconhecido do Python, ignorado: ${String(verbo)}`);
   }
@@ -511,6 +557,38 @@ ipcMain.on("dervs:alternar-reuniao", (_evento, ligar) => {
 // + setWindowOpenHandler já bloqueiam isso).
 ipcMain.on("dervs:abrir-app-dervs", () => {
   shell.openExternal(urlDoDervsApp());
+});
+
+// Claude Code (onda B): a tela só PEDE; o Python valida de novo (não há confiança
+// em cascata) e decide. Formato conferido aqui — o que fugir dele nem sai.
+const LIMITE_PERGUNTA = 8000;
+
+ipcMain.on("dervs:claude-perguntar", (_evento, texto) => {
+  if (typeof texto !== "string" || !texto.trim() || texto.length > LIMITE_PERGUNTA) {
+    console.error("electron: pergunta ao Claude inválida (vazia, longa ou não é texto), ignorada");
+    return;
+  }
+  enviarAoPython({ verbo: "claude_perguntar", texto });
+});
+
+ipcMain.on("dervs:claude-parar", () => {
+  enviarAoPython({ verbo: "claude_parar" });
+});
+
+ipcMain.on("dervs:claude-responder", (_evento, dado) => {
+  const valido = dado && typeof dado === "object" && typeof dado.id === "string"
+    && dado.id && dado.id.length <= 64 && typeof dado.permitir === "boolean";
+  if (!valido) {
+    console.error("electron: resposta ao pedido do Claude inválida, ignorada");
+    return;
+  }
+  enviarAoPython({
+    verbo: "claude_resposta", id: dado.id, permitir: dado.permitir,
+    cartao_id: typeof dado.cartaoId === "string" ? dado.cartaoId : null });
+});
+
+ipcMain.on("dervs:claude-nova-conversa", () => {
+  enviarAoPython({ verbo: "claude_nova_conversa" });
 });
 
 // Painel grande: os botões da janela só PEDEM; quem mexe na janela é este processo.
