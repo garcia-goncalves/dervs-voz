@@ -153,9 +153,16 @@ PADRAO = {
     # centavos de dólar por mês. Voltar é trocar esta palavra.
     "cerebro_openai_modelo": "gpt-4.1-mini",
 
-    # Motor de voz: "kokoro" (humana, offline, grátis — PADRÃO), "piper"
-    # (sintética, instantânea, reserva) ou "xtts" (a mais humana, mas lenta).
-    "motor": "kokoro",
+    # Motor de voz: "openai" (voz de nuvem, a mais natural e com sotaque
+    # brasileiro de verdade; custa centavos por fala e precisa de internet),
+    # "kokoro" (humana, offline, grátis — a RESERVA da nuvem), "piper"
+    # (sintética, instantânea) ou "xtts" (humana, mas lenta).
+    "motor": "openai",
+
+    # Voz da nuvem (quando motor="openai"): ash, onyx, echo, sage, verse, ballad
+    # (masculinas/neutras) ou coral, nova, shimmer (femininas).
+    "voz_openai": "ash",
+    "voz_openai_modelo": "gpt-4o-mini-tts",
 
     # Voz do Kokoro (quando motor="kokoro"): "pm_santa" (masculina grave,
     # feiticeiro), "pm_alex" (masculina) ou "pf_dora" (feminina).
@@ -235,8 +242,13 @@ def _validar(conf: dict) -> dict:
         conf["cerebro"] = PADRAO["cerebro"]
     if not isinstance(conf.get("cerebro_openai_modelo"), str) or not conf["cerebro_openai_modelo"]:
         conf["cerebro_openai_modelo"] = PADRAO["cerebro_openai_modelo"]
-    if conf.get("motor") not in ("kokoro", "piper", "xtts"):
+    if conf.get("motor") not in ("openai", "kokoro", "piper", "xtts"):
         conf["motor"] = PADRAO["motor"]
+    if conf.get("voz_openai") not in ("alloy", "ash", "ballad", "coral", "echo", "fable",
+                                      "nova", "onyx", "sage", "shimmer", "verse"):
+        conf["voz_openai"] = PADRAO["voz_openai"]
+    if not isinstance(conf.get("voz_openai_modelo"), str) or not conf["voz_openai_modelo"]:
+        conf["voz_openai_modelo"] = PADRAO["voz_openai_modelo"]
     if conf.get("voz_kokoro") not in ("pm_santa", "pm_alex", "pf_dora"):
         conf["voz_kokoro"] = PADRAO["voz_kokoro"]
     try:

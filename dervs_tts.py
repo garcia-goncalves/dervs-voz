@@ -29,6 +29,9 @@ import threading
 import time
 import wave
 import json
+import queue
+import re
+import urllib.request
 
 import dervs_config
 import dervs_nivel
@@ -113,6 +116,69 @@ XTTS_DAEMON = os.path.join(_dir_daemons(), "dervs_tts_daemon.py")
 # o meio-termo que faltava entre Piper (robótico) e XTTS (lento). Cai no Piper
 # sozinho se o Kokoro não estiver instalado/falhar.
 MOTOR_PADRAO = "kokoro"
+
+# --- Voz de nuvem (OpenAI): a mais natural, e a única que aceita instrução de
+# sotaque. O Kokoro local fica de reserva, para quando a internet cair. ---
+OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
+OPENAI_TTS_TIMEOUT_S = 20
+OPENAI_DESCANSO_S = 60      # depois de uma falha, não insiste na nuvem por 1 min
+INSTRUCOES_VOZ_BR = (
+    "Fale em português do Brasil, com sotaque brasileiro natural (paulistano), "
+    "como uma pessoa real conversando. Tom calmo, caloroso e confiante, de "
+    "assistente pessoal sofisticado. Ritmo natural, com pausas humanas e "
+    "entonação de quem entende o que diz; nunca robótico e nunca com sotaque "
+    "estrangeiro."
+)
+_FIM_FRASE = re.compile(r"(?<=[.!?;:])\s+")
+_FIM_DA_FILA = object()
+
+
+def _frases_da_fala(texto: str):
+    """Quebra em frases para tocar a 1ª enquanto a 2ª ainda é gerada."""
+    partes = [p.strip() for p in _FIM_FRASE.split(texto.strip()) if p.strip()]
+    return partes or ([texto.strip()] if texto.strip() else [])
+
+
+def pedido_openai(texto: str, voz: str, modelo: str, instrucoes: str) -> dict:
+    return {"model": modelo, "voice": voz, "input": texto,
+            "instructions": instrucoes, "response_format": "wav"}
+
+
+def consertar_cabecalho_wav(dados: bytes) -> bytes:
+    """A nuvem manda o wav com o tamanho do bloco de áudio como 0xFFFFFFFF
+    ("não sei ainda"). O `wave` do Python então lê 89 mil segundos e o player e
+    o medidor de onda se perdem. Reescreve os dois tamanhos com o valor real."""
+    i = dados.find(b"data")
+    if not dados.startswith(b"RIFF") or i < 0:
+        return dados
+    real = len(dados) - (i + 8)
+    return (dados[:4] + (len(dados) - 8).to_bytes(4, "little") + dados[8:i + 4]
+            + real.to_bytes(4, "little") + dados[i + 8:])
+
+
+def sintetizar_openai(texto: str, voz: str, modelo: str, instrucoes: str, chave: str):
+    """Gera UMA frase na nuvem e devolve o caminho de um wav temporário, ou None
+    se algo falhou. Nunca escreve a chave (nem o erro cru, que pode citá-la)."""
+    try:
+        req = urllib.request.Request(
+            OPENAI_TTS_URL,
+            data=json.dumps(pedido_openai(texto, voz, modelo, instrucoes)).encode("utf-8"),
+            headers={"Authorization": "Bearer " + chave,
+                     "Content-Type": "application/json"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=OPENAI_TTS_TIMEOUT_S) as r:
+            dados = r.read()
+        if not dados.startswith(b"RIFF"):
+            return None
+        tmp = tempfile.NamedTemporaryFile(prefix="dervs_openai_", suffix=".wav", delete=False)
+        try:
+            tmp.write(consertar_cabecalho_wav(dados))
+        finally:
+            tmp.close()
+        return tmp.name
+    except Exception as erro:
+        sys.stderr.write("dervs_tts: voz de nuvem falhou (%s)\n" % type(erro).__name__)
+        return None
 
 
 def caminho_voz(nome: str) -> str:
@@ -236,8 +302,12 @@ class Voz:
         self.voz_kokoro = voz_kokoro      # voz do Kokoro
         # velocidade do Kokoro: vem da config (voz_velocidade), a menos que
         # quem chamou passe um valor explícito.
+        _conf = dervs_config.carregar()
         self.voz_velocidade = (voz_velocidade if voz_velocidade is not None
-                                else dervs_config.carregar()["voz_velocidade"])
+                                else _conf["voz_velocidade"])
+        self.voz_openai = _conf["voz_openai"]
+        self.modelo_openai = _conf["voz_openai_modelo"]
+        self._openai_descansa_ate = 0.0    # monotonic: até quando a nuvem descansa
         self._synth = None                 # processo de síntese "de reserva" (sem daemon)
         self._play = None                  # processo do player
         self._daemon = None                # processo do daemon XTTS (persistente)
@@ -278,12 +348,24 @@ class Voz:
         return (os.path.exists(KOKORO_PY) and os.path.exists(KOKORO_DAEMON)
                 and os.path.exists(KOKORO_MODELO) and _reproducao_disponivel())
 
+    def _chave_openai(self):
+        try:
+            return dervs_config.segredo("OPENAI_API_KEY")
+        except Exception:
+            return None
+
+    def _openai_disponivel(self):
+        return (self.motor == "openai" and _reproducao_disponivel()
+                and time.monotonic() >= self._openai_descansa_ate
+                and bool(self._chave_openai()))
+
     def _kokoro_disponivel(self):
         return self._kokoro_instalado() and not self._kokoro_morto
 
     def disponivel(self) -> bool:
         """Tem como falar por ALGUM motor?"""
-        return (self._kokoro_disponivel() or self._piper_disponivel()
+        return (self._openai_disponivel() or self._kokoro_disponivel()
+                or self._piper_disponivel()
                 or (self._xtts_instalado() and not self._xtts_morto))
 
     def trocar_voz(self, nome: str):
@@ -362,8 +444,13 @@ class Voz:
         self._evento_atual = evento
         self._gerando = True
         try:
-            # 1) Kokoro (padrão): humano E rápido, frase a frase. Se falhar, Piper.
-            if self.motor == "kokoro" and self._kokoro_disponivel():
+            # 0) Nuvem (padrão): voz humana com sotaque brasileiro. Se a internet
+            #    ou a chave falharem, cai no Kokoro (offline) — nunca fica mudo.
+            if self.motor == "openai" and self._openai_disponivel():
+                if self._falar_openai(texto, evento):
+                    return
+            # 1) Kokoro: humano E rápido, frase a frase. Se falhar, Piper.
+            if self.motor in ("kokoro", "openai") and self._kokoro_disponivel():
                 if self._falar_kokoro(texto, evento):
                     return
                 # Kokoro falhou nesta fala → cai no Piper abaixo.
@@ -384,6 +471,48 @@ class Voz:
             pass
         finally:
             self._gerando = False
+
+    def _falar_openai(self, texto: str, evento: threading.Event) -> bool:
+        """Fala pela nuvem: gera a próxima frase enquanto a anterior toca.
+        Devolve False só se NADA chegou a tocar (o chamador cai no Kokoro)."""
+        frases = _frases_da_fala(texto)
+        if not frases:
+            return True
+        chave = self._chave_openai()
+        fila = queue.Queue()
+
+        def produzir():
+            try:
+                for frase in frases:
+                    if evento.is_set():
+                        break
+                    wav = sintetizar_openai(frase, self.voz_openai, self.modelo_openai,
+                                            INSTRUCOES_VOZ_BR, chave)
+                    fila.put(wav)
+                    if wav is None:
+                        break
+            finally:
+                fila.put(_FIM_DA_FILA)
+
+        threading.Thread(target=produzir, daemon=True).start()
+        falou = False
+        while True:
+            wav = fila.get()
+            if wav is _FIM_DA_FILA:
+                return True
+            if wav is None:
+                self._openai_descansa_ate = time.monotonic() + OPENAI_DESCANSO_S
+                if not falou:
+                    return False
+                continue
+            if evento.is_set():
+                try:
+                    os.remove(wav)
+                except Exception:
+                    pass
+                continue
+            self._tocar_e_apagar(wav)
+            falou = True
 
     def _tocar_e_apagar(self, wav):
         if not wav or not os.path.exists(wav) or os.path.getsize(wav) == 0:

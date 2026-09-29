@@ -3,7 +3,7 @@
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 28/09/2026. **815 testes verdes** no ambiente do
+Última verificação: 28/09/2026. **830 testes verdes** no ambiente do
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
@@ -371,11 +371,17 @@ Tudo até hoje foi medido com áudio sintetizado. Nada foi testado com a sua voz
 o seu microfone e o barulho da sua sala. Isso só dá para fazer depois do
 item 2.1 (o microfone).
 
-### 4.3. Voz da nuvem — decisão de dinheiro, sua
+### 4.3. ~~Voz da nuvem~~ — FEITO em 28/09/2026
 
-Trocar a voz local pela da nuvem deixa o DERVS 0,42 segundo mais lento e custa
-cerca de **US$ 4,50 por mês**. A voz local (Kokoro `pm_alex`, 1,3×) continua
-como está. Só faço com o seu sim.
+O dono achou a voz local robótica e com sotaque errado e pediu voz real, brasileira.
+Agora o motor padrão é `openai` (`gpt-4o-mini-tts`, voz `ash`, com instrução fixa de
+"português do Brasil, sotaque paulistano natural, nunca robótico"). Mede ~1,8 s para
+gerar a primeira frase; as seguintes são geradas enquanto a anterior toca. Custa
+centavos por fala e precisa de internet: **se a nuvem falhar, cai sozinha no Kokoro
+local** (e a nuvem descansa 1 min antes de tentar de novo). Trocar de voz:
+`voz_openai` no `config.json` (ash, onyx, echo, sage, verse, ballad, coral, nova,
+shimmer, alloy, fable). Voltar ao local: `"motor": "kokoro"`. Com a nuvem ligada o
+daemon do Kokoro (776 MB e ~80% de um núcleo enquanto sintetiza) nem sobe no boot.
 
 ### 4.4. Não há CI
 
