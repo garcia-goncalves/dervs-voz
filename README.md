@@ -16,8 +16,10 @@ sites, roda comandos). Fala de volta com voz humana.
 selo flutuante; hoje o Qt continua vivo por baixo (motor invisível, ver seção
 abaixo), mas quem aparece na tela é sempre o HUD do Electron.
 
-**Desde 17/09/2026 (fase 1 de `docs/esteira/dervs-painel-completo/`) o HUD é um
-widget de desktop de verdade:** janela transparente (o desktop atrás aparece
+**Atualização 29/09/2026: o widget deixou de existir; o painel grande é a janela
+única (ver abaixo). O parágrafo a seguir é o histórico da fase 1.** Desde 17/09/2026
+(fase 1 de `docs/esteira/dervs-painel-completo/`) o HUD era um
+widget de desktop: janela transparente (o desktop atrás aparece
 por baixo do tom ciano), sempre visível por cima das outras janelas, ancorada
 no canto superior direito da tela, com relógio/data ao vivo e o uso real de
 CPU/RAM/disco desta máquina (`dervs_sistema.py`, via `psutil`) — e um botão
@@ -105,9 +107,10 @@ Casca da janela nova, separada do cérebro Python de propósito:
 
 | Arquivo | Função |
 |---|---|
-| `electron/main.js` | processo principal: cria a janela (transparente, sempre por cima, ancorada no canto) e a bandeja, fala com o Python por stdin/stdout |
+| `electron/main.js` | processo principal: cria o painel (a janela única, transparente) e a bandeja, fala com o Python por soquete local e stdout |
+| `electron/janela-estado.js` | lógica pura de abrir/esconder/minimizar/fechar-para-bandeja (testada em `janela-estado.test.js`) |
 | `electron/preload.js` | ponte segura entre a janela (renderer) e o `main.js` |
-| `electron/renderer/` | HTML/CSS/JS do HUD — `index.html`, `estilo.css`, `hud.js`, e as fontes empacotadas localmente |
+| `electron/renderer/` | HTML/CSS/JS do painel — `painel.html|css|js`, `estilo.css`, e as fontes empacotadas localmente |
 | `electron/package.json` | fixa a versão do Electron (`devDependencies`); fonte da verdade da dependência JS |
 
 A bandeja tem três itens: **Abrir DERVS**, **Recolher janela** e **Sair do
@@ -136,10 +139,12 @@ mente sobre o microfone. A escolha fica em `escuta_ao_abrir`.
 **Quarta rodada (23/09/2026) — três funções novas no HUD:**
 
 - **Atalho global `Ctrl+Alt+D`** (`globalShortcut`, `electron/main.js`): abre/fecha o
-  **painel grande** (`electron/renderer/painel.html`, ver `COMO-USAR.md`); o widget
-  compacto tem `Ctrl+Alt+Shift+D` (esconde se está à vista, senão traz de volta e foca). Se outro programa já usa
-  a combinação, o Electron avisa no log e segue sem o atalho. A janela também não
-  fica mais presa minimizada: quem a minimiza (Win+D) é desfeito na hora.
+  **painel** (`electron/renderer/painel.html`, ver `COMO-USAR.md`). **Desde a onda A
+  da esteira `dervs-central-do-pc` (29/09/2026) o widget compacto não existe mais:**
+  o painel é a janela única, `Ctrl+Alt+D` é o único atalho, e a bandeja tem só
+  "Abrir DERVS / Sair do DERVS". Se outro programa já usa
+  a combinação, o Electron avisa no log e segue sem o atalho. Minimizar agora
+  minimiza de verdade.
 - **Cartão do diário do porteiro:** `HOJE: N ouvidas · M acordei`, contado de
   `porteiro.jsonl` (+ a rotação `.1`) por `dervs_diario.py`, a cada ~30 s. Só
   metadados — o texto nunca é lido. Só aparece depois da primeira leitura.

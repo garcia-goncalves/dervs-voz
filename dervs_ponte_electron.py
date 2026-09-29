@@ -48,7 +48,7 @@ Verbos Python → Electron (só estes):
             esperam resposta (ex.: a lista vazia que limpa a tela).
             Consumidor que só lê `rotulo`/`nivel` continua funcionando sem
             mudar nada.
-  mostrar {}                          — traz a janela para frente.
+  mostrar {}                          — traz o painel (a janela única) para frente.
   microfone {"ligado"}                — extensão do protocolo: a escuta está
             aberta (true) ou fechada (false). Guarda só o último valor até o
             `pronto`, como `estado` — o botão do HUD nasce já no lado certo.

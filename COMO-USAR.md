@@ -214,18 +214,19 @@ Bom saber:
 Ver a seção **"Ligar e desligar a escuta"**, acima — o botão **MICROFONE
 LIGADO / DESLIGADO** fica logo abaixo do nome DERVS, na tela.
 
-Ao abrir (com a configuração padrão), o DERVS já nasce ouvindo.
+Ao abrir (com a configuração padrão), o DERVS já nasce ouvindo.
 
-**Reunião 1h:** ao lado do botão do microfone, o botão **REUNIÃO 1H** fecha o
+**Reunião 1h:** na barra de estado do painel, o botão **REUNIÃO 1H** fecha o
 microfone por uma hora e o reabre sozinho. Enquanto dura, mostra o tempo que falta
 (**REUNIÃO 59:12**). Clique de novo para cancelar e voltar a ouvir na hora. Se você
 ligar ou desligar o microfone pelo botão dele durante a reunião, ela é cancelada.
 Se fechar o DERVS no meio, ele abre ouvindo da próxima vez.
 
-**Atalho no teclado:** `Ctrl+Alt+D` abre o **painel grande** (a tela JARVIS,
-explicada logo abaixo); apertando de novo, ele some. A janelinha compacta continua
-existindo: aperte `Ctrl+Alt+Shift+D` para escondê-la ou trazê-la de volta, ou
-clique no ícone do DERVS na bandeja do Windows.
+**Atalho no teclado:** `Ctrl+Alt+D` abre o **painel** (a tela JARVIS, explicada
+logo abaixo); apertando de novo, ele some. **A janelinha compacta (widget) deixou
+de existir**: agora há uma janela só, e `Ctrl+Alt+D` é o único atalho. O ícone do
+DERVS na bandeja do Windows também abre e fecha o painel (menu: Abrir DERVS / Sair
+do DERVS).
 
 **Uma linha pequena** perto do rodapé diz **HOJE: N ouvidas · M acordei** — quantas
 frases o DERVS ouviu hoje e em quantas ele acordou. Só números; o que foi dito não
@@ -284,12 +285,15 @@ Mudou o arquivo? Feche e abra o DERVS para valer.
 
 ## O painel grande (a tela JARVIS)
 
-**Como abrir:** aperte `Ctrl+Alt+D`, ou clique no botão **PAINEL** da janelinha.
-Para fechar: `Ctrl+Alt+D` de novo, ou o **x** no canto do painel. Enquanto o painel
-está aberto, a janelinha some (e volta sozinha quando o painel fecha; se o DERVS
-precisar da sua confirmação num plano, ela volta na hora). O botão quadrado ao lado
-do **x** faz o painel ocupar a tela toda; a alça no canto de baixo à direita muda o
-tamanho.
+**Como abrir:** ele já abre sozinho com o DERVS; depois, `Ctrl+Alt+D` ou um clique
+no ícone da bandeja. **Os três botões do canto:** o **traço** minimiza de verdade
+(vai para a barra de tarefas), o **quadrado** diminui/restaura o tamanho (ocupa a
+tela toda e volta) e o **x** fecha para a bandeja — o DERVS continua vivo; para
+sair de vez, use **Sair do DERVS** no menu da bandeja. A alça no canto de baixo à
+direita muda o tamanho. Quando o DERVS precisar da sua confirmação num plano, o
+painel vem para a frente com um **cartão de confirmação** (Confirmar / Cancelar, e
+a caixa "tenho autorização" quando o passo pede). Na barra de estado também ficam
+o botão **REUNIÃO 1H** e o **ABRIR DERVS APP** (abre o outro projeto no navegador).
 
 **O que cada parte mostra** (tudo é dado real, atualizado sozinho):
 

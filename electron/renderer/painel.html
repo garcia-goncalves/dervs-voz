@@ -29,8 +29,9 @@
       <p class="p-data" id="p-data" aria-label="Data de hoje"></p>
     </div>
     <div class="p-janela-botoes">
-      <button type="button" id="p-botao-ampliar" class="p-botao-janela" title="Ocupar a tela / voltar ao tamanho">&#9633;</button>
-      <button type="button" id="p-botao-fechar" class="p-botao-janela" title="Esconder o painel (Ctrl+Alt+D)">&times;</button>
+      <button type="button" id="p-botao-minimizar" class="p-botao-janela" title="Minimizar para a barra de tarefas">&#8722;</button>
+      <button type="button" id="p-botao-ampliar" class="p-botao-janela" title="Diminuir / restaurar o tamanho">&#9633;</button>
+      <button type="button" id="p-botao-fechar" class="p-botao-janela" title="Fechar para a bandeja (Ctrl+Alt+D traz de volta)">&times;</button>
     </div>
   </header>
 
@@ -56,10 +57,17 @@
       <span class="p-chip-valor p-gasto-valor" id="p-gasto">US$ 0,00</span>
       <span class="p-chip-detalhe" id="p-gasto-detalhe">voz 0,00 · escuta 0,00 · cérebro 0,00</span>
     </div>
-    <div class="p-chip p-chip-reuniao" id="p-chip-reuniao" hidden>
-      <span class="p-chip-rotulo">REUNIÃO</span>
-      <span class="p-chip-valor" id="p-reuniao">--:--</span>
-    </div>
+    <!-- Modo reunião: fecha o microfone por 1 hora e reabre sozinho. O
+         temporizador mora no Python; este botão só pede e mostra o tempo. -->
+    <button type="button" class="p-chip p-chip-reuniao" id="p-chip-reuniao" aria-pressed="false" title="Fecha o microfone por 1 hora e reabre sozinho">
+      <span class="p-chip-ponto" aria-hidden="true"></span>
+      <span class="p-chip-rotulo">REUNIÃO 1H</span>
+      <span class="p-chip-valor" id="p-reuniao">--</span>
+    </button>
+    <!-- Só ABRE a URL no navegador (main.js, shell.openExternal). -->
+    <button type="button" class="p-chip" id="p-abrir-app-dervs" title="Abre o DERVS App no navegador">
+      <span class="p-chip-rotulo">ABRIR DERVS APP</span>
+    </button>
   </section>
 
   <main class="p-corpo">
@@ -128,6 +136,24 @@
 
   <!-- Alça de redimensionar (a janela é transparente, sem borda do Windows). -->
   <div class="p-alca" id="p-alca" title="Arraste para mudar o tamanho" aria-hidden="true"></div>
+
+  <!-- Cartão de confirmação de plano (vem do Python). Modal: sem resposta,
+       nada executa. Todo texto entra por textContent (painel.js). -->
+  <dialog id="p-dialogo-plano" class="p-dialogo" aria-label="Confirmação de plano">
+    <section class="cartao cartao-plano" id="cartao-plano">
+      <p class="cartao-plano-pergunta" id="cartao-plano-pergunta"></p>
+      <ul class="cartao-plano-passos" id="cartao-plano-passos"></ul>
+      <p class="cartao-plano-comando" id="cartao-plano-comando" hidden></p>
+      <label class="cartao-plano-autorizacao" id="cartao-plano-autorizacao-envolucro" hidden>
+        <input type="checkbox" id="cartao-plano-autorizacao-caixa">
+        <span id="cartao-plano-autorizacao-texto"></span>
+      </label>
+      <div class="cartao-plano-botoes">
+        <button type="button" id="botao-confirmar" class="botao botao-confirmar">Confirmar</button>
+        <button type="button" id="botao-cancelar" class="botao botao-cancelar">Cancelar</button>
+      </div>
+    </section>
+  </dialog>
 
   <script src="painel-formato.js"></script>
   <script src="painel.js"></script>

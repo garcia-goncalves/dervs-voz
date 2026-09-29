@@ -54,8 +54,8 @@ contextBridge.exposeInMainWorld("dervs", {
   aoVoz: aoCanal("dervs:voz"),
   aoAcao: aoCanal("dervs:acao"),
   // Controles da janela grande — só PEDEM; quem mexe na janela é o main.js.
-  alternarPainel: () => { ipcRenderer.send("dervs:alternar-painel"); },
   painelEsconder: () => { ipcRenderer.send("dervs:painel-esconder"); },
+  painelMinimizar: () => { ipcRenderer.send("dervs:painel-minimizar"); },
   painelAmpliar: () => { ipcRenderer.send("dervs:painel-ampliar"); },
   painelRedimensionar: (fase, x, y) => {
     if ((fase === "inicio" || fase === "mover") && Number.isFinite(x) && Number.isFinite(y)) {

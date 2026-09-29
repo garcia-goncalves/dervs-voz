@@ -251,6 +251,18 @@ button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); 
       transparent 58%, transparent 70%, var(--acento-fraco) 70%, var(--acento-fraco) 78%, transparent 78%);
 }
 
+/* ---- cartão de confirmação de plano (diálogo modal) ---- */
+.p-dialogo {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--texto-primario);
+  max-width: 460px;
+  width: calc(100% - 48px);
+}
+.p-dialogo::backdrop { background: rgba(0, 0, 0, .62); }
+.p-dialogo .cartao { max-width: none; }
+
 /* ---- janela baixa ou estreita: encolhe o que sobra ---- */
 @media (max-height: 720px) {
   .p-rodape { height: 140px; }
