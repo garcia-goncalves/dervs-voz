@@ -25,6 +25,10 @@ def coletar(rodar=None, modulo_psutil=None, dormir=time.sleep, topo: int = 10) -
         return falha("psutil não está instalado")
     erros = (mod.Error, OSError)
     try:
+        nucleos = max(1, int(mod.cpu_count() or 1))   # psutil conta 100% POR núcleo
+    except (AttributeError, OSError, ValueError, TypeError):
+        nucleos = 1
+    try:
         procs = list(mod.process_iter(["pid", "name"]))
         for p in procs:
             try:
@@ -35,7 +39,9 @@ def coletar(rodar=None, modulo_psutil=None, dormir=time.sleep, topo: int = 10) -
         amostras = []
         for p in procs:
             try:
-                cpu = p.cpu_percent(None)
+                if p.pid == 0 or (p.info.get("name") or "") == "System Idle Process":
+                    continue   # o "processo" que soma o tempo ocioso: não é programa nenhum
+                cpu = p.cpu_percent(None) / nucleos
                 rss = p.memory_info().rss
                 try:
                     exe = p.exe() or ""

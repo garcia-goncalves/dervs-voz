@@ -44,6 +44,12 @@ def test_consulta_com_json_ruim_vira_erro_de_consulta():
         base.consultar(lambda c, t=None: "isto não é json", "x")
 
 
+def test_ambiente_do_powershell_nao_herda_psmodulepath(monkeypatch):
+    monkeypatch.setenv("PSModulePath", "C:\\PowerShell\\7\\Modules")
+    env = base.ambiente_limpo()
+    assert not any(k.upper() == "PSMODULEPATH" for k in env) and "PATH" in {k.upper() for k in env}
+
+
 def test_aspas_dobra_aspa_simples():
     assert base.aspas("C:\\o'brien\\a.exe") == "'C:\\o''brien\\a.exe'"
 
@@ -182,13 +188,20 @@ class ProcFalso:
 
 
 def test_processos_ordena_por_cpu_limita_topo_e_anexa_assinatura():
-    procs = [ProcFalso(i, f"p{i}", float(i), i * 10, f"C:\\p{i}.exe") for i in range(15)]
-    mod = types.SimpleNamespace(process_iter=lambda attrs: procs, Error=RuntimeError)
+    procs = [ProcFalso(i + 1, f"p{i}", float(i), i * 10, f"C:\\p{i}.exe") for i in range(15)]
+    mod = types.SimpleNamespace(process_iter=lambda attrs: procs, Error=RuntimeError, cpu_count=lambda: 1)
     r = processos.coletar(falso({"Get-AuthenticodeSignature": [
         {"Caminho": "C:\\p14.exe", "Status": "Valid", "Assinante": "CN=Microsoft"}]}),
         mod, dormir=lambda s: None)
     assert len(r["itens"]) == 10 and r["itens"][0]["nome"] == "p14"
     assert r["itens"][0]["assinatura"] == "Valid" and r["itens"][1]["assinatura"] == "Desconhecida"
+
+
+def test_processos_ignora_o_ocioso_e_divide_a_cpu_pelos_nucleos():
+    procs = [ProcFalso(0, "System Idle Process", 1200.0, 8, ""), ProcFalso(7, "trabalhador", 400.0, 100, "")]
+    mod = types.SimpleNamespace(process_iter=lambda attrs: procs, Error=RuntimeError, cpu_count=lambda: 16)
+    r = processos.coletar(falso({}), mod, dormir=lambda s: None)
+    assert [i["nome"] for i in r["itens"]] == ["trabalhador"] and r["itens"][0]["cpu_pct"] == 25.0
 
 
 # ------------------------------------------------------------------ segurança
@@ -422,7 +435,7 @@ def test_resumo_avisa_quando_leitura_falhou():
 # ------------------------------------------------------------------ explicações
 def test_explicacao_de_evento_conhecido_e_desconhecido():
     assert "desligou sem avisar" in explicacoes.explicar_evento("Microsoft-Windows-Kernel-Power", 41)
-    assert "Explicar melhor" in explicacoes.explicar_evento("Qualquer", 1)
+    assert "sem texto pronto" in explicacoes.explicar_evento("Qualquer", 1)
 
 
 # ------------------------------------------------------------------ orquestração
@@ -514,6 +527,19 @@ def test_propostas_maior_primeiro_so_quarentena_e_sem_windows_temp():
     p = limpeza.propostas(ultima_com_candidatos())
     assert [x["alvo"] for x in p] == ["C:\\Users\\x\\Temp\\grande.tmp", "C:\\Users\\x\\Temp\\pequeno.tmp"]
     assert all(x["acao"] == "quarentena" and x["por_que_seguro"] for x in p)
+
+
+def test_propostas_nao_incluem_programa_biblioteca_nem_script():
+    u = ultima_com_candidatos()
+    for nome in ("a.dll", "b.EXE", "c.ps1", "d.msi"):
+        u["coletores"]["temporarios"]["candidatos"].append(
+            {"caminho": os.path.join("C:", os.sep, "Users", "x", "Temp", nome), "tamanho_bytes": 10**9, "idade_dias": 50,
+             "grupo": "Temporários do usuário"})
+    assert [os.path.basename(x["alvo"]) for x in limpeza.propostas(u)] == ["grande.tmp", "pequeno.tmp"]
+
+
+def test_proposta_nao_se_passa_por_explicacao_do_claude():
+    assert all("explicacao" not in x for x in limpeza.propostas(ultima_com_candidatos()))
 
 
 def test_propostas_respeitam_limite_e_coletor_falho():

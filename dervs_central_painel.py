@@ -46,6 +46,14 @@ def eh_pergunta_de_saude(texto: str) -> bool:
     return bool(_PERGUNTAS_DE_SAUDE.match(_norm(texto)))
 
 
+def _data_curta(iso) -> str:
+    """'2026-09-29T16:15:03' -> '29/09/2026 16:15' (o formato do dono)."""
+    try:
+        return datetime.datetime.fromisoformat(str(iso)).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return str(iso or "")[:16]
+
+
 def _top(itens, n=LIMITE_ITENS_TELA):
     return list(itens or [])[:n]
 
@@ -169,7 +177,7 @@ class CentralDoPc:
             if l.get("evento") == "executou" and d.get("desfazer_id") and d["desfazer_id"] not in desfeitos:
                 itens.append({"desfazer_id": d["desfazer_id"], "alvo": d.get("alvo", ""),
                               "tamanho_bytes": d.get("tamanho_bytes") or 0,
-                              "quando": str(l.get("quando", "")).replace("T", " ")[:16]})
+                              "quando": _data_curta(l.get("quando"))})
             if len(itens) >= limite:
                 break
         return itens

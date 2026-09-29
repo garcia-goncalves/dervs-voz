@@ -23,6 +23,14 @@ test("faixaDaNota: 80+ ok, 50-79 atenção, abaixo alerta, sem nota", () => {
   assert.equal(C.rotuloDaFaixa("alerta"), "pede cuidado");
 });
 
+test("rotuloAssinatura não afirma o que não leu", () => {
+  assert.equal(C.rotuloAssinatura("Valid"), "assinado");
+  assert.equal(C.rotuloAssinatura("NotSigned"), "sem assinatura");
+  assert.equal(C.rotuloAssinatura("HashMismatch"), "assinatura com problema");
+  assert.equal(C.rotuloAssinatura("Desconhecida"), "");
+  assert.equal(C.rotuloAssinatura(undefined), "");
+});
+
 test("nomeDoCaminho pega o último pedaço nos dois tipos de barra", () => {
   assert.equal(C.nomeDoCaminho("C:\\Users\\x\\Temp\\a.tmp"), "a.tmp");
   assert.equal(C.nomeDoCaminho("/tmp/b.log"), "b.log");

@@ -45,6 +45,15 @@
     return { baixo: "risco baixo", medio: "risco médio", alto: "risco alto" }[risco] || "risco desconhecido";
   }
 
+  // "Valid" é assinado; "NotSigned" não tem assinatura; qualquer outra coisa
+  // legível é assinatura com problema; sem leitura, não afirma nada.
+  function rotuloAssinatura(status) {
+    if (status === "Valid") return "assinado";
+    if (status === "NotSigned") return "sem assinatura";
+    if (!status || status === "Desconhecida") return "";
+    return "assinatura com problema";
+  }
+
   function nomeDoCaminho(caminho) {
     const partes = String(caminho || "").split(/[\\/]/).filter(Boolean);
     return partes.length ? partes[partes.length - 1] : String(caminho || "");
@@ -180,7 +189,7 @@
         ? `${ini.ativos.length} de ${ini.total} programas abrem sozinhos com o Windows: ${ini.ativos.join(", ")}.` : "";
       preencher($("central-processos"), v.processos || [], (p) =>
         linha(["central-rotulo", p.nome], ["", `${virgula(Number(p.cpu_pct) || 0, 1)}% CPU · ${formatarBytes(p.memoria_bytes)}`],
-          ["central-nota-pequena", p.assinatura === "Valid" ? "assinado" : "sem assinatura válida"]));
+          ["central-nota-pequena", rotuloAssinatura(p.assinatura)]));
       preencher($("central-repositorios"), v.repositorios || [], (r) =>
         linha(["central-rotulo", r.nome], ["", r.ahead ? `${r.ahead} commit(s) sem push` : ""],
           ["central-nota-pequena", r.sujo ? "há mudanças não salvas" : ""]), "central-repositorios-vazio");
@@ -307,6 +316,6 @@
     });
   }
 
-  return { formatarBytes, faixaDaNota, rotuloDaFaixa, rotuloRisco, nomeDoCaminho, decidirAprovacao,
+  return { formatarBytes, faixaDaNota, rotuloDaFaixa, rotuloRisco, rotuloAssinatura, nomeDoCaminho, decidirAprovacao,
     haQuantoTempoLeitura, iniciarTela };
 });

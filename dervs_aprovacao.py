@@ -314,7 +314,8 @@ class Motor:
             o_que_muda = ("Sai de onde está e vai para a quarentena do DERVS. Nada é destruído; "
                           "o espaço no disco só volta quando a quarentena for esvaziada (outra "
                           "ação, com nova aprovação).")
-            como_desfazer = "Clique em Desfazer no Registro: o item volta exatamente para onde estava."
+            como_desfazer = ("Clique em Desfazer na Central do PC (seção Na quarentena): o item volta "
+                             "exatamente para onde estava.")
         else:
             o_que_muda = "Vai para a Lixeira do Windows."
             como_desfazer = "Restaurar pela Lixeira do Windows."

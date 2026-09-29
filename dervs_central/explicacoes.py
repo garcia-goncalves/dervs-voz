@@ -35,7 +35,8 @@ def explicar_evento(fonte: str, ident) -> str:
     for (trecho, i), texto in _EVENTOS:
         if trecho in f and (i is None or i == ident):
             return texto
-    return "Erro registrado pelo Windows sem explicação pronta. Use 'Explicar melhor' para pedir ao Claude."
+    return ("Erro registrado pelo Windows, sem texto pronto aqui. Se o PC estiver instável, peça ao "
+            "Claude no painel para investigar essa fonte.")
 
 
 def explicar(codigo: str) -> str:

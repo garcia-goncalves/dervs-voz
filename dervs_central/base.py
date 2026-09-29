@@ -6,6 +6,7 @@ real passa `rodar_powershell`. Coletor nunca levanta exceção para quem chama �
 falha vira `ok=False` com o motivo, e "precisa de administrador" vira aviso.
 """
 import json
+import os
 import subprocess
 
 import dervs_processos as processos
@@ -27,6 +28,15 @@ def _negado(texto: str) -> bool:
     return any(marca in baixo for marca in _NEGADO)
 
 
+def ambiente_limpo() -> dict:
+    """O ambiente do PowerShell 5.1 sem o `PSModulePath` herdado: quando o DERVS
+    é aberto por um PowerShell 7 (ou por uma ferramenta que o usa), essa variável
+    aponta os módulos do 7 primeiro e o 5.1 deixa de carregar os módulos de
+    segurança e de rede — `Get-AuthenticodeSignature` devolvia vazio. Sem ela, o
+    Windows recalcula o caminho certo."""
+    return {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+
+
 def rodar_powershell(consulta: str, timeout: float = TIMEOUT_PADRAO) -> str:
     """Executa a consulta sem janela e devolve o JSON compacto que ela imprime."""
     comando = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; $ErrorActionPreference='Stop'; "
@@ -35,7 +45,7 @@ def rodar_powershell(consulta: str, timeout: float = TIMEOUT_PADRAO) -> str:
         p = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
              "-Command", comando],
-            capture_output=True, timeout=timeout, **processos.sem_janela())
+            capture_output=True, timeout=timeout, env=ambiente_limpo(), **processos.sem_janela())
     except subprocess.TimeoutExpired as erro:
         raise ErroConsulta(f"demorou mais de {int(timeout)} s") from erro
     except OSError as erro:

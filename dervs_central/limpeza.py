@@ -14,6 +14,10 @@ import os
 
 GRUPOS_SO_INFORMATIVOS = ("Temporários do Windows", "Instalação antiga do Windows", "Lixeira")
 LIMITE_PADRAO = 20
+# Programa, biblioteca e script não entram na sugestão: apagar o que executa é
+# decisão que o dono toma olhando o arquivo, não uma "sobra" de temporários.
+EXTENSOES_FORA = (".exe", ".dll", ".sys", ".msi", ".msp", ".msix", ".ps1", ".bat", ".cmd", ".vbs",
+                  ".js", ".lnk", ".scr", ".com", ".ocx")
 
 _POR_QUE = {
     "Temporários do usuário": ("Arquivo temporário com mais de 7 dias, fora de uso agora. Programas "
@@ -29,13 +33,13 @@ def propostas(ultima: dict, limite: int = LIMITE_PADRAO) -> list:
     saida = []
     for c in sorted(coletor.get("candidatos") or [], key=lambda x: -x.get("tamanho_bytes", 0)):
         grupo = c.get("grupo", "")
-        if grupo not in _POR_QUE:
+        if grupo not in _POR_QUE or os.path.splitext(c["caminho"])[1].casefold() in EXTENSOES_FORA:
             continue
+        # `explicacao` fica vazia de propósito: o motor a rotula "Explicação do Claude",
+        # e este texto é do DERVS. A idade do arquivo vai junto do "por que é seguro".
         saida.append({
             "acao": "quarentena", "alvo": c["caminho"], "risco": "baixo",
-            "por_que_seguro": _POR_QUE[grupo],
-            "explicacao": f"{os.path.basename(c['caminho'])}: parado há {c.get('idade_dias', '?')} dias em "
-                          f"'{grupo}'."})
+            "por_que_seguro": f"{_POR_QUE[grupo]} Este está parado há {c.get('idade_dias', '?')} dias."})
         if len(saida) >= limite:
             break
     return saida
