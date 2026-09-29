@@ -168,6 +168,21 @@ antigo da máquina irmã. Nunca é registrado em log nem commitado.
 Ver o caminho certo:
 `python -c "import dervs_config as c; print(c.caminhos_do_segredo()[0])"`.
 
+## Motor de aprovação (onda C, 29/09/2026)
+
+Nada que apaga, desinstala ou muda o sistema roda sem relatório item a item e
+clique do dono. As peças, todas puras (sem Electron nem Claude):
+
+| Arquivo | Papel |
+|---|---|
+| `dervs_caminhos_protegidos.py` | `esta_protegido(caminho)` — o que nunca se apaga; lista extra em `%APPDATA%\dervs\caminhos_protegidos.json` |
+| `dervs_aprovacao.py` | `Motor`: `analisar` → `abrir_cartao` → `aprovar(origem="clique")` → `consumir_aprovacao` |
+| `dervs_executor_seguro.py` | `executar` / `desfazer` — único que toca o disco; apagar = quarentena reversível |
+| `dervs_log_acoes.py` | `%LOCALAPPDATA%\dervs\acoes.jsonl`, só acrescenta, encadeado por hash, sem segredo |
+
+Testes: `test_dervs_caminhos_protegidos.py`, `test_dervs_aprovacao.py`,
+`test_dervs_log_acoes.py`. Detalhe e o que falta integrar: `ESTADO.md`.
+
 ## O que fica fora do git
 
 Ambientes Python (`*-venv/`, `dervs-venv/`), modelos, o arquivo de segredos,

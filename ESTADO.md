@@ -16,6 +16,52 @@ botão do meio da barra minimiza de verdade. `index.html` e `hud.js` foram apaga
 O cache do Chromium foi para `%APPDATA%\dervs\electron` (fora do `config.json`).
 Sem prova visual ainda: a foto da janela com os três botões e o cartão de plano.
 
+**Onda C da central do PC (29/09/2026): a trava de aprovação existe, mas ainda
+não está ligada a nenhum botão.** É a sua regra virada código: "não pode apagar
+nada sem antes analisar tudo e me dizer o que é cada coisa; sempre com minha
+aprovação". Quatro peças, todas testadas sozinhas (158 testes novos; suíte
+inteira: 1026 verdes):
+
+- `dervs_caminhos_protegidos.py` — o que **nunca** se apaga, nem com clique:
+  Windows, Arquivos de Programas, ProgramData, a raiz de qualquer disco, o seu
+  perfil e o de outros usuários, `.git`, `.claude`, `.ssh`, `.gnupg`,
+  `source\repos`, a configuração do DERVS, e as pastas Documentos/Área de
+  Trabalho/Downloads/Imagens/OneDrive inteiras (um arquivo solto lá dentro
+  pode, com análise; em massa, não). Não se engana com grafia torta, `..`,
+  nome curto `PROGRA~1`, `\\?\`, ponto ou espaço no fim, nem com atalho ou
+  junção — atalho no caminho é recusa, sempre.
+- `dervs_aprovacao.py` — analisa cada item e monta o relatório: o que é (em
+  português), onde está, tamanho, data, por que é seguro, o que muda, como
+  desfazer, e uma impressão digital do conteúdo. Aprovação só por **clique**
+  (voz, Claude e qualquer outro programa são recusados), item por item (não
+  existe "aprovar tudo"), risco alto com confirmação dupla, vale 15 minutos e
+  uma vez só.
+- `dervs_executor_seguro.py` — o único que mexe no disco. Confere tudo de novo
+  na hora (se o arquivo mudou depois da análise, recusa) e **nunca apaga**:
+  move para a quarentena (`%LOCALAPPDATA%\dervs\quarentena\`), de onde o
+  Desfazer devolve o item exatamente para onde estava. A Lixeira do Windows e
+  as ações de programa/sistema (desinstalar, serviço, registro, firewall)
+  passam pelas mesmas travas e param em "não implementado nesta versão".
+- `dervs_log_acoes.py` — `%LOCALAPPDATA%\dervs\acoes.jsonl`: tudo que foi
+  analisado, proposto, aprovado, recusado (com o motivo), executado e
+  desfeito. Cada linha carrega o hash da anterior, então mexer numa linha do
+  meio fica visível. Chave, token e senha são apagados antes de gravar.
+
+**LEIA-ME — onde ficam os dados de paciente.** Na primeira vez que o motor
+rodar, ele cria `%APPDATA%\dervs\caminhos_protegidos.json`. Ponha ali as pastas
+dos programas que guardam dado de paciente, com barra dupla:
+`{"caminhos": ["D:\\Consultorio", "C:\\Users\\Desktop\\Documents\\Prontuarios"]}`.
+Vale na hora, sem reiniciar. Se o arquivo ficar com erro de digitação, o DERVS
+se recusa a apagar **qualquer coisa** até ele ser consertado. Esses caminhos
+são lidos só na sua máquina e nunca vão para o Claude nem para a OpenAI.
+**Isso depende de você: diga quais programas guardam dado de paciente.**
+
+O que falta para chegar à tela: a onda B liga o `propor_acao` do Claude ao
+`analisar` e o clique do painel ao `aprovar`/`executar`/`desfazer` (o cartão
+do relatório só vai para o painel, nunca para o Claude); a onda D usa o motor
+na limpeza de temporários, e decide o que fazer com `C:\Windows\Temp`, que
+hoje é protegido junto com todo o `C:\Windows`.
+
 **A cara mudou nesta rodada (16–17/09/2026): a tela agora é um HUD Electron**
 (painel ciano/preto, estilo "painel de controle", com anéis girando e um
 núcleo que reage à voz), não mais a janela Qt com o selo dourado flutuante. O
