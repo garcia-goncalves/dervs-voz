@@ -37,6 +37,7 @@
     velocidade: [0.15, -0.1, 0.08, -0.05],
     cpu: [], ram: [], rede: [],
     microfoneLigado: null,
+    reuniaoAtiva: false,
     acoes: [],           // { quandoMs, papel, texto }
   };
 
@@ -170,13 +171,121 @@
       `voz ${n(g.tts || 0)} · escuta ${n(g.stt || 0)} · cérebro ${n(g.cerebro || 0)}`;
   }
 
+  // O Python é dono do temporizador da reunião: o clique só PEDE, e o botão só
+  // muda de cara quando o Python responde (mesma regra do microfone).
   function aoReuniao({ restanteS } = {}) {
     const chip = $("p-chip-reuniao");
-    if (restanteS === null) { chip.hidden = true; return; }
+    if (restanteS === null) {
+      painel.reuniaoAtiva = false;
+      chip.setAttribute("aria-pressed", "false");
+      chip.removeAttribute("data-estado");
+      $("p-reuniao").textContent = "--";
+      return;
+    }
     if (!Number.isInteger(restanteS) || restanteS < 0) return;
+    painel.reuniaoAtiva = true;
+    chip.setAttribute("aria-pressed", "true");
+    chip.setAttribute("data-estado", "ok");
     $("p-reuniao").textContent = F.tempoRestante(restanteS);
-    chip.hidden = false;
   }
+
+  // ---- cartão de plano (diálogo modal) ----------------------------------------
+  // O Python manda o plano/passo a confirmar; sem resposta nada executa. Todo
+  // texto entra por textContent. `cartaoId` volta junto na resposta (o Python
+  // descarta duplicata/atraso).
+
+  const dialogoPlano = $("p-dialogo-plano");
+  const elPlanoPergunta = $("cartao-plano-pergunta");
+  const elPlanoPassos = $("cartao-plano-passos");
+  const elPlanoComando = $("cartao-plano-comando");
+  const elAutorizacaoEnvolucro = $("cartao-plano-autorizacao-envolucro");
+  const elAutorizacaoCaixa = $("cartao-plano-autorizacao-caixa");
+  const elAutorizacaoTexto = $("cartao-plano-autorizacao-texto");
+  const botaoConfirmar = $("botao-confirmar");
+  const botaoCancelar = $("botao-cancelar");
+  let planoPrecisaAutorizacao = false;
+  let planoCartaoId = null;
+  let planoPendente = false;   // cartão aberto e ainda sem resposta
+
+  function fecharDialogoPlano() {
+    planoPendente = false;
+    if (dialogoPlano.open) dialogoPlano.close();
+    elPlanoPassos.textContent = "";
+    elPlanoComando.hidden = true;
+    elPlanoComando.textContent = "";
+    elAutorizacaoEnvolucro.hidden = true;
+    elAutorizacaoCaixa.checked = false;
+    planoPrecisaAutorizacao = false;
+  }
+
+  function aoPlano({ passos, pergunta, cartaoId } = {}) {
+    // Todo evento novo de cartão (inclusive o que limpa a tela) reabilita os
+    // botões: evita clique repetido, além da proteção por cartaoId.
+    botaoConfirmar.disabled = false;
+    botaoCancelar.disabled = false;
+    planoCartaoId = cartaoId !== undefined ? cartaoId : null;
+
+    const lista = Array.isArray(passos) ? passos : [];
+    if (lista.length === 0) { fecharDialogoPlano(); return; }
+
+    elPlanoPergunta.textContent = pergunta || "";
+    limpar(elPlanoPassos);
+    for (const passo of lista) {
+      const li = criar("li", "", (passo && typeof passo.rotulo === "string") ? passo.rotulo : "");
+      li.setAttribute("data-nivel", (passo && typeof passo.nivel === "string") ? passo.nivel : "reversivel");
+      elPlanoPassos.appendChild(li);
+    }
+
+    // Só o cartão de PASSO ÚNICO traz comando e pedido de autorização.
+    const unico = lista.length === 1 ? lista[0] : null;
+    if (unico && typeof unico.comando === "string" && unico.comando) {
+      elPlanoComando.textContent = unico.comando;
+      elPlanoComando.hidden = false;
+    } else {
+      elPlanoComando.textContent = "";
+      elPlanoComando.hidden = true;
+    }
+    planoPrecisaAutorizacao = Boolean(unico && unico.precisa_autorizacao);
+    elAutorizacaoCaixa.checked = false;
+    if (planoPrecisaAutorizacao) {
+      elAutorizacaoTexto.textContent =
+        typeof unico.texto_autorizacao === "string" && unico.texto_autorizacao
+          ? unico.texto_autorizacao
+          : "Tenho autorização (é meu, laboratório, ou por escrito)";
+    }
+    elAutorizacaoEnvolucro.hidden = !planoPrecisaAutorizacao;
+
+    planoPendente = true;
+    if (!dialogoPlano.open) dialogoPlano.showModal();
+    // O foco inicial vai para Cancelar: um Enter/Espaço que o dono já estava
+    // apertando em outro programa nunca confirma um plano sem ele ter lido.
+    botaoCancelar.focus();
+  }
+
+  botaoConfirmar.addEventListener("click", () => {
+    // Passo que pede autorização sem a caixa marcada: não manda (a checagem de
+    // verdade é sempre do lado do Python).
+    if (planoPrecisaAutorizacao && !elAutorizacaoCaixa.checked) return;
+    botaoConfirmar.disabled = true;
+    botaoCancelar.disabled = true;
+    window.dervs.responderPlano("confirmar", elAutorizacaoCaixa.checked, planoCartaoId);
+    fecharDialogoPlano();
+  });
+
+  botaoCancelar.addEventListener("click", () => {
+    botaoConfirmar.disabled = true;
+    botaoCancelar.disabled = true;
+    window.dervs.responderPlano("cancelar", false, planoCartaoId);
+    fecharDialogoPlano();
+  });
+
+  // Esc não pode fechar o cartão sem resposta: só os dois botões respondem.
+  dialogoPlano.addEventListener("cancel", (e) => e.preventDefault());
+  // O Chromium deixa o Esc repetido fechar mesmo com preventDefault: se o cartão
+  // fechou sem resposta, reabre — o Python continua esperando esse cartaoId.
+  dialogoPlano.addEventListener("close", () => {
+    if (planoPendente && !dialogoPlano.open) dialogoPlano.showModal();
+  });
 
   // ---- listas ---------------------------------------------------------------
 
@@ -262,7 +371,7 @@
   }
 
   // ---- reator (canvas) ------------------------------------------------------
-  // Mesma linguagem do núcleo do widget (hud.js): ticks, anéis segmentados
+  // Mesma linguagem do antigo núcleo do widget: ticks, anéis segmentados
   // girando, núcleo que brilha com a amplitude; aqui maior, com um anel a mais
   // e um arco-medidor que cresce com a voz.
 
@@ -437,7 +546,10 @@
   // ---- controles da janela ----------------------------------------------------
 
   $("p-botao-fechar").addEventListener("click", () => window.dervs.painelEsconder());
+  $("p-botao-minimizar").addEventListener("click", () => window.dervs.painelMinimizar());
   $("p-botao-ampliar").addEventListener("click", () => window.dervs.painelAmpliar());
+  $("p-chip-reuniao").addEventListener("click", () => window.dervs.alternarReuniao(!painel.reuniaoAtiva));
+  $("p-abrir-app-dervs").addEventListener("click", () => window.dervs.abrirAppDervs());
   $("p-chip-microfone").addEventListener("click", () => {
     if (painel.microfoneLigado === null) return;
     window.dervs.alternarMicrofone(!painel.microfoneLigado);
@@ -457,6 +569,7 @@
   window.dervs.aoEstado(aoEstado);
   window.dervs.aoVolume(aoVolume);
   window.dervs.aoFala(aoFala);
+  window.dervs.aoPlano(aoPlano);
   window.dervs.aoSistema(aoSistema);
   window.dervs.aoMicrofone(aoMicrofone);
   window.dervs.aoReuniao(aoReuniao);

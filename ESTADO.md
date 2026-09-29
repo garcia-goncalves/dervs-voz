@@ -7,6 +7,15 @@ dono, não por um programador.
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
+**Onda A da central do PC (29/09/2026): o widget deixou de existir.** O painel
+grande é agora a janela única do DERVS: abre sozinho, `Ctrl+Alt+D` é o único
+atalho (o `Ctrl+Alt+Shift+D` do widget saiu), a bandeja tem só "Abrir DERVS /
+Sair do DERVS" e o clique no ícone alterna o painel. O cartão de confirmação de
+plano, o botão REUNIÃO 1H e o ABRIR DERVS APP foram portados para o painel; o
+botão do meio da barra minimiza de verdade. `index.html` e `hud.js` foram apagados.
+O cache do Chromium foi para `%APPDATA%\dervs\electron` (fora do `config.json`).
+Sem prova visual ainda: a foto da janela com os três botões e o cartão de plano.
+
 **A cara mudou nesta rodada (16–17/09/2026): a tela agora é um HUD Electron**
 (painel ciano/preto, estilo "painel de controle", com anéis girando e um
 núcleo que reage à voz), não mais a janela Qt com o selo dourado flutuante. O

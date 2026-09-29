@@ -24,12 +24,13 @@
 
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, shell, globalShortcut } = require("electron");
 const path = require("path");
+const { decidirJanela } = require("./janela-estado.js");
 const net = require("net");
 const readline = require("readline");
 
 // URL do outro projeto do dono ("DERVS App", garcia-goncalves/dervs) que o
-// botão "Abrir DERVS App" do HUD abre no navegador — nunca navegado DENTRO
-// desta janela (CSP do renderer já proíbe isso, ver index.html). Chega por
+// botão "Abrir DERVS App" do painel abre no navegador — nunca navegado DENTRO
+// desta janela (CSP do renderer já proíbe isso, ver painel.html). Chega por
 // variável de ambiente, passada pelo processo Python pai (dervs_electron.py,
 // que lê de dervs_config.py) — não por argumento de linha de comando, para
 // não colidir com a convenção de "porta é sempre o último argv" (ver
@@ -43,10 +44,8 @@ function urlDoDervsApp() {
 
 const LIMITE_LINHA = 64 * 1024; // mesmo espírito do _LIMITE_LINHA de dervs_instancia.py
 
-let janela = null;       // o widget compacto (420x700)
-let painel = null;       // a janela grande (JARVIS), criada na primeira abertura
+let painel = null;       // a janela única do DERVS (JARVIS)
 let bandeja = null;
-let widgetEstavaVisivel = true;
 let painelAmpliado = false;
 let painelAntes = null;  // bounds antes de "ocupar a tela"
 let arrastoAlca = null;  // { x, y, largura, altura } no começo do arrasto
@@ -56,7 +55,8 @@ let arrastoAlca = null;  // { x, y, largura, altura } no começo do arrasto
 const ultimosPorCanal = new Map();   // canal -> último dado (só canais "de estado")
 const CANAIS_DE_ESTADO = new Set([
   "dervs:estado", "dervs:microfone", "dervs:sistema", "dervs:diario", "dervs:reuniao",
-  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz"]);
+  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz",
+  "dervs:plano"]);   // reload do painel com cartão pendente repõe o cartão
 const historicoFalas = [];           // últimas falas da conversa
 const historicoAcoes = [];           // últimas ações
 const MAX_HISTORICO = 30;
@@ -65,7 +65,7 @@ function janelaViva(j) {
   return j && !j.isDestroyed() && !j.webContents.isDestroyed();
 }
 
-// Manda o mesmo evento ao widget e ao painel grande (se existir).
+// Manda o evento ao painel (se existir).
 function difundir(canal, dado) {
   if (CANAIS_DE_ESTADO.has(canal)) ultimosPorCanal.set(canal, dado);
   if (canal === "dervs:fala") {
@@ -75,7 +75,6 @@ function difundir(canal, dado) {
     historicoAcoes.push(dado);
     if (historicoAcoes.length > MAX_HISTORICO) historicoAcoes.shift();
   }
-  if (janelaViva(janela)) janela.webContents.send(canal, dado);
   if (janelaViva(painel)) painel.webContents.send(canal, dado);
 }
 
@@ -92,147 +91,25 @@ function enviarAoPython(objeto) {
   process.stdout.write(JSON.stringify(objeto) + "\n");
 }
 
-// Onde o widget nasce: ancorado no canto superior direito da tela principal,
-// como os HUDs de referência do dono (Rainmeter/JARVIS) — nunca centralizado,
-// para não competir com a janela em que ele está trabalhando (design.md,
-// "contradicoes_resolvidas" da esteira dervs-painel-completo).
-const LARGURA = 420;
-const ALTURA = 700; // 560 → 620 (botão do microfone) → 700 (23/09: cartão do diário + cartão de erro visível ao mesmo tempo cortavam o rodapé)
-const MARGEM_CANTO = 24;
-
-function posicaoDeCanto() {
-  const area = screen.getPrimaryDisplay().workArea;
-  return {
-    x: area.x + area.width - LARGURA - MARGEM_CANTO,
-    y: area.y + MARGEM_CANTO,
-  };
-}
-
-function criarJanela() {
-  const { x, y } = posicaoDeCanto();
-  janela = new BrowserWindow({
-    width: LARGURA,
-    height: ALTURA,
-    x,
-    y,
-    minWidth: 360,
-    frame: false,
-    // Fundo de vidro: transparente de verdade (não um cinza escuro) — o
-    // desktop atrás da janela aparece por baixo do tom ciano translúcido do
-    // CSS (estilo.css, --vidro-bg). TESTADO em bancada em 17/09/2026: NÃO
-    // ligar `backgroundMaterial: "acrylic"` aqui — nesta versão do Electron
-    // (33.2.1) ele CONFLITA com `transparent: true` e a janela volta a
-    // ficar opaca de verdade (comprovado com um teste de cor: um fundo
-    // vermelho a 30% de opacidade apareceu SÓLIDO com os dois juntos, e
-    // translúcido de verdade sem `backgroundMaterial`). Sem ele, sobra
-    // "vidro liso" (sem borrão do que está atrás) em vez de "vidro fosco"
-    // — aceitável: o pedido do dono era "transparente/espelhado", que isto
-    // cumpre; o borrão de verdade fica para quando o Electron tratar bem
-    // essa combinação (ver GitHub electron/electron#38532).
-    transparent: true,
-    backgroundColor: "#00000000",
-    // Sempre visível por cima de outras janelas — resolve o "sumiço atrás
-    // do VS Code/navegador" que fazia o dono achar o DERVS morto. Nível
-    // "screen-saver" fica acima até de outras janelas alwaysOnTop comuns,
-    // igual a um widget de desktop de verdade.
-    alwaysOnTop: true,
-    show: false,
-    icon: path.join(__dirname, "assets", "bandeja-32.png"),
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  janela.setAlwaysOnTop(true, "screen-saver");
-  // Aparece em todo espaço de trabalho do Windows (não só o de quando abriu)
-  // — mesmo espírito do alwaysOnTop: um widget não deveria sumir ao trocar
-  // de área de trabalho virtual.
-  janela.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-
-  janela.loadFile(path.join(__dirname, "renderer", "index.html"));
-
-  // O conteúdo é local e é hostil por definição (transcrição, resposta do
-  // cérebro): nada de abrir janela nova nem navegar para fora.
-  janela.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  janela.webContents.on("will-navigate", (evento) => {
-    evento.preventDefault();
-  });
-
-  janela.webContents.on("did-finish-load", () => {
-    enviarAoPython({ verbo: "pronto" });
-  });
-
-  // A janela é um widget sem moldura: nada a minimiza de propósito, e uma
-  // janela presa minimizada (posição -32000,-32000) some sem deixar rastro —
-  // o "DERVS sumiu". Quem minimiza (Win+D, Mostrar Área de Trabalho) é
-  // desfeito na hora; esconder de propósito é o atalho global ou o X.
-  janela.on("minimize", () => {
-    setImmediate(() => {
-      if (janela && !janela.isDestroyed() && janela.isMinimized()) {
-        janela.restore();
-        janela.showInactive();
-      }
-    });
-  });
-
-  janela.once("ready-to-show", () => {
-    janela.show();
-  });
-
-  // Fechar a janela (X, Alt+F4) só esconde — espelho de dervs.py:1487-1488
-  // (closeEvent: e.ignore(); self.hide()). O DERVS continua vivo na bandeja.
-  janela.on("close", (evento) => {
-    if (!app.isQuitting) {
-      evento.preventDefault();
-      janela.hide();
-    }
-  });
-
-  return janela;
-}
-
-function mostrarJanela() {
-  if (!janela) return;
-  if (janela.isMinimized()) janela.restore();
-  janela.show();
-  janela.focus();
-}
-
-// Atalho global Ctrl+Alt+D: visível e não minimizada → esconde; senão traz
-// de volta e foca.
-// Ctrl+Alt+D alterna o PAINEL GRANDE (janela JARVIS). O widget compacto passa a
-// ter o seu próprio atalho, Ctrl+Alt+Shift+D, e continua na bandeja/menu.
+// Atalho global Ctrl+Alt+D: alterna o painel (esconde se está à vista, senão
+// traz de volta e foca). É o único atalho do DERVS.
 const ATALHO_GLOBAL = "Control+Alt+D";
-const ATALHO_WIDGET = "Control+Alt+Shift+D";
-
-function alternarJanela() {
-  if (!janela) return;
-  if (janela.isVisible() && !janela.isMinimized()) {
-    janela.hide();
-  } else {
-    mostrarJanela();
-  }
-}
 
 function registrarAtalhoGlobal() {
-  for (const [atalho, acao] of [[ATALHO_GLOBAL, alternarPainel], [ATALHO_WIDGET, alternarJanela]]) {
-    try {
-      if (!globalShortcut.register(atalho, acao)) {
-        console.error(`electron: atalho ${atalho} já é de outro programa, sem atalho global`);
-      }
-    } catch (erro) {
-      console.error(`electron: não consegui registrar ${atalho}: ${erro.message}`);
+  try {
+    if (!globalShortcut.register(ATALHO_GLOBAL, alternarPainel)) {
+      console.error(`electron: atalho ${ATALHO_GLOBAL} já é de outro programa, sem atalho global`);
     }
+  } catch (erro) {
+    console.error(`electron: não consegui registrar ${ATALHO_GLOBAL}: ${erro.message}`);
   }
 }
 
-// ---- painel grande (JARVIS) -----------------------------------------------
-// Janela própria, frameless e translúcida como o widget, mas NÃO fica por cima
-// de tudo (é uma tela de trabalho, não um adorno). Fechar só esconde. Enquanto
-// está aberta, o widget some (senão ele taparia o canto do painel) e volta
-// quando o painel fecha, se estava visível.
+// ---- painel único (JARVIS) ------------------------------------------------
+// A única janela do DERVS: frameless e translúcida, NÃO fica por cima de tudo
+// (é uma tela de trabalho, não um adorno). Fechar só esconde (vai para a
+// bandeja); minimizar minimiza de verdade. A lógica de abrir/esconder/minimizar
+// é a função pura de janela-estado.js (com teste em Node).
 
 const PAINEL_LARGURA = 1280;
 const PAINEL_ALTURA = 800;
@@ -249,7 +126,10 @@ function criarPainel() {
     minWidth: 960,
     minHeight: 620,
     frame: false,
-    transparent: true,           // vidro, como o widget (sem backgroundMaterial: ver criarJanela)
+    // Vidro: transparente de verdade. NÃO ligar `backgroundMaterial: "acrylic"`
+    // junto — conflita com `transparent: true` e a janela volta a ficar opaca
+    // (testado em bancada em 17/09/2026; GitHub electron/electron#38532).
+    transparent: true,
     backgroundColor: "#00000000",
     show: false,
     title: "DERVS Painel",
@@ -262,58 +142,69 @@ function criarPainel() {
     },
   });
   painel.loadFile(path.join(__dirname, "renderer", "painel.html"));
+  // O conteúdo é local e é hostil por definição (transcrição, resposta do
+  // cérebro): nada de abrir janela nova nem navegar para fora.
   painel.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   painel.webContents.on("will-navigate", (evento) => { evento.preventDefault(); });
 
   // Nasce já preenchido: repete o último valor de cada canal de estado e o
-  // histórico de conversa/ações que o widget também recebeu.
+  // histórico de conversa/ações. O verbo `pronto` avisa o Python de que o
+  // renderer existe (era do widget; agora é do painel).
   painel.webContents.on("did-finish-load", () => {
     if (!janelaViva(painel)) return;
     for (const [canal, dado] of ultimosPorCanal) painel.webContents.send(canal, dado);
     for (const f of historicoFalas) painel.webContents.send("dervs:fala", f);
     for (const a of historicoAcoes) painel.webContents.send("dervs:acao", a);
+    enviarAoPython({ verbo: "pronto" });
   });
 
+  // Fechar (X, Alt+F4) só esconde — o DERVS continua vivo na bandeja.
   painel.on("close", (evento) => {
-    if (!app.isQuitting) {
+    if (executarAcao(decidirJanela(estadoDoPainel(), "fechar")) === "esconder") {
       evento.preventDefault();
-      esconderPainel();
     }
-  });
-  painel.on("minimize", () => {
-    setImmediate(() => { if (janelaViva(painel) && painel.isMinimized()) painel.restore(); });
   });
   return painel;
 }
 
-function painelVisivel() {
-  return janelaViva(painel) && painel.isVisible() && !painel.isMinimized();
+function estadoDoPainel() {
+  const viva = janelaViva(painel);
+  return {
+    existe: viva,
+    visivel: viva && painel.isVisible(),
+    minimizada: viva && painel.isMinimized(),
+    saindo: Boolean(app.isQuitting),
+  };
 }
 
-function mostrarPainel() {
-  if (!painel || painel.isDestroyed()) criarPainel();
-  if (janelaViva(janela)) {
-    // só lembra o estado do widget ANTES de o painel estar na tela: abrir o painel
-    // de novo (pela bandeja) com ele já aberto gravava "escondido" e o widget
-    // não voltava ao fechar.
-    if (!painelVisivel()) widgetEstavaVisivel = janela.isVisible();
-    if (janela.isVisible()) janela.hide();
+// Executa a ação decidida por decidirJanela; devolve a ação (para quem precisa
+// saber se deve segurar o evento "close").
+function executarAcao(acao) {
+  switch (acao) {
+    case "criar-e-mostrar":
+      criarPainel();
+      // fallthrough
+    case "mostrar":
+      if (painel.isMinimized()) painel.restore();
+      painel.show();
+      painel.focus();
+      break;
+    case "esconder":
+      painel.hide();
+      break;
+    case "minimizar":
+      painel.minimize();
+      break;
+    default:
+      break;
   }
-  if (painel.isMinimized()) painel.restore();
-  painel.show();
-  painel.focus();
+  return acao;
 }
 
-function esconderPainel() {
-  if (!janelaViva(painel)) return;
-  painel.hide();
-  if (janelaViva(janela) && widgetEstavaVisivel) janela.showInactive();
-}
-
-function alternarPainel() {
-  if (painelVisivel()) esconderPainel();
-  else mostrarPainel();
-}
+function mostrarPainel() { executarAcao(decidirJanela(estadoDoPainel(), "mostrar")); }
+function esconderPainel() { executarAcao(decidirJanela(estadoDoPainel(), "esconder")); }
+function minimizarPainel() { executarAcao(decidirJanela(estadoDoPainel(), "minimizar")); }
+function alternarPainel() { executarAcao(decidirJanela(estadoDoPainel(), "alternar")); }
 
 // "Ocupar a tela / voltar": a janela é transparente, então o maximize do
 // Windows não é confiável — troca os limites à mão.
@@ -347,11 +238,6 @@ function redimensionarPainel(dado) {
   }
 }
 
-function recolherJanela() {
-  if (!janela) return;
-  janela.hide();
-}
-
 function sairDoDervs() {
   // Avisa o Python e dá 3s para ele encerrar tudo (encerrar_tudo, posse.soltar
   // etc.) e fechar este stdin — o que já dispara app.quit() no listener de
@@ -371,13 +257,11 @@ function montarBandeja() {
   bandeja.setToolTip(TOOLTIPS.ocioso);
 
   const menu = Menu.buildFromTemplate([
-    { label: "Abrir painel grande", click: mostrarPainel },
-    { label: "Abrir DERVS (widget)", click: mostrarJanela },
-    { label: "Recolher janela", click: recolherJanela },
+    { label: "Abrir DERVS", click: mostrarPainel },
     { label: "Sair do DERVS", click: sairDoDervs },
   ]);
   bandeja.setContextMenu(menu);
-  bandeja.on("click", mostrarJanela);
+  bandeja.on("click", alternarPainel);
 }
 
 function atualizarTooltip(valor) {
@@ -401,7 +285,7 @@ function tratarLinhaDoPython(linha) {
   }
 
   const verbo = mensagem && mensagem.verbo;
-  if (!janela) {
+  if (!painel) {
     console.error(`electron: verbo "${verbo}" chegou antes da janela existir, ignorado`);
     return;
   }
@@ -443,18 +327,16 @@ function tratarLinhaDoPython(linha) {
         // ausente (cartão que não espera resposta, ex.: lista vazia).
         cartaoId: "cartao_id" in mensagem ? mensagem.cartao_id : null,
       });
-      // O cartão de plano (confirmar/cancelar) mora no widget. Com o painel
-      // grande aberto o widget está escondido: traz ele de volta, sem roubar
-      // o foco, para o pedido de confirmação nunca ficar invisível.
-      if (Array.isArray(mensagem.passos) && mensagem.passos.length > 0
-          && painelVisivel() && janelaViva(janela) && !janela.isVisible()) {
-        janela.showInactive();
+      // O cartão de plano (confirmar/cancelar) mora no painel: traz o painel
+      // para frente para o pedido de confirmação nunca ficar invisível.
+      if (Array.isArray(mensagem.passos) && mensagem.passos.length > 0) {
+        mostrarPainel();
       }
       break;
     case "mostrar":
-      // Traz a janela para frente; substitui o Ponte.chegou do Qt. Não passa
+      // Traz o painel para frente; substitui o Ponte.chegou do Qt. Não passa
       // pelo renderer — é ação do processo principal sobre a janela.
-      mostrarJanela();
+      mostrarPainel();
       break;
     case "sistema":
       // Extensão do protocolo (fase 1 da esteira dervs-painel-completo):
@@ -584,7 +466,11 @@ function ligarCanalDoPython() {
 // Resposta do cartão de plano vinda do renderer (via preload/contextBridge).
 // `dado` é `{ resposta, autorizado, cartaoId }` (preload.js atual); aceita
 // também uma string solta por compatibilidade com um preload mais velho.
+// Logoff/shutdown do Windows não pode ser bloqueado pelo "fechar esconde".
+app.on("before-quit", () => { app.isQuitting = true; });
+
 ipcMain.on("dervs:responder-plano", (_evento, dado) => {
+  ultimosPorCanal.delete("dervs:plano");   // respondido: reload não reabre o cartão
   const resposta = dado && typeof dado === "object" ? dado.resposta : dado;
   const autorizado = Boolean(dado && typeof dado === "object" && dado.autorizado);
   const cartaoId = dado && typeof dado === "object" && "cartaoId" in dado
@@ -617,7 +503,7 @@ ipcMain.on("dervs:alternar-reuniao", (_evento, ligar) => {
   enviarAoPython({ verbo: "reuniao", ligar });
 });
 
-// Botão "Abrir DERVS App" do HUD — só ABRE a URL no navegador padrão do
+// Botão "Abrir DERVS App" do painel — só ABRE a URL no navegador padrão do
 // dono, nunca navega dentro desta janela (fase 1 da esteira
 // dervs-painel-completo; a integração de verdade com o outro projeto é fase
 // 2, combinada à parte). `shell.openExternal` é o único jeito seguro: o
@@ -628,13 +514,21 @@ ipcMain.on("dervs:abrir-app-dervs", () => {
 });
 
 // Painel grande: os botões da janela só PEDEM; quem mexe na janela é este processo.
-ipcMain.on("dervs:alternar-painel", alternarPainel);
 ipcMain.on("dervs:painel-esconder", esconderPainel);
+ipcMain.on("dervs:painel-minimizar", minimizarPainel);
 ipcMain.on("dervs:painel-ampliar", ampliarPainel);
 ipcMain.on("dervs:painel-redimensionar", (_evento, dado) => redimensionarPainel(dado));
 
+// O cache do Chromium (userData) sai de %APPDATA%\dervs, onde moram o
+// config.json e o lembretes.json do Python, e vai para uma subpasta própria —
+// assim "manter meus dados" na desinstalação não mistura as duas coisas.
+// Precisa rodar antes do evento `ready`.
+if (process.env.APPDATA) {
+  app.setPath("userData", path.join(process.env.APPDATA, "dervs", "electron"));
+}
+
 app.whenReady().then(() => {
-  criarJanela();
+  mostrarPainel();
   montarBandeja();
   registrarAtalhoGlobal();
   ligarCanalDoPython();
