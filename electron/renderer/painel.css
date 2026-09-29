@@ -62,7 +62,7 @@ body.painel {
   font-size: 16px;
   cursor: pointer;
 }
-.p-botao-janela:hover, .p-botao-janela:focus-visible { border-color: var(--acento); color: var(--acento); outline: none; }
+.p-botao-janela:hover, .p-botao-janela:focus-visible { border-color: var(--acento); color: var(--acento); }
 
 /* ---- barra de status ---- */
 .p-status {
@@ -87,7 +87,7 @@ body.painel {
   border-radius: 0;
 }
 button.p-chip { cursor: pointer; }
-button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); outline: none; }
+button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); }
 .p-chip-rotulo { color: var(--texto-secundario); font-size: 11px; letter-spacing: .2em; }
 .p-chip-valor { font-family: var(--fonte-display); font-size: 13px; letter-spacing: .1em; }
 .p-chip-detalhe { color: var(--texto-secundario); font-size: 11px; }
@@ -252,7 +252,7 @@ button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); 
   cursor: pointer;
   border-radius: 0;
 }
-.p-mini:hover, .p-mini:focus-visible { border-color: var(--acento); color: var(--acento); outline: none; }
+.p-mini:hover, .p-mini:focus-visible { border-color: var(--acento); color: var(--acento); }
 .p-mini:disabled { opacity: .4; cursor: default; }
 .p-mini-forte { border-color: var(--acento); color: var(--acento); }
 .p-mini-perigo { border-color: var(--erro); color: var(--erro); }
@@ -319,7 +319,7 @@ button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); 
   font-size: 13px;
   border-radius: 0;
 }
-.p-claude-texto:focus-visible { border-color: var(--acento); outline: none; }
+.p-claude-texto:focus-visible { border-color: var(--acento); }
 .p-claude-entrada {
   margin: 0;
   max-height: 110px;
@@ -365,3 +365,7 @@ button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* foco de teclado bem visível (revisão de acessibilidade 29/09) */
+:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+body.painel { overflow: auto; }
