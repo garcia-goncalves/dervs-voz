@@ -4,9 +4,14 @@
 
 "Quero a aplicação funcionando e finalizada", "quero o painel ultra revolucionário e muito inteligente", "quero que meu pc sempre esteja sem erros e atualizado". Só o painel grande, com minimizar/diminuir/fechar e acesso fácil (bandeja do Windows). Usar o Claude Code de verdade, "exatamente igual ao que estamos usando, o mesmo Claude", com MCPs (ex.: Playwright para abrir navegador e clicar em tudo). Acesso à máquina inteira para analisar e corrigir tudo. Central do PC: manutenção, análises, saúde, melhorias, atualizações. Sobre autonomia (29/09/2026): "Quero máxima inteligência, assertividade, mas também quero segurança. Não pode apagar nada sem antes analisar tudo profundamente e me dizer o que é cada coisa que quer apagar. Sempre com minha aprovação. Mas terá autonomia para acessar tudo e fazer tudo."
 
+**Ampliação em 29/09/2026 (mesmo dia, após aprovação do briefing):** "Quero que o Dervs tenha Agentes, MCPs, Skills, Harness, tudo! Configuração perfeita pra fazer tudo (acessar o meu PC, o GitHub, o servidor, o navegador...)". E: "Quero que o Dervs consiga ser instalado no PC de outras pessoas, meus sócios e funcionários... instalação facilitada e profissional, o executável e o passo a passo da instalação. Sem erros e sem bugs... e com total segurança."
+
 ## entendimento
 
 O DERVS passa a ter uma única janela, o painel grande, que vive na bandeja do Windows e abre por atalho, e o widget pequeno deixa de existir. Dentro dele roda o mesmo Claude Code que o dono usa no VS Code (mesmas configurações, skills e MCPs), com acesso amplo à máquina para analisar tudo. Uma Central do PC mostra saúde, erros, atualizações e limpeza; tudo que muda ou apaga algo só acontece depois de uma análise profunda que explica o que é cada item, e do sim explícito do dono.
+
+
+Ampliação: o DERVS ganha um harness próprio (agentes, skills, MCPs e regras de segurança versionados dentro do projeto, em vez de depender da pasta pessoal do dono) e passa a ter um instalador de Windows (`Setup.exe`) para sócios e funcionários, com assistente passo a passo, instalação por usuário, sem chaves do dono embutidas e com primeira execução que pede a configuração de cada pessoa.
 
 ## usuario_alvo
 
@@ -23,6 +28,9 @@ O dono da máquina, leigo em terminal, que decide o produto e julga pelo que vê
 7. Toda ação sensível (analisar, propor, aprovar, executar, desfazer) fica registrada em um log local que o dono pode abrir no painel. Segredos nunca entram nesse log.
 8. `python -m pytest -q` e os testes JS continuam 100% verdes, sem microfone real, e o que funcionava (voz echo, gasto do dia, lembretes, diário, reunião 1h) segue igual. Consumo parado do app abaixo de 0,6 núcleo.
 
+9. Existe um `DERVS-Setup-<versão>.exe` gerado por um comando único. Numa conta de Windows limpa (ou máquina virtual), o assistente instala sem erro, cria atalho e entrada em "Aplicativos", abre o DERVS, pede na primeira execução o que é pessoal (chave da voz, microfone, permissões), e a desinstalação remove o programa e mantém os dados da pessoa só se ela escolher. Provado por instalação real e por teste que varre o pacote em busca de segredo (chave, senha, `.env`, config do dono): zero achados.
+10. O harness do DERVS (agentes, skills, MCPs, permissões) está em pastas versionadas do projeto, com um documento de uma página dizendo o que cada peça faz, e as regras de segurança (caminhos protegidos, aprovação item a item, log) valem igual em qualquer PC. Acesso ao GitHub usa o login da própria pessoa; acesso ao servidor **não** entra no instalador dos outros (só no PC do dono e só pelo caminho de deploy já aprovado).
+
 ## fora_de_escopo
 
 Correção automática sem aprovação (nem em horário fixo: agendado só analisa e avisa); trocar a voz ou o motor de fala; publicar em servidor ou GitHub Actions; controle do PC por acesso remoto; qualquer coisa nos projetos de outras janelas; instalar programa novo sem aprovação item a item.
@@ -33,4 +41,4 @@ ALTO. Acesso à máquina inteira somado a comando por voz e por Claude Code: apa
 
 ## plano_de_voo
 
-Fases 1, 2 (enxuta), 3 (design do painel único), 4, 5, 6 (com portão de risco), 7. Entrega em 4 ondas, cada uma testada e enviada ao GitHub antes da próxima: A) painel único + bandeja; B) Claude Code real dentro do app (streaming, MCPs, Playwright); C) motor de aprovação e trava de análise-antes-de-agir; D) Central do PC (coletores, análise, limpeza reversível, diagnóstico do dia por voz). Modo enxuto na descoberta: um despacho com as quatro perguntas (opus, por causa do risco). Executores em worktree (sonnet), revisores python, typescript e security (obrigatório, por causa do risco). Despachos previstos: 12 a 16.
+Fases 1, 2 (enxuta), 3 (design do painel único), 4, 5, 6 (com portão de risco), 7. Entrega em 4 ondas, cada uma testada e enviada ao GitHub antes da próxima: A) painel único + bandeja; B) Claude Code real dentro do app (streaming, MCPs, Playwright); C) motor de aprovação e trava de análise-antes-de-agir; D) Central do PC (coletores, análise, limpeza reversível, diagnóstico do dia por voz). Modo enxuto na descoberta: um despacho com as quatro perguntas (opus, por causa do risco). Executores em worktree (sonnet), revisores python, typescript e security (obrigatório, por causa do risco). Ondas E (harness próprio versionado) e F (instalador Windows com assinatura de código decidida com o dono) somam-se às quatro. Despachos previstos: 18 a 24.
