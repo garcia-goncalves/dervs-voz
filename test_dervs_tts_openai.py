@@ -175,3 +175,20 @@ def test_cabecalho_com_tamanho_desconhecido_e_consertado(tmp_path):
     with wave.open(str(arq)) as w:
         assert w.getnframes() == 2400
         assert abs(w.getnframes() / w.getframerate() - 0.1) < 1e-6
+
+
+def test_gasto_da_voz_usa_a_duracao_real_e_nao_a_do_cabecalho_da_nuvem(monkeypatch):
+    """A nuvem manda o wav com tamanho 0xFFFFFFFF; sem consertar antes de medir,
+    cada fala virava ~US$ 22 (89 mil segundos) no gasto do dia."""
+    cabecalho = (b"RIFF" + b"\xff\xff\xff\xff" + b"WAVEfmt " + b"\x10\x00\x00\x00"
+                 + b"\x01\x00\x01\x00" + b"\x40\x1f\x00\x00\x80\x3e\x00\x00\x02\x00\x10\x00"
+                 + b"data" + b"\xff\xff\xff\xff")
+    wav_da_nuvem = cabecalho + b"\x00" * 16000          # 1 s de audio a 8 kHz/16 bits
+    medidos = []
+    monkeypatch.setattr(tts.dervs_gasto, "registrar_voz",
+                        lambda dados, modelo="": medidos.append(tts.dervs_gasto.segundos_do_wav_bytes(dados)))
+    monkeypatch.setattr(tts.urllib.request, "urlopen", lambda req, timeout=None: _Resposta(wav_da_nuvem))
+    caminho = tts.sintetizar_openai("Oi", "echo", "gpt-4o-mini-tts", "x", "sk-teste")
+    import os
+    os.remove(caminho)
+    assert medidos and abs(medidos[0] - 1.0) < 0.01
