@@ -408,7 +408,7 @@ item 2.1 (o microfone).
 ### 4.3. ~~Voz da nuvem~~ — FEITO em 28/09/2026
 
 O dono achou a voz local robótica e com sotaque errado e pediu voz real, brasileira.
-Agora o motor padrão é `openai` (`gpt-4o-mini-tts`, voz `ash`, com instrução fixa de
+Agora o motor padrão é `openai` (`gpt-4o-mini-tts`, voz `echo` (masculina, escolhida de ouvido pelo dono em 29/09), com instrução fixa de
 "português do Brasil, sotaque paulistano natural, nunca robótico"). Mede ~1,8 s para
 gerar a primeira frase; as seguintes são geradas enquanto a anterior toca. Custa
 centavos por fala e precisa de internet: **se a nuvem falhar, cai sozinha no Kokoro
@@ -416,6 +416,7 @@ local** (e a nuvem descansa 1 min antes de tentar de novo). Trocar de voz:
 `voz_openai` no `config.json` (ash, onyx, echo, sage, verse, ballad, coral, nova,
 shimmer, alloy, fable). Voltar ao local: `"motor": "kokoro"`. Com a nuvem ligada o
 daemon do Kokoro (776 MB e ~80% de um núcleo enquanto sintetiza) nem sobe no boot.
+**29/09 — voz trocada de `ash` ("mole") para `echo`** (masculina; ele ouviu 10 vozes e depois echo/nova/shimmer lado a lado). Instrução reescrita: energia média-alta, ritmo firme, sem arrastar. Se ainda não soar brasileira o bastante, o próximo passo é voz nativa pt-BR (Azure Neural Francisca/Antonio, 500 mil caracteres grátis/mês) — depende de o dono criar a conta e passar a chave.
 
 ### 4.4. Não há CI
 

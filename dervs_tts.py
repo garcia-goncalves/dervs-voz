@@ -124,11 +124,11 @@ OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
 OPENAI_TTS_TIMEOUT_S = 20
 OPENAI_DESCANSO_S = 60      # depois de uma falha, não insiste na nuvem por 1 min
 INSTRUCOES_VOZ_BR = (
-    "Fale em português do Brasil, com sotaque brasileiro natural (paulistano), "
-    "como uma pessoa real conversando. Tom calmo, caloroso e confiante, de "
-    "assistente pessoal sofisticado. Ritmo natural, com pausas humanas e "
-    "entonação de quem entende o que diz; nunca robótico e nunca com sotaque "
-    "estrangeiro."
+    "Fale em português do Brasil, sotaque paulistano natural, como uma pessoa "
+    "real conversando com um amigo. Energia média-alta, ritmo firme e ágil, sem "
+    "arrastar as sílabas nem terminar as frases caindo. Dicção clara e "
+    "articulada, voz presente e confiante, com entonação viva e expressiva. "
+    "Nunca mole, nunca robótico, nunca com sotaque estrangeiro."
 )
 _FIM_FRASE = re.compile(r"(?<=[.!?;:])\s+")
 _FIM_DA_FILA = object()

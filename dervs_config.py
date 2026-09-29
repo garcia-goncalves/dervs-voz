@@ -161,7 +161,7 @@ PADRAO = {
 
     # Voz da nuvem (quando motor="openai"): ash, onyx, echo, sage, verse, ballad
     # (masculinas/neutras) ou coral, nova, shimmer (femininas).
-    "voz_openai": "ash",
+    "voz_openai": "echo",
     "voz_openai_modelo": "gpt-4o-mini-tts",
 
     # Voz do Kokoro (quando motor="kokoro"): "pm_santa" (masculina grave,
