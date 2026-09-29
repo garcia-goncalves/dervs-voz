@@ -125,6 +125,13 @@ def esta_protegido(caminho) -> bool:
     return protegido_com_motivo(caminho)[0]
 
 
+# Perfis de navegador (cookies, senhas salvas, histórico) e o ~/.claude.json (MCPs,
+# tokens de conectores) não se leem, em nenhum perfil.
+_AREA_SENSIVEL = re.compile(
+    r"\.claude\.json\b|[\\/]User Data(?:[\\/]|$)|Mozilla[\\/]Firefox[\\/]Profiles|"
+    r"BraveSoftware|Opera Software|[\\/]Chromium[\\/]", re.IGNORECASE)
+
+
 def _parece_segredo(texto: str) -> bool:
     return any(re.search(p, texto, re.IGNORECASE) for p in seg._SEGREDOS)
 
@@ -137,6 +144,8 @@ def leitura_proibida(caminho):
         return None
     if _parece_segredo(caminho):
         return "parece um arquivo de segredo (chave, senha, credencial)"
+    if _AREA_SENSIVEL.search(caminho):
+        return "é área de login do dono (perfil de navegador ou ~/.claude.json)"
     if _cp is None:
         return "o motor de caminhos protegidos (onda C) não está disponível"
     try:
@@ -153,15 +162,21 @@ def leitura_proibida(caminho):
 
 
 # --- risco e resumo de uma ferramenta -----------------------------------------
-# Rede e persistência NUNCA são "reversível" neste contexto, mesmo que o
-# `dervs_safety` (feito para o planejador de voz) deixe passar.
+# A lista de "leitura de verdade" é PRÓPRIA e curta. A do `dervs_safety` foi feita
+# para o planejador de VOZ e aceita `chrome`, `explorer`, `code`... só pelo prefixo:
+# um Claude induzido por conteúdo hostil abria o navegador com dado da conversa na
+# URL e o gancho devolvia `{}`. Aqui, tudo fora da lista é `ask`.
 _REDE = re.compile(
     r"\b(?:git\s+(?:push|remote|clone|fetch|pull|ls-remote|submodule)|gh|curl|wget|"
     r"Invoke-WebRequest|iwr|Invoke-RestMethod|irm|Start-BitsTransfer|bitsadmin|scp|sftp|"
     r"ssh|ftp|telnet|nc|ncat|socat|npm\s+publish|Test-NetConnection|tnc)\b", re.IGNORECASE)
-_LANCA_PROCESSO = re.compile(
-    r"^\s*(?:start|start-process|saps|type|invoke-item|ii)\b", re.IGNORECASE)
-_GIT = re.compile(r"^\s*git\b", re.IGNORECASE)
+# Abre navegador, editor, programa ou URL: leva o dado da conversa para fora do PC.
+_ABRE_ALGO = re.compile(
+    r"(?<![\w-])(?:chrome|msedge|firefox|brave|iexplore|opera|vivaldi|explorer|code|"
+    r"xdg-open|open|start|start-process|saps|ii|invoke-item|mshta|rundll32|regsvr32|"
+    r"wscript|cscript|msiexec)(?![\w-])", re.IGNORECASE)
+# Qualquer URL (`https://`, `ftp://`, `file://`...) ou caminho de rede (`\\host`).
+_URL_OU_UNC = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|\\\\[^\\\s]")
 _GIT_LEITURA = re.compile(
     r"^\s*git\s+(?:status|log|diff|show)(?:\s+[^\s;&|`$<>()\"']+)*\s*$", re.IGNORECASE)
 _GIT_BRANCH_LISTA = re.compile(
@@ -169,6 +184,17 @@ _GIT_BRANCH_LISTA = re.compile(
 _GIT_PERIGO = re.compile(
     r"--output|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|--git-dir|"
     r"--work-tree|--open-files-in-pager|(?:^|\s)-c(?:\s|$)", re.IGNORECASE)
+# Sem argumento: `date`/`whoami /all`/`hostname -x` mudam ou despejam coisa em alguns shells.
+_LEITURA_SEM_ARGUMENTO = re.compile(
+    r"^\s*(?:pwd|whoami|hostname|get-location|get-date|date(?:\s+/t)?)\s*$", re.IGNORECASE)
+_LEITURA_COM_ARGUMENTO = re.compile(
+    r"^\s*(?:dir|ls|get-childitem|gci|get-process|test-path|echo)(?:\s+(?P<args>.*))?$",
+    re.IGNORECASE | re.DOTALL)
+# Argumento limpo: só letras, números, espaço e `. _ - \ / : ~ * ? ' " , ( ) [ ]`. Fora
+# `$ ; & | > < ` % ^ = @ { }` (expansão, encadeamento, redirecionamento, variável).
+_ARGUMENTO_LIMPO = re.compile(r"^[\w\s.\\/:~*?'\",()\[\]-]*$")
+# `Env:`, `HKCU:`, `Cert:`, `Variable:` despejam segredo/registro; só unidade de uma letra.
+_UNIDADE_ESTRANHA = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z0-9_]{2,}:")
 _NOME_DE_REDE = re.compile(r"fetch|http|browser|navigate|web|url|download|request|search",
                            re.IGNORECASE)
 
@@ -177,6 +203,21 @@ def _git_e_leitura(comando: str) -> bool:
     if _GIT_PERIGO.search(comando):
         return False
     return bool(_GIT_LEITURA.match(comando) or _GIT_BRANCH_LISTA.match(comando))
+
+
+def _leitura_de_verdade(comando: str) -> bool:
+    """Só o que a lista curta reconhece INTEIRO. `cat`/`type`/`Get-Content` ficam de
+    fora de propósito: para ler arquivo existe a ferramenta Read (com o filtro de
+    segredos); `env`, `set`, `history`, `find -exec/-delete`, `systeminfo` também."""
+    if _URL_OU_UNC.search(comando) or _ABRE_ALGO.search(comando):
+        return False
+    if _git_e_leitura(comando) or _LEITURA_SEM_ARGUMENTO.match(comando):
+        return True
+    m = _LEITURA_COM_ARGUMENTO.match(comando)
+    if not m:
+        return False
+    args = m.group("args") or ""
+    return bool(_ARGUMENTO_LIMPO.match(args) and not _UNIDADE_ESTRANHA.search(args))
 
 
 def classificar(nome: str, entrada: dict) -> dict:
@@ -188,11 +229,10 @@ def classificar(nome: str, entrada: dict) -> dict:
     if nome in FERRAMENTAS_DE_COMANDO:
         comando = str(entrada.get("command", ""))
         d = seg.decidir_risco(comando)
+        rede = bool(d["toca_alvo"] or _REDE.search(comando) or _ABRE_ALGO.search(comando)
+                    or _URL_OU_UNC.search(comando))
         nivel = d["nivel"]
-        rede = bool(d["toca_alvo"] or _REDE.search(comando))
-        if _GIT.match(comando) and not _git_e_leitura(comando):
-            nivel = seg._nivel_max(nivel, "muda_estado")
-        if _LANCA_PROCESSO.match(comando) or rede:
+        if rede or (nivel == "reversivel" and not _leitura_de_verdade(comando)):
             nivel = seg._nivel_max(nivel, "muda_estado")
         return {"nivel": nivel, "rede": rede}
     rede = nome in ("WebFetch", "WebSearch") or (

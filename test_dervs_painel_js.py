@@ -106,3 +106,13 @@ def test_main_valida_os_quatro_pedidos_da_tela_ao_claude():
         assert f'ipcMain.on("{canal}"' in js
     assert "texto.length > LIMITE_PERGUNTA" in js and "LIMITE_PERGUNTA = 8000" in js
     assert 'typeof dado.permitir === "boolean"' in js
+
+
+def test_fila_de_pedidos_cheia_nega_o_excedente_e_mostra_quantos_esperam():
+    """O pedido que não cabe na fila não pode sumir em silêncio: o Python ficaria
+    esperando 5 min e o dono nem saberia."""
+    js = _fonte("renderer", "painel.js")
+    assert "window.dervs.claudeResponder(p.id, false, p.id)" in js
+    assert "pedido(s) aguardando" in js and "recusado(s) por excesso" in js
+    html = _fonte("renderer", "painel.html")
+    assert 'id="claude-pedido-fila"' in html

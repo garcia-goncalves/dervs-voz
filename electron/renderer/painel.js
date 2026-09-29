@@ -502,6 +502,7 @@
   const botaoNegarClaude = $("claude-pedido-negar");
   const filaPedidos = [];
   let pedidoAtual = null;   // { id, timer, liberar }
+  let pedidosRecusadosPorExcesso = 0;
   // Permitir só habilita depois deste atraso, a cada abertura: um duplo clique (ou
   // um Enter que sobrou) não aprova o pedido seguinte sem o dono ter lido.
   const ATRASO_PERMITIR_MS = 700;
@@ -528,6 +529,7 @@
     // Negar fica sempre pronto (e com o foco); Permitir espera o atraso.
     botaoNegarClaude.disabled = false;
     botaoPermitirClaude.disabled = true;
+    claudeMostrarFila();
     const id = p.id;
     pedidoAtual.liberar = setTimeout(() => {
       if (pedidoAtual && pedidoAtual.id === id) botaoPermitirClaude.disabled = false;
@@ -536,11 +538,27 @@
     botaoNegarClaude.focus();
   }
 
+  // "N pedidos aguardando" (e quantos foram recusados por excesso) dentro do diálogo.
+  function claudeMostrarFila() {
+    const el = $("claude-pedido-fila");
+    const partes = [];
+    if (filaPedidos.length) partes.push(`${filaPedidos.length} pedido(s) aguardando`);
+    if (pedidosRecusadosPorExcesso) partes.push(`${pedidosRecusadosPorExcesso} recusado(s) por excesso`);
+    el.textContent = partes.join(" · ");
+    el.hidden = partes.length === 0;
+  }
+
   function aoClaudePedido(p) {
     if (!p || typeof p.id !== "string" || !p.id) return;
-    if (filaPedidos.length >= MAX_FILA_PEDIDOS) return;
+    if (filaPedidos.length >= MAX_FILA_PEDIDOS) {
+      // Fila cheia: NEGA explicitamente o excedente (nunca some em silêncio).
+      pedidosRecusadosPorExcesso += 1;
+      window.dervs.claudeResponder(p.id, false, p.id);
+      claudeMostrarFila();
+      return;
+    }
     filaPedidos.push(p);
-    if (!pedidoAtual) claudeAbrirProximoPedido();
+    if (!pedidoAtual) claudeAbrirProximoPedido(); else claudeMostrarFila();
   }
 
   function claudeFecharPedidoAtual() {
@@ -551,6 +569,7 @@
 
   function claudeFecharPedidos() {
     filaPedidos.length = 0;
+    pedidosRecusadosPorExcesso = 0;
     if (pedidoAtual) { clearTimeout(pedidoAtual.timer); clearTimeout(pedidoAtual.liberar); pedidoAtual = null; }
     if (dialogoClaude.open) dialogoClaude.close();
   }
