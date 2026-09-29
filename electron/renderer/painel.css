@@ -214,9 +214,9 @@ button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); 
 /* ---- rodapé ---- */
 .p-rodape {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: 2.2fr 1.1fr 1fr;
   gap: 18px;
-  height: 190px;
+  height: 250px;
   min-height: 0;
 }
 .p-painel-baixo { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
@@ -238,6 +238,99 @@ button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); 
 .p-conversa li[data-papel="dervs"] .p-fala-quem { color: var(--acento); }
 .p-conversa li[data-papel="erro"] .p-fala-quem { color: var(--erro); }
 .p-conversa .p-fala-texto { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
+/* ---- Claude Code (onda B) ---- */
+.p-mini {
+  margin-left: 8px;
+  padding: 2px 10px;
+  background: transparent;
+  border: 1px solid var(--acento-fraco);
+  color: var(--texto-primario);
+  font-family: var(--fonte-tecnica);
+  font-size: 11px;
+  letter-spacing: .14em;
+  cursor: pointer;
+  border-radius: 0;
+}
+.p-mini:hover, .p-mini:focus-visible { border-color: var(--acento); color: var(--acento); outline: none; }
+.p-mini:disabled { opacity: .4; cursor: default; }
+.p-mini-forte { border-color: var(--acento); color: var(--acento); }
+.p-mini-perigo { border-color: var(--erro); color: var(--erro); }
+.p-titulo .p-mini { float: right; margin-top: -2px; }
+
+.p-claude-conversa {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+.p-claude-msg {
+  padding: 4px 8px;
+  border-left: 2px solid var(--acento-fraco);
+  background: var(--vidro-painel);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.p-claude-msg[data-papel="voce"] { border-left-color: var(--texto-secundario); }
+.p-claude-msg[data-papel="claude"] { border-left-color: var(--acento); }
+.p-claude-quem {
+  display: block;
+  font-family: var(--fonte-display);
+  font-size: 10px;
+  letter-spacing: .14em;
+  color: var(--texto-secundario);
+}
+.p-claude-msg[data-papel="claude"] .p-claude-quem { color: var(--acento); }
+.p-claude-corpo p { margin: 2px 0; white-space: pre-wrap; }
+.p-claude-msg[data-papel="voce"] .p-claude-corpo { white-space: pre-wrap; }
+#p-dialogo-claude[data-nivel="destrutivo"] .cartao { border-color: var(--erro); }
+.p-claude-corpo ul, .p-claude-corpo ol { margin: 2px 0; padding-left: 20px; }
+.p-claude-corpo code { font-family: var(--fonte-tecnica); color: var(--acento); }
+.p-claude-corpo pre {
+  margin: 4px 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  border: 1px solid var(--acento-fraco);
+  background: rgba(0, 0, 0, .35);
+}
+.p-claude-corpo pre code { color: var(--texto-primario); }
+.p-claude-ferramenta {
+  font-family: var(--fonte-tecnica);
+  font-size: 12px;
+  color: var(--texto-secundario);
+  overflow-wrap: anywhere;
+}
+.p-claude-erro { font-size: 12px; color: var(--erro); }
+.p-claude-nota { font-size: 11px; color: var(--texto-secundario); }
+.p-claude-form { display: flex; gap: 6px; align-items: stretch; }
+.p-claude-form .p-mini { margin-left: 0; align-self: stretch; }
+.p-claude-texto {
+  flex: 1 1 auto;
+  resize: none;
+  padding: 5px 8px;
+  background: var(--vidro-painel);
+  border: 1px solid var(--acento-fraco);
+  color: var(--texto-primario);
+  font-family: var(--fonte-tecnica);
+  font-size: 13px;
+  border-radius: 0;
+}
+.p-claude-texto:focus-visible { border-color: var(--acento); outline: none; }
+.p-claude-entrada {
+  margin: 0;
+  max-height: 110px;
+  overflow: auto;
+  font-family: var(--fonte-tecnica);
+  font-size: 12px;
+  color: var(--texto-secundario);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.p-claude-aviso { margin: 0; font-size: 12px; color: var(--erro); }
 
 /* ---- alça de redimensionar (canto inferior direito) ---- */
 .p-alca {
@@ -265,7 +358,7 @@ button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); 
 
 /* ---- janela baixa ou estreita: encolhe o que sobra ---- */
 @media (max-height: 720px) {
-  .p-rodape { height: 140px; }
+  .p-rodape { height: 200px; }
   .p-relogio { font-size: 30px; }
 }
 

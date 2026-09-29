@@ -120,8 +120,24 @@
     </section>
   </main>
 
-  <!-- EMBAIXO: conversa ao vivo e últimas ações. -->
-  <section class="p-rodape" aria-label="Conversa e ações">
+  <!-- EMBAIXO: Claude Code, conversa ao vivo e últimas ações. -->
+  <section class="p-rodape" aria-label="Claude Code, conversa e ações">
+    <!-- CLAUDE CODE (onda B): a caixa de texto e a resposta em streaming. Tudo
+         que o Claude escreve entra por textContent / painel-markdown.js. -->
+    <div class="p-painel-baixo p-claude" aria-label="Claude Code">
+      <h2 class="p-titulo">CLAUDE CODE <span class="p-titulo-nota" id="p-claude-estado">pronto</span>
+        <button type="button" id="p-claude-nova" class="p-mini" title="Esquece a conversa e começa outra do zero">NOVA CONVERSA</button>
+      </h2>
+      <div class="p-claude-conversa" id="p-claude-conversa" aria-live="polite" tabindex="0"></div>
+      <p class="p-vazio" id="p-claude-vazio">Escreva abaixo o que quer que o Claude faça neste PC. Ele lê a máquina toda; para mudar qualquer coisa, pede o seu OK aqui.</p>
+      <form class="p-claude-form" id="p-claude-form">
+        <textarea id="p-claude-texto" class="p-claude-texto" rows="2" maxlength="8000"
+                  placeholder="Pergunte ou peça algo ao Claude Code (Enter envia, Shift+Enter pula linha)"
+                  aria-label="Mensagem para o Claude Code"></textarea>
+        <button type="submit" id="p-claude-enviar" class="p-mini p-mini-forte">ENVIAR</button>
+        <button type="button" id="p-claude-parar" class="p-mini p-mini-perigo" hidden>PARAR</button>
+      </form>
+    </div>
     <div class="p-painel-baixo">
       <h2 class="p-titulo">CONVERSA AO VIVO</h2>
       <ul class="p-conversa" id="p-conversa" aria-live="polite"></ul>
@@ -155,7 +171,24 @@
     </section>
   </dialog>
 
+  <!-- Pedido de permissão do Claude Code. Foco INICIAL em Negar (nunca em
+       Permitir): um Enter que o dono já apertava em outro programa não aprova
+       nada. Sem resposta em 5 min o Python já negou. Texto só por textContent. -->
+  <dialog id="p-dialogo-claude" class="p-dialogo" aria-label="Pedido de permissão do Claude Code">
+    <section class="cartao cartao-plano" id="cartao-claude">
+      <p class="cartao-plano-pergunta" id="claude-pedido-titulo"></p>
+      <p class="cartao-plano-comando" id="claude-pedido-resumo"></p>
+      <p class="p-claude-entrada" id="claude-pedido-entrada"></p>
+      <p class="p-claude-aviso" id="claude-pedido-aviso" hidden></p>
+      <div class="cartao-plano-botoes">
+        <button type="button" id="claude-pedido-permitir" class="botao botao-confirmar">Permitir</button>
+        <button type="button" id="claude-pedido-negar" class="botao botao-cancelar" autofocus>Negar</button>
+      </div>
+    </section>
+  </dialog>
+
   <script src="painel-formato.js"></script>
+  <script src="painel-markdown.js"></script>
   <script src="painel.js"></script>
 </body>
 </html>

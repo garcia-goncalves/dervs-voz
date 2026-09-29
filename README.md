@@ -117,6 +117,42 @@ A bandeja tem três itens: **Abrir DERVS**, **Recolher janela** e **Sair do
 DERVS**. Fechar pelo X só esconde a janela — quem encerra de fato é "Sair do
 DERVS" ou o processo Python-pai morrendo.
 
+## O Claude Code dentro do painel (onda B, 29/09/2026)
+
+Há **duas** peças de Claude, de propósito. O **planejador de voz**
+(`dervs_brain.py`, `cerebro: "claude"`) continua isolado e só devolve uma ficha
+curta. A **sessão Claude Code** (`dervs_claude_code.py`) é "o mesmo Claude" do seu
+terminal — com o seu `~/.claude` (CLAUDE.md, skills, agentes, MCPs) — pela
+**assinatura**: nenhuma chave de API. Usa o SDK oficial `claude-agent-sdk`
+(versão travada no `requirements.txt`), numa thread própria com laço asyncio.
+
+- **Onde aparece:** caixa de texto e conversa em streaming no painel (canto
+  inferior esquerdo), botões **PARAR** e **NOVA CONVERSA**. Por voz: "pede pro
+  Claude…", "analisa…", "verifica meu PC" viram pergunta ao Claude Code; a voz lê
+  só 2 frases da resposta (o texto inteiro fica no painel); a palavra "para"
+  interrompe.
+- **Travas (cada uma tem teste):** `permission_mode="default"` como constante (nunca
+  `bypassPermissions`/`acceptEdits`/`auto`); gancho `PreToolUse` em processo que
+  nega comando destrutivo (`dervs_safety`) e escrita em caminho protegido antes de
+  qualquer regra; todo pedido de permissão vira o diálogo do painel (foco em
+  **Negar**; sem resposta em 5 min, nega; voz nunca aprova o que muda o estado).
+- **Servidor MCP `dervs` em processo:** `central_coletar` (stub até a onda D),
+  `propor_acao` (só registra o pedido em `%LOCALAPPDATA%\dervs\claude_propostas.jsonl`
+  e mostra no painel — **não executa nada**) e `status_aprovacao`.
+- **Sessão contínua:** o `session_id` fica em `%LOCALAPPDATA%\dervs\claude_sessao.json`
+  e o app reabre retomando a conversa; NOVA CONVERSA zera. **Parar** manda
+  `interrupt`; se o Claude não obedecer em 5 s, `dervs_processos.encerrar_arvore`
+  mata a árvore de processos dele (pelo PID, nunca por padrão de linha de comando).
+- **Custo:** o `ResultMessage` traz o custo *equivalente*; vai para `gasto.jsonl` com
+  a etiqueta "assinatura (equivalente)" e **não** entra no "gasto hoje" (não é
+  cobrança). Medido: a 1ª pergunta carrega o contexto do `~/.claude` (≈ US$ 0,12–0,25
+  equivalentes); as seguintes, na mesma sessão, ≈ US$ 0,01.
+- **Ponte:** verbos `claude_delta`, `claude_ferramenta`, `claude_pedido`, `claude_fim`
+  (Python → Electron) e `claude_perguntar` (até 8 000 caracteres), `claude_parar`,
+  `claude_resposta`, `claude_nova_conversa` (Electron → Python) — contrato no
+  cabeçalho de `dervs_ponte_electron.py`. Texto do Claude só entra na tela por
+  `textContent` ou pelo `painel-markdown.js` (negrito, código, lista; sem `innerHTML`).
+
 ## Configuração
 
 No Windows fica em `%APPDATA%\dervs\config.json`; no Linux, em
@@ -128,6 +164,8 @@ Chaves: `stt`, `stt_openai_modelo`, `porteiro`, `porteiro_modelo`, `cerebro`,
 `janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir`, `porteiro_registrar_texto`
 (guardar o TEXTO que o porteiro ouviu no diário — padrão `false`), `dervs_app_url`
 (URL que o botão "Abrir DERVS App" do HUD abre — padrão `http://localhost:4777`),
+`claude_perfil` (`dono` = o Claude Code carrega o `~/.claude` inteiro; `equipe` =
+só o harness do projeto — padrão `dono`; não mexe em `cerebro`),
 e as do navegador. Valor inválido cai no padrão em vez de derrubar o app
 (`_validar`). Mudou → reinicie.
 

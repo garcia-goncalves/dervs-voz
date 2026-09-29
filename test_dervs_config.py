@@ -237,3 +237,20 @@ def test_perfil_que_o_dono_escolheu_no_windows_e_respeitado(monkeypatch):
 
 def test_perfil_padrao_e_vazio_para_valer_o_do_sistema():
     assert cfg.PADRAO["navegador_perfil_chrome"] == ""
+
+import pytest
+
+# --- perfil do Claude Code (onda B) ---------------------------------------------
+
+def test_claude_perfil_nasce_dono_e_o_cerebro_nao_muda():
+    assert cfg.PADRAO["claude_perfil"] == "dono"
+    assert cfg.PADRAO["cerebro"] == "openai", "a onda B não troca o cérebro de voz"
+
+
+def test_claude_perfil_aceita_equipe():
+    assert cfg._validar({**cfg.PADRAO, "claude_perfil": "equipe"})["claude_perfil"] == "equipe"
+
+
+@pytest.mark.parametrize("torto", ["admin", "", None, 3, ["dono"], "DONO"])
+def test_claude_perfil_torto_cai_no_padrao(torto):
+    assert cfg._validar({**cfg.PADRAO, "claude_perfil": torto})["claude_perfil"] == "dono"

@@ -79,6 +79,15 @@ Verbos Python → Electron (só estes):
             segundos que faltam do modo reunião (inteiro), ou `null` quando
             não há reunião (terminou ou foi cancelada). Mandado a cada segundo
             enquanto a reunião durar; o temporizador mora no Python (`Motor`).
+  claude_delta {"texto"}              — onda B (Claude Code no painel): um pedaço
+            da resposta, em streaming. Texto do Claude é DADO hostil: a tela só
+            usa `textContent`.
+  claude_ferramenta {"nome", "resumo"} — o Claude usou uma ferramenta (linha de
+            progresso na conversa).
+  claude_pedido {"id", "ferramenta", "resumo", "entrada_cortada", "nivel",
+            "expira_s"} — o Claude pede permissão. O `id` vale UMA resposta.
+  claude_fim {"ok", "custo", "erro"}  — o turno acabou. `custo` é o equivalente
+            em dólar da assinatura (medida, não cobrança).
 
 Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
   pronto  — a janela carregou. Antes disso, `estado` e `volume` ficam
@@ -100,6 +109,14 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
             outro valor truthy do JSON não destrava nada). `cartao_id` é
             extensão do protocolo: ecoa o id do cartão a que esta resposta
             se refere — quem decide se ainda vale é `dervs_electron.py`.
+  claude_perguntar {"texto"}          — onda B: pergunta digitada na caixa do
+            painel. 1 a 8000 caracteres; fora disso, ignorada.
+  claude_parar                        — botão Parar.
+  claude_resposta {"id", "permitir", "cartao_id"} — resposta ao `claude_pedido`.
+            `permitir` só vale se for o booleano de verdade (mesma checagem
+            estrita de `autorizado`); `id` é texto não vazio. Quem decide se o
+            id ainda vale é `dervs_claude_code.py` (cada id vale uma vez).
+  claude_nova_conversa                — botão Nova conversa.
 
 Regras duras (valem para os dois lados da ponte, e este arquivo cumpre a
 parte do Python):
@@ -133,6 +150,8 @@ _LIMITE_PLANO = 60000          # caracteres — teto abaixo de _LIMITE_LINHA,
                                 # para sobrar folga para o resto do JSON
 _LIMITE_LISTA = 50             # itens de agenda/diário mandados ao painel
 _LIMITE_ITEM = 200             # texto de um item de agenda (título hostil)
+_LIMITE_PERGUNTA = 8000        # caracteres da caixa de texto do Claude Code
+_LIMITE_ERRO_CLAUDE = 300      # mensagem de erro de um turno do Claude
 _ESTRANGULA_SEG = 0.05         # 50 ms = no máximo 20 mensagens de volume/s
 
 _EXECUTAVEL_PADRAO = os.path.join(
@@ -156,12 +175,18 @@ class PonteElectron:
     """
 
     def __init__(self, ao_sair, ao_plano, ao_pronto, ao_microfone=None,
-                 ao_reuniao=None):
+                 ao_reuniao=None, ao_claude=None):
         """`ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`.
         `ao_microfone(ligar: bool)` roda na thread de leitura da ponte — quem
         o fornece precisa atravessar para a thread da tela antes de mexer em
         widget ou thread do Qt (ver `Motor` em `dervs_electron.py`); vale o
-        mesmo para `ao_reuniao(ligar: bool)`."""
+        mesmo para `ao_reuniao(ligar: bool)`.
+
+        `ao_claude(verbo, dados)` recebe os quatro verbos do Claude Code
+        (`claude_perguntar`, `claude_parar`, `claude_resposta`,
+        `claude_nova_conversa`) já validados, também na thread de leitura. A
+        sessão (`dervs_claude_code.SessaoClaudeCode`) é segura entre threads."""
+        self._ao_claude = ao_claude
         self._ao_microfone = ao_microfone
         self._ao_reuniao = ao_reuniao
         self._ultimo_microfone_guardado = None
@@ -338,8 +363,36 @@ class PonteElectron:
                 return
             if self._ao_reuniao is not None:
                 self._chamar(self._ao_reuniao, ligar)
+        elif verbo in ("claude_perguntar", "claude_parar", "claude_resposta",
+                       "claude_nova_conversa"):
+            self._tratar_claude(verbo, dado)
         else:
             sys.stderr.write(f"ponte: verbo desconhecido vindo do Electron: {verbo!r}\n")
+
+    def _tratar_claude(self, verbo, dado):
+        """Valida os verbos do Claude Code ANTES de entregar: tudo aqui vem de
+        uma tela que exibe texto hostil, então só o formato exato passa."""
+        if verbo == "claude_perguntar":
+            texto = dado.get("texto")
+            if (not isinstance(texto, str) or not texto.strip()
+                    or len(texto) > _LIMITE_PERGUNTA):
+                sys.stderr.write("ponte: claude_perguntar inválido (vazio, longo demais "
+                                 "ou não é texto), ignorado\n")
+                return
+            dados = {"texto": texto}
+        elif verbo == "claude_resposta":
+            id_ = dado.get("id")
+            if not isinstance(id_, str) or not id_ or len(id_) > 64 \
+                    or not isinstance(dado.get("permitir"), bool):
+                sys.stderr.write(f"ponte: claude_resposta inválida: {dado!r}\n")
+                return
+            cartao_id = dado.get("cartao_id")
+            dados = {"id": id_, "permitir": dado["permitir"],
+                     "cartao_id": cartao_id if isinstance(cartao_id, str) else None}
+        else:
+            dados = {}
+        if self._ao_claude is not None:
+            self._chamar(self._ao_claude, verbo, dados)
 
     def _chamar(self, callback, *args):
         """Callback do dono explodir não pode derrubar a ponte."""
@@ -514,6 +567,48 @@ class PonteElectron:
     def enviar_acao(self, papel, texto):
         """Uma ação do DERVS para a lista de "últimas ações" do painel."""
         self._escrever({"verbo": "acao", "papel": str(papel)[:16], "texto": _cortar(texto)})
+
+    # ---- Claude Code (onda B) ---------------------------------------------------
+    # Sem guarda antes do `pronto` e sem "só se mudou": cada pedaço de resposta
+    # é único, e uma resposta que começa antes da janela carregar não é
+    # reencenada depois (a caixa de texto do painel só existe carregada).
+
+    def enviar_claude_delta(self, texto):
+        self._escrever({"verbo": "claude_delta", "texto": _cortar(texto)})
+
+    def enviar_claude_ferramenta(self, nome, resumo):
+        self._escrever({"verbo": "claude_ferramenta", "nome": str(nome)[:64],
+                        "resumo": str(resumo)[:_LIMITE_ITEM]})
+
+    def enviar_claude_pedido(self, pedido: dict):
+        """Só os campos do contrato atravessam; o resto do dict fica de fora."""
+        self._escrever({
+            "verbo": "claude_pedido",
+            "id": str(pedido.get("id", ""))[:64],
+            "ferramenta": str(pedido.get("ferramenta", ""))[:64],
+            "resumo": str(pedido.get("resumo", ""))[:_LIMITE_ITEM],
+            "entrada_cortada": str(pedido.get("entrada_cortada", ""))[:1000],
+            "nivel": str(pedido.get("nivel", "muda_estado"))[:16],
+            "expira_s": int(pedido.get("expira_s") or 0)})
+
+    def enviar_claude_fim(self, ok, custo, erro):
+        try:
+            custo = round(float(custo or 0.0), 6)
+        except (TypeError, ValueError):
+            custo = 0.0
+        self._escrever({"verbo": "claude_fim", "ok": bool(ok), "custo": custo,
+                        "erro": None if erro is None else str(erro)[:_LIMITE_ERRO_CLAUDE]})
+
+    def enviar_claude(self, verbo, dados):
+        """Ponto único que a sessão do Claude Code usa (`ao_evento`)."""
+        if verbo == "claude_delta":
+            self.enviar_claude_delta(dados.get("texto", ""))
+        elif verbo == "claude_ferramenta":
+            self.enviar_claude_ferramenta(dados.get("nome", ""), dados.get("resumo", ""))
+        elif verbo == "claude_pedido":
+            self.enviar_claude_pedido(dados)
+        elif verbo == "claude_fim":
+            self.enviar_claude_fim(dados.get("ok"), dados.get("custo"), dados.get("erro"))
 
     def enviar_reuniao(self, restante_s):
         """Segundos restantes do modo reunião, ou `None` quando não há."""

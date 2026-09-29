@@ -370,6 +370,196 @@
     desenharAcoes();
   }
 
+  // ---- Claude Code (onda B) ---------------------------------------------------
+  // A caixa de texto, a resposta em streaming e o pedido de permissão. Tudo que
+  // o Claude escreve é DADO hostil: entra só por textContent ou por
+  // PainelMarkdown (que também nunca usa innerHTML). Quem decide o que roda é o
+  // Python; aqui só se mostra, se pede e se responde.
+
+  const MAX_MSG_CLAUDE = 60;
+  const MAX_TEXTO_CLAUDE = 400000;
+  const MAX_FILA_PEDIDOS = 20;
+  const elConversaClaude = $("p-claude-conversa");
+  const elTextoClaude = $("p-claude-texto");
+  const claude = { ocupado: false, corpo: null, texto: "", desenhoAgendado: false };
+
+  function claudeOcupado(ligado) {
+    claude.ocupado = ligado;
+    $("p-claude-estado").textContent = ligado ? "trabalhando…" : "pronto";
+    $("p-claude-parar").hidden = !ligado;
+    $("p-claude-enviar").disabled = ligado;
+  }
+
+  function claudePertoDoFim() {
+    return elConversaClaude.scrollHeight - elConversaClaude.scrollTop - elConversaClaude.clientHeight < 48;
+  }
+
+  function claudeRolar() { elConversaClaude.scrollTop = elConversaClaude.scrollHeight; }
+
+  function claudeNovaMensagem(papel, quem) {
+    const msg = criar("div", "p-claude-msg");
+    msg.setAttribute("data-papel", papel);
+    msg.appendChild(criar("span", "p-claude-quem", quem));
+    const corpo = criar("div", "p-claude-corpo");
+    msg.appendChild(corpo);
+    claudeAnexar(msg);
+    return corpo;
+  }
+
+  function claudeAnexar(no) {
+    const seguir = claudePertoDoFim();
+    elConversaClaude.appendChild(no);
+    while (elConversaClaude.children.length > MAX_MSG_CLAUDE) {
+      elConversaClaude.removeChild(elConversaClaude.firstChild);
+    }
+    $("p-claude-vazio").hidden = true;
+    if (seguir) claudeRolar();
+  }
+
+  // Redesenha a resposta em andamento: no máximo uma vez por quadro (o rAF
+  // também some com a janela escondida — o texto acumula e desenha ao voltar).
+  function claudeDesenhar() {
+    claude.desenhoAgendado = false;
+    if (!claude.corpo) return;
+    const seguir = claudePertoDoFim();
+    limpar(claude.corpo);
+    claude.corpo.appendChild(window.PainelMarkdown.renderizar(document, claude.texto));
+    if (seguir) claudeRolar();
+  }
+
+  function claudeEncerrarBolha() {
+    claudeDesenhar();
+    claude.corpo = null;
+    claude.texto = "";
+  }
+
+  function aoClaudeDelta({ texto } = {}) {
+    if (typeof texto !== "string" || !texto) return;
+    if (!claude.ocupado) claudeOcupado(true);      // resposta puxada por voz
+    if (!claude.corpo) {
+      claude.corpo = claudeNovaMensagem("claude", "CLAUDE");
+      claude.texto = "";
+    }
+    if (claude.texto.length < MAX_TEXTO_CLAUDE) claude.texto += texto;
+    if (!claude.desenhoAgendado) {
+      claude.desenhoAgendado = true;
+      requestAnimationFrame(claudeDesenhar);
+    }
+  }
+
+  function aoClaudeFerramenta({ nome, resumo } = {}) {
+    if (typeof nome !== "string" || typeof resumo !== "string") return;
+    if (!claude.ocupado) claudeOcupado(true);
+    claudeEncerrarBolha();                         // o texto seguinte abre outra bolha
+    claudeAnexar(criar("div", "p-claude-ferramenta", `▸ ${nome}: ${resumo.slice(0, 200)}`));
+  }
+
+  function aoClaudeFim({ ok, custo, erro } = {}) {
+    claudeEncerrarBolha();
+    if (ok === false) {
+      claudeAnexar(criar("div", "p-claude-erro", erro ? `⚠ ${erro}` : "⚠ não terminou"));
+    } else if (Number.isFinite(custo) && custo > 0) {
+      claudeAnexar(criar("div", "p-claude-nota",
+        `uso equivalente ${F.formatarUsd(custo)} (assinatura — não é cobrança)`));
+    }
+    claudeOcupado(false);
+    claudeFecharPedidos();                         // o Python já negou o que sobrou
+  }
+
+  function claudeEnviar() {
+    const texto = elTextoClaude.value.trim();
+    if (!texto || claude.ocupado) return;
+    claudeNovaMensagem("voce", "VOCÊ").textContent = texto;
+    elTextoClaude.value = "";
+    claudeOcupado(true);
+    window.dervs.claudePerguntar(texto);
+    claudeRolar();
+  }
+
+  $("p-claude-form").addEventListener("submit", (e) => { e.preventDefault(); claudeEnviar(); });
+  elTextoClaude.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); claudeEnviar(); }
+  });
+  $("p-claude-parar").addEventListener("click", () => window.dervs.claudeParar());
+  $("p-claude-nova").addEventListener("click", () => {
+    limpar(elConversaClaude);
+    $("p-claude-vazio").hidden = false;
+    claude.corpo = null;
+    claude.texto = "";
+    claudeOcupado(false);
+    claudeFecharPedidos();
+    window.dervs.claudeNovaConversa();
+  });
+
+  // ---- pedido de permissão do Claude (diálogo modal) ---------------------------
+  // Foco INICIAL em Negar, nunca em Permitir (lição da revisão da onda A): um
+  // Enter que o dono já apertava em outro programa não aprova nada. Esc = Negar.
+  // Um pedido de cada vez; o resto espera na fila. O `id` volta na resposta e
+  // vale uma vez só no Python.
+
+  const dialogoClaude = $("p-dialogo-claude");
+  const botaoPermitirClaude = $("claude-pedido-permitir");
+  const botaoNegarClaude = $("claude-pedido-negar");
+  const filaPedidos = [];
+  let pedidoAtual = null;   // { id, timer }
+
+  function claudeAbrirProximoPedido() {
+    const p = filaPedidos.shift();
+    if (!p) return;
+    const prazoMs = Math.max(1, Number(p.expiraS) || 300) * 1000;
+    pedidoAtual = { id: p.id, timer: setTimeout(claudeFecharPedidoAtual, prazoMs) };
+    $("claude-pedido-titulo").textContent = `O Claude quer usar: ${p.ferramenta}`;
+    $("claude-pedido-resumo").textContent = p.resumo;
+    $("claude-pedido-entrada").textContent = p.entradaCortada || "";
+    const aviso = $("claude-pedido-aviso");
+    const texto = p.nivel === "destrutivo" ? "Atenção: isto pode apagar ou quebrar coisas."
+      : p.nivel === "muda_estado" ? "Isto muda algo neste PC." : "";
+    aviso.textContent = texto;
+    aviso.hidden = !texto;
+    dialogoClaude.setAttribute("data-nivel", typeof p.nivel === "string" ? p.nivel : "muda_estado");
+    botaoPermitirClaude.disabled = false;
+    botaoNegarClaude.disabled = false;
+    if (!dialogoClaude.open) dialogoClaude.showModal();
+    botaoNegarClaude.focus();
+  }
+
+  function aoClaudePedido(p) {
+    if (!p || typeof p.id !== "string" || !p.id) return;
+    if (filaPedidos.length >= MAX_FILA_PEDIDOS) return;
+    filaPedidos.push(p);
+    if (!pedidoAtual) claudeAbrirProximoPedido();
+  }
+
+  function claudeFecharPedidoAtual() {
+    if (pedidoAtual) { clearTimeout(pedidoAtual.timer); pedidoAtual = null; }
+    if (dialogoClaude.open) dialogoClaude.close();
+    if (filaPedidos.length) claudeAbrirProximoPedido();
+  }
+
+  function claudeFecharPedidos() {
+    filaPedidos.length = 0;
+    if (pedidoAtual) { clearTimeout(pedidoAtual.timer); pedidoAtual = null; }
+    if (dialogoClaude.open) dialogoClaude.close();
+  }
+
+  function claudeResponderPedido(permitir) {
+    if (!pedidoAtual) return;
+    const id = pedidoAtual.id;
+    botaoPermitirClaude.disabled = true;
+    botaoNegarClaude.disabled = true;
+    window.dervs.claudeResponder(id, permitir, id);
+    claudeFecharPedidoAtual();
+  }
+
+  botaoPermitirClaude.addEventListener("click", () => claudeResponderPedido(true));
+  botaoNegarClaude.addEventListener("click", () => claudeResponderPedido(false));
+  dialogoClaude.addEventListener("cancel", (e) => { e.preventDefault(); claudeResponderPedido(false); });
+
+  window.dervs.aoClaudeDelta(aoClaudeDelta);
+  window.dervs.aoClaudeFerramenta(aoClaudeFerramenta);
+  window.dervs.aoClaudePedido(aoClaudePedido);
+  window.dervs.aoClaudeFim(aoClaudeFim);
+
   // ---- reator (canvas) ------------------------------------------------------
   // Mesma linguagem do antigo núcleo do widget: ticks, anéis segmentados
   // girando, núcleo que brilha com a amplitude; aqui maior, com um anel a mais
