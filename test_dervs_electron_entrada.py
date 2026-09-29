@@ -50,6 +50,9 @@ class PonteFalsa:
     def enviar_mostrar(self):
         self.chamadas.append(("mostrar",))
 
+    def enviar_acao(self, papel, texto):
+        self.chamadas.append(("acao", papel, texto))
+
     def enviar_microfone(self, ligado):
         self.chamadas.append(("microfone", ligado))
 
@@ -98,6 +101,18 @@ def test_diz_manda_fala_pela_ponte_com_os_campos_certos(motor):
     motor._diz("dervs", "oi, tudo bem?", cor="#123456")
     falas = motor.ponte.de_tipo("fala")
     assert falas == [("fala", "dervs", "oi, tudo bem?")]
+
+
+def test_diz_manda_acao_so_para_resultado_erro_e_passo_em_ouro(motor):
+    motor._diz("dervs", "oi, tudo bem?")                       # conversa: não é ação
+    motor._diz("dono", "abre o bloco de notas")                # fala do dono: não é ação
+    motor._diz("dervs", "rodando: notepad", cor=dervs.GOLD)    # passo anunciado
+    motor._diz("resultado", "feito")
+    motor._diz("erro", "falhou")
+    assert motor.ponte.de_tipo("acao") == [
+        ("acao", "dervs", "rodando: notepad"),
+        ("acao", "resultado", "feito"),
+        ("acao", "erro", "falhou")]
 
 
 def test_ocupado_manda_estado_pensando(motor):

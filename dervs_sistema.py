@@ -14,6 +14,7 @@ os anéis, a voz e o resto continuam funcionando exatamente como antes.
 import os
 import sys
 import threading
+import time
 
 try:
     import psutil
@@ -66,12 +67,49 @@ def coletar_stats(caminho_disco: str | None = None, modulo_psutil=_SEM_ARGUMENTO
     }
 
 
+class EstadoRede:
+    """Transforma dois contadores acumulados de bytes (psutil) em KB/s.
+    A primeira leitura só guarda a base (devolve `(None, None)`)."""
+
+    def __init__(self):
+        self._antes = None
+
+    def kbs(self, bytes_recebidos, bytes_enviados, instante):
+        anterior, self._antes = self._antes, (bytes_recebidos, bytes_enviados, instante)
+        if anterior is None or instante <= anterior[2]:
+            return None, None
+        dt = instante - anterior[2]
+        baixa = max(0.0, (bytes_recebidos - anterior[0]) / 1024.0 / dt)
+        sobe = max(0.0, (bytes_enviados - anterior[1]) / 1024.0 / dt)
+        return baixa, sobe
+
+
+_rede = EstadoRede()
+
+
+def coletar_rede(modulo_psutil=_SEM_ARGUMENTO, estado=None):
+    """`(baixa_kbs, sobe_kbs)` desde a leitura anterior, ou `(None, None)`."""
+    mod = psutil if modulo_psutil is _SEM_ARGUMENTO else modulo_psutil
+    if mod is None:
+        return None, None
+    try:
+        c = mod.net_io_counters()
+        return (estado or _rede).kbs(c.bytes_recv, c.bytes_sent, time.monotonic())
+    except Exception:
+        return None, None
+
+
 def _um_passo(ponte, coletar=coletar_stats) -> bool:
     """Uma leitura + um envio. Separado do laço só para dar para testar sem
     precisar de thread nem de tempo real (ver `test_dervs_sistema.py`)."""
     stats = coletar()
     if stats is None:
         return False
+    if coletar is coletar_stats:          # rede só na leitura de verdade
+        baixa, sobe = coletar_rede()
+        if baixa is not None:
+            stats = dict(stats, rede_baixa_kbs=round(baixa, 1),
+                         rede_sobe_kbs=round(sobe, 1))
     ponte.enviar_sistema(**stats)
     return True
 

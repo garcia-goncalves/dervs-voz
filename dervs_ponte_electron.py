@@ -62,6 +62,19 @@ Verbos Python → Electron (só estes):
             ~30 s por `dervs_diario.py`. Só metadados — nunca texto. Não guarda
             o último valor: a próxima leitura chega sozinha. O cartão do HUD
             só aparece depois da primeira.
+  gasto   {"total", "tts", "stt", "cerebro"} — extensão do protocolo (painel
+            grande, 28/09/2026): gasto ESTIMADO de hoje em dólar, lido de
+            `gasto.jsonl` por `dervs_painel.py`. Só depois do `pronto`; valor
+            igual ao último não é reenviado.
+  agenda  {"itens": [{"quando", "quando_txt", "texto"}]} — lembretes pendentes
+            reais (`dervs_lembretes.Agenda`). Lista vazia é mensagem válida.
+  diario_entradas {"entradas": [{"hora", "acordou", "palavras", "duracao_s"}]}
+            — últimas frases que o porteiro ouviu hoje; só metadados, nunca texto.
+  voz     {"motor": "nuvem" | "local"} — qual voz está valendo (cai no local
+            quando a nuvem falha).
+  acao    {"papel", "texto"}          — uma ação do DERVS (resultado, erro ou
+            passo que ele anunciou) para a lista "últimas ações" do painel.
+  sistema também pode trazer `rede_baixa_kbs` e `rede_sobe_kbs` (KB/s, opcionais).
   reuniao {"restante_s"}              — extensão do protocolo (quarta rodada):
             segundos que faltam do modo reunião (inteiro), ou `null` quando
             não há reunião (terminou ou foi cancelada). Mandado a cada segundo
@@ -118,6 +131,8 @@ _LIMITE_LINHA = 64 * 1024      # 64 KiB — linha maior que isso é descartada
 _LIMITE_TEXTO = 4000           # texto livre é cortado antes de ser enviado
 _LIMITE_PLANO = 60000          # caracteres — teto abaixo de _LIMITE_LINHA,
                                 # para sobrar folga para o resto do JSON
+_LIMITE_LISTA = 50             # itens de agenda/diário mandados ao painel
+_LIMITE_ITEM = 200             # texto de um item de agenda (título hostil)
 _ESTRANGULA_SEG = 0.05         # 50 ms = no máximo 20 mensagens de volume/s
 
 _EXECUTAVEL_PADRAO = os.path.join(
@@ -160,6 +175,7 @@ class PonteElectron:
         self._ultimo_estado_guardado = None
         self._ultimo_volume_guardado = None
         self._ultimo_volume_enviado = None
+        self._ultimo_do_painel = {}     # verbo -> última msg enviada (painel grande)
         self._ultimo_envio_volume = 0.0
         self._sair_notificado = False
         self._servidor = None       # soquete que escuta a conexão do Electron
@@ -424,7 +440,8 @@ class PonteElectron:
     def enviar_mostrar(self):
         self._escrever({"verbo": "mostrar"})
 
-    def enviar_sistema(self, cpu, ram, disco_livre_gb, disco_total_gb):
+    def enviar_sistema(self, cpu, ram, disco_livre_gb, disco_total_gb,
+                       rede_baixa_kbs=None, rede_sobe_kbs=None):
         """CPU/RAM/disco reais desta máquina (ver `dervs_sistema.py`). Só
         manda depois do `pronto` — diferente de `estado`/`volume`, não guarda
         o último valor para reenviar depois: a próxima leitura (a cada ~2s)
@@ -433,10 +450,15 @@ class PonteElectron:
         with self._lock:
             if not self._pronto:
                 return
-        self._escrever({
+        msg = {
             "verbo": "sistema", "cpu": cpu, "ram": ram,
             "disco_livre_gb": disco_livre_gb, "disco_total_gb": disco_total_gb,
-        })
+        }
+        # Rede (KB/s) é opcional: o widget compacto ignora, o painel grande desenha.
+        if rede_baixa_kbs is not None and rede_sobe_kbs is not None:
+            msg["rede_baixa_kbs"] = rede_baixa_kbs
+            msg["rede_sobe_kbs"] = rede_sobe_kbs
+        self._escrever(msg)
 
     def enviar_diario(self, ouvidas, acordou):
         """Resumo de hoje do diário do porteiro (ver `dervs_diario.py`). Como
@@ -446,6 +468,52 @@ class PonteElectron:
                 return
         self._escrever({"verbo": "diario", "ouvidas": int(ouvidas),
                         "acordou": int(acordou)})
+
+    # ---- painel grande (JARVIS) -----------------------------------------------
+    # Estes verbos só alimentam a janela grande. Como `sistema`/`diario`, só
+    # saem depois do `pronto`; e um valor IGUAL ao último enviado não é
+    # reenviado (o laço do painel repete a leitura a cada poucos segundos).
+
+    def _enviar_se_mudou(self, msg: dict):
+        with self._lock:
+            if not self._pronto:
+                return
+            if self._ultimo_do_painel.get(msg["verbo"]) == msg:
+                return
+            self._ultimo_do_painel[msg["verbo"]] = msg
+        self._escrever(msg)
+
+    def enviar_gasto(self, gasto: dict):
+        """Gasto estimado de HOJE em dólar (ver `dervs_gasto.py`)."""
+        self._enviar_se_mudou({"verbo": "gasto", **{
+            k: round(float(gasto.get(k, 0.0)), 6)
+            for k in ("total", "tts", "stt", "cerebro")}})
+
+    def enviar_agenda(self, itens):
+        """Lembretes pendentes: `[{"quando", "quando_txt", "texto"}]`."""
+        limpos = [{"quando": str(i.get("quando", ""))[:32],
+                   "quando_txt": str(i.get("quando_txt", ""))[:40],
+                   "texto": str(i.get("texto", ""))[:_LIMITE_ITEM]}
+                  for i in list(itens)[:_LIMITE_LISTA]]
+        self._enviar_se_mudou({"verbo": "agenda", "itens": limpos})
+
+    def enviar_diario_entradas(self, entradas):
+        """Últimas frases ouvidas hoje — só metadados (hora, acordou, palavras,
+        duração), nunca o texto."""
+        limpas = [{"hora": str(e.get("hora", ""))[:8], "acordou": bool(e.get("acordou")),
+                   "palavras": int(e.get("palavras") or 0),
+                   "duracao_s": float(e.get("duracao_s") or 0.0)}
+                  for e in list(entradas)[:_LIMITE_LISTA]]
+        self._enviar_se_mudou({"verbo": "diario_entradas", "entradas": limpas})
+
+    def enviar_voz(self, motor):
+        """Qual voz está valendo agora: "nuvem" ou "local" (qualquer outro
+        valor vira "local")."""
+        self._enviar_se_mudou({"verbo": "voz", "motor": "nuvem" if motor == "nuvem" else "local"})
+
+    def enviar_acao(self, papel, texto):
+        """Uma ação do DERVS para a lista de "últimas ações" do painel."""
+        self._escrever({"verbo": "acao", "papel": str(papel)[:16], "texto": _cortar(texto)})
 
     def enviar_reuniao(self, restante_s):
         """Segundos restantes do modo reunião, ou `None` quando não há."""

@@ -37,6 +37,7 @@ import dervs_diario as diario
 import dervs_instancia as instancia
 import dervs_registro as registro
 import dervs_safety as seg
+import dervs_painel as painel
 import dervs_sistema as sistema
 from dervs_ponte_electron import PonteElectron
 
@@ -245,6 +246,10 @@ class Motor(dervs.PopUp):
     def _diz(self, papel, texto, cor=None):
         super()._diz(papel, texto, cor)
         self.ponte.enviar_fala(papel, texto or "")
+        # Painel grande: "últimas ações" = o que o DERVS fez (resultado, erro)
+        # ou anunciou que vai fazer (as linhas em ouro: rodando/fazendo/abrindo).
+        if papel in ("resultado", "erro") or cor == dervs.GOLD:
+            self.ponte.enviar_acao(papel, texto or "")
 
     def _ocupado(self, on: bool, msg="pensando…"):
         super()._ocupado(on, msg)
@@ -600,6 +605,8 @@ def main():
     sistema.iniciar_loop_sistema(ponte, parar_sistema)
     # Cartão do diário do porteiro (HOJE: N ouvidas · M acordei), a cada ~30 s.
     diario.iniciar_loop_diario(ponte, parar_sistema)
+    # Dados do painel grande: agenda, entradas do diário, gasto do dia e voz.
+    painel.iniciar_loop_painel(ponte, parar_sistema, voz=motor.voz)
 
     app.aboutToQuit.connect(lambda: _encerrar(motor, ponte, posse, parar_sistema))
     app.exec()

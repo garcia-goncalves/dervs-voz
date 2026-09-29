@@ -60,6 +60,41 @@ def resumo_do_dia(caminho: str, hoje) -> dict:
     return {"ouvidas": o1 + o2, "acordou": a1 + a2}
 
 
+def _entradas_do_arquivo(caminho: str, dia: str) -> list:
+    saida = []
+    try:
+        with open(caminho, "r", encoding="utf-8", errors="replace") as f:
+            for linha in f:
+                try:
+                    reg = json.loads(linha)
+                except ValueError:
+                    continue
+                if not isinstance(reg, dict):
+                    continue
+                quando = reg.get("quando")
+                if not isinstance(quando, str) or quando[:10] != dia:
+                    continue
+                try:
+                    palavras = int(reg.get("palavras") or 0)
+                    duracao = float(reg.get("duracao_s") or 0.0)
+                except (TypeError, ValueError):
+                    palavras, duracao = 0, 0.0
+                # Só metadados: o campo `texto` nunca sai daqui.
+                saida.append({"hora": quando[11:16], "acordou": reg.get("acordou") is True,
+                              "palavras": palavras, "duracao_s": round(duracao, 1)})
+    except OSError:
+        pass
+    return saida
+
+
+def entradas_recentes(caminho: str, hoje, limite: int = 8) -> list:
+    """As últimas `limite` frases ouvidas HOJE (mais recente primeiro), só com
+    hora, se acordou, nº de palavras e duração — para o painel grande."""
+    dia = _dia(hoje)
+    todas = _entradas_do_arquivo(caminho + ".1", dia) + _entradas_do_arquivo(caminho, dia)
+    return list(reversed(todas[-limite:]))
+
+
 def _um_passo(ponte, caminho: str, hoje=datetime.date.today) -> None:
     """Uma leitura + um envio. Separado do laço para testar sem thread."""
     r = resumo_do_dia(caminho, hoje())
