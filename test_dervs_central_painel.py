@@ -418,6 +418,7 @@ def test_ponte_mede_o_limite_da_linha_em_bytes_e_nao_em_caracteres():
 
 
 def test_motor_de_aprovacao_nasce_uma_vez_so_mesmo_com_varias_threads(tmp_path, monkeypatch):
+    pytest.importorskip("PyQt6")   # fora do dervs-venv não há Qt: o teste é pulado, não falha
     import dervs_electron as el
     criados = []
 
