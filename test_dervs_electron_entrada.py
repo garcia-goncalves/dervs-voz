@@ -410,6 +410,9 @@ def test_pedido_de_outra_thread_chega_ao_botao_na_thread_da_tela(motor):
     registro = []
 
     class BotaoFalso:
+        def setText(self, _texto):  # o timer de abertura do motor escreve aqui
+            pass
+
         def setChecked(self, valor):
             registro.append((valor, threading.current_thread()))
 
@@ -460,6 +463,9 @@ class _BotaoFalso:
 
     def isChecked(self):
         return self.ligado
+
+    def setText(self, _texto):  # o timer de abertura do motor escreve aqui
+        pass
 
     def setChecked(self, valor):
         if valor != self.ligado:
