@@ -469,6 +469,39 @@ traçar a linha:
 esconda dados no caminho (sem `?`) ainda escapa. Se você achar incômodo, dá
 para afrouxar.
 
+### 4.9. PRÓXIMA GRANDE ETAPA — pedido do dono em 28/09/2026 (ainda sem esteira aberta)
+
+Palavras dele: "quero a aplicação funcionando e finalizada", "quero o painel ultra
+revolucionário e muito inteligente", "quero que meu pc sempre esteja sem erros e
+atualizado". Abrir esteira nova (slug sugerido `dervs-central-do-pc`) pela fase 1
+(briefing). O pedido, sem edição de escopo:
+
+1. **Um painel só.** Hoje há dois (widget 420x700 + painel grande). Ele quer **só o
+   grande**. Tem de poder **minimizar/diminuir e fechar**, e ficar **na bandeja do
+   Windows ou de fácil acesso** (ícone de bandeja com menu, atalho, ícone na barra).
+2. **Usar o Claude Code de verdade — "exatamente igual ao que estamos usando, o mesmo
+   Claude".** O DERVS deve dirigir o mesmo `claude` (CLI/Agent SDK) que ele usa no
+   VS Code: mesmas configurações (`~/.claude`), mesmos MCPs, mesmas skills. O campo
+   `cerebro` da config já aceita `"claude"` (hoje o padrão é `openai`/gpt-4.1-mini).
+   **Terminal embutido no app** se pertinente (ideia: xterm.js + node-pty, ou saída
+   em streaming do `claude -p --output-format stream-json`).
+3. **MCPs no app**, por exemplo o **Playwright** para abrir navegador e clicar em tudo.
+4. **Acesso à máquina inteira** para analisar e corrigir tudo — com trava: ação
+   destrutiva/irreversível continua pedindo clique (ver `dervs_safety.py`).
+5. **Central do PC no painel:** manutenção, análises, saúde, melhorias, atualizações.
+   Ideias já levantadas: saúde do disco (SMART/espaço/temperatura), atualizações
+   (Windows Update e `winget upgrade`), erros recentes do Visualizador de Eventos,
+   programas na inicialização e processos que pesam, limpeza segura de temporários,
+   Defender e firewall, backup (o que não está no GitHub), drivers, bateria/energia,
+   e um "diagnóstico do dia" por voz. Meta: **PC sempre sem erros e atualizado**.
+
+**Perguntas de produto a fazer na fase 1 (com recomendação):** quanto de autonomia
+(só sugerir / corrigir sozinho o reversível / tudo com clique); Claude pela assinatura
+do dono ou por chave de API (custo); e se corrigir sozinho roda em horário fixo.
+
+**Risco alto** (acesso à máquina toda + comando por voz): o portão de risco da esteira
+vale — leia `dervs_safety.py` e o §3.4 antes de propor qualquer atalho.
+
 ---
 
 ## 5. Como refazer o ambiente numa máquina limpa
