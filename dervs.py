@@ -466,6 +466,7 @@ class PopUp(QtWidgets.QWidget):
         self._rec_enviado = True       # nada gravado ainda para mandar
         self._stt_erro_texto = ""       # última reclamação do motor, para o aviso
         self._stt_recado = None         # o que a tela diz sobre o ouvido, e a cor
+        self._recado_e_silencio = False  # o recado acima é o de "nenhum som entra"
         # Fechou sozinho da última vez? A tela CONTA, e o motivo real fica no
         # tooltip. Sem isto o app morria sem deixar uma linha em lugar nenhum
         # (`pythonw` não tem terminal) e o dono só via a janela sumir.
@@ -923,6 +924,17 @@ class PopUp(QtWidgets.QWidget):
         02/09/2026, com o cabo do microfone fora da entrada rosa.
         """
         self._recado_do_ouvido(motivo_do_silencio(), REC)
+        self._recado_e_silencio = True
+
+    def _som_voltou(self):
+        """Chegou fala de verdade: o aviso de \"nenhum som entra\" já não vale.
+
+        Ele só saía quando o ouvido reiniciava (READY), então ficava vermelho
+        na tela mesmo com o DERVS já ouvindo e respondendo. Só apaga o aviso
+        de silêncio: qualquer outro recado do ouvido continua até o READY."""
+        if self._recado_e_silencio:
+            self._stt_recado = None
+            self._recado_e_silencio = False
 
     def _recado_do_ouvido(self, texto, cor):
         """Fixa um recado sobre o ouvido — e ele SOBREVIVE ao relógio da tela.
@@ -930,6 +942,7 @@ class PopUp(QtWidgets.QWidget):
         Sem isto o aviso durava meio segundo: `atualizar()` reescrevia 'pronto'
         duas vezes por segundo, por cima de tudo."""
         self._stt_recado = (texto, cor)
+        self._recado_e_silencio = False
         self.status.setText(texto)
         self.status.setStyleSheet(f"color:{cor};")
 
@@ -1034,6 +1047,7 @@ class PopUp(QtWidgets.QWidget):
                 except Exception:
                     veredito = {}
                 wav = self._wav_no_porteiro
+                self._som_voltou()
                 if veredito.get("acordou") and wav:
                     # o portão abriu: SÓ AGORA o áudio vai para a nuvem. O
                     # arquivo continua guardado até a transcrição voltar.

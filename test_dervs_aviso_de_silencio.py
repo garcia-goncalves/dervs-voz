@@ -159,3 +159,32 @@ def test_a_trava_de_envio_unico_continua_valendo():
     pop.rec = types.SimpleNamespace(mudo=False, parar=lambda: None)
     _fechar(pop)
     assert len(pop.stt.escrito) == 1
+
+
+# ---- 3. o aviso de "sem som" sai quando o som volta ---------------------
+
+def _pop_com_aviso(silencio: bool):
+    return types.SimpleNamespace(
+        _stt_recado=("Não chegou som nenhum.", "#f00"),
+        _recado_e_silencio=silencio,
+    )
+
+
+def test_aviso_de_silencio_sai_quando_o_som_volta():
+    pop = _pop_com_aviso(silencio=True)
+    dervs.PopUp._som_voltou(pop)
+    assert pop._stt_recado is None, "o aviso vermelho ficou preso depois de o som chegar"
+    assert pop._recado_e_silencio is False
+
+
+def test_outro_recado_do_ouvido_nao_sai_so_porque_chegou_som():
+    pop = _pop_com_aviso(silencio=False)
+    dervs.PopUp._som_voltou(pop)
+    assert pop._stt_recado is not None, "apagou um aviso que não era de silêncio"
+
+
+def test_escuta_sem_som_marca_o_aviso_como_de_silencio():
+    pop = types.SimpleNamespace(_recado_e_silencio=False)
+    pop._recado_do_ouvido = lambda texto, cor: None
+    dervs.PopUp._escuta_sem_som(pop)
+    assert pop._recado_e_silencio is True

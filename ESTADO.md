@@ -3,7 +3,7 @@
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 23/09/2026. **812 testes verdes** no ambiente do
+Última verificação: 28/09/2026. **815 testes verdes** no ambiente do
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
@@ -293,6 +293,21 @@ uma hora.
 
 A configuração `navegador_ligado` existia, era validada e até tinha teste — e
 **ninguém a lia**. Ligar ou desligar não mudava nada. Corrigido.
+
+### 3.8. O aviso vermelho "não chegou som" ficava preso — e os testes abriam o seu microfone (28/09/2026)
+
+Achados numa verificação ao vivo, clicando nos botões do HUD de verdade:
+
+- **O aviso não saía.** Ele só sumia quando o ouvido reiniciava, então ficava
+  vermelho na tela mesmo com o DERVS já ouvindo e respondendo a você. Agora sai
+  assim que uma fala chega. Outros avisos do ouvido continuam até o ouvido voltar.
+- **Os testes usavam a sua configuração real.** Ligar o microfone pelo botão grava
+  `escuta_ao_abrir: true` em `%APPDATA%\dervs`; a partir daí, todo teste que criava
+  a janela abria o microfone de verdade, e a suíte caía com `0xc0000374` em ponto
+  aleatório. Agora o `conftest.py` usa uma pasta temporária, copia a configuração
+  (sem segredo) e força a escuta fechada. Três rodadas seguidas: 815 verdes.
+- **Confirmado ao vivo:** botão do microfone liga, botão REUNIÃO 1H liga e cancela,
+  e o DERVS ouviu e respondeu a uma frase sua. O HUD mostra CPU, RAM e disco reais.
 
 ---
 

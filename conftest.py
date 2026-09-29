@@ -19,7 +19,35 @@ quando o caminho é passado explicitamente na linha de comando — que é
 justamente o que as ferramentas de verificação fazem. O gancho abaixo vale nos
 dois casos.
 """
+import json
 import os
+import tempfile
+
+# Os testes NÃO podem ler nem gravar a configuração de verdade do dono. Antes
+# disto, ligar o microfone pelo botão gravava `escuta_ao_abrir: true` em
+# %APPDATA%\dervs e, dali em diante, todo teste que criava a janela abria o
+# microfone real — duas threads no mesmo dispositivo derrubavam o Python com
+# 0xc0000374 (heap corrompido), em ponto aleatório da suíte. Tem de rodar
+# antes de qualquer teste importar `dervs_config`, que fixa o caminho ao importar.
+# Só o APPDATA (config e .env): o LOCALAPPDATA guarda os modelos de voz, que
+# vários testes usam de verdade.
+_APPDATA_REAL = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roaming")
+_CASA_DE_TESTE = tempfile.mkdtemp(prefix="dervs-teste-")
+os.environ["APPDATA"] = os.path.join(_CASA_DE_TESTE, "Roaming")
+os.makedirs(os.path.join(os.environ["APPDATA"], "dervs"), exist_ok=True)
+
+# Parte da configuração real (não tem segredo: a chave mora no .env), para o
+# teste exercitar o mesmo motor e as mesmas vozes que o dono usa, mas com a
+# escuta fechada — o padrão do programa é nascer ouvindo, e teste não pode
+# abrir microfone.
+try:
+    with open(os.path.join(_APPDATA_REAL, "dervs", "config.json"), encoding="utf-8") as _f:
+        _conf = json.load(_f)
+except Exception:
+    _conf = {}
+_conf["escuta_ao_abrir"] = False
+with open(os.path.join(os.environ["APPDATA"], "dervs", "config.json"), "w", encoding="utf-8") as _f:
+    json.dump(_conf, _f)
 
 
 def _e_rascunho(caminho) -> bool:
