@@ -101,13 +101,23 @@ def visao_para_tela(visao: dict) -> dict:
     }
 
 
-def relatorio_para_tela(relatorio: dict) -> dict:
-    """O relatório do motor, sem os campos internos (impressão digital, número do arquivo)."""
+def relatorio_para_tela(relatorio: dict, grupos: dict | None = None) -> dict:
+    """O relatório do motor, sem os campos internos (impressão digital, número do arquivo).
+    `grupos` (alvo -> grupo de temporários) dá a cada item um título e um "o que é" em
+    português simples; o texto técnico do motor vai para `detalhe_tecnico`."""
     campos = ("id", "acao", "alvo", "onde", "tipo", "tamanho_bytes", "data", "o_que_e", "o_que_muda",
               "como_desfazer", "risco", "por_que_seguro", "reversivel")
+    itens = []
+    for i in relatorio["itens"]:
+        item = {k: i.get(k) for k in campos}
+        grupo = (grupos or {}).get(i.get("alvo"))
+        if grupo in limpeza.O_QUE_E:
+            item["detalhe_tecnico"] = item["o_que_e"]
+            item["o_que_e"] = limpeza.O_QUE_E[grupo]
+            item["titulo"] = limpeza.TITULOS[grupo]
+        itens.append(item)
     return {"id": relatorio["id"], "criado_em": relatorio["criado_em"],
-            "total_bytes": relatorio["total_bytes"],
-            "itens": [{k: i.get(k) for k in campos} for i in relatorio["itens"]],
+            "total_bytes": relatorio["total_bytes"], "itens": itens,
             "recusados": [{"alvo": r["alvo"], "motivo": r["motivo"]} for r in relatorio["recusados"]]}
 
 
@@ -211,7 +221,8 @@ class CentralDoPc:
             return
         relatorio = motor.analisar(propostas, origem="central")
         cartao = motor.abrir_cartao(relatorio["id"]) if relatorio["itens"] else None
-        self._ponte.enviar_central_relatorio(relatorio_para_tela(relatorio), cartao)
+        grupos = {p["alvo"]: p["grupo"] for p in propostas}
+        self._ponte.enviar_central_relatorio(relatorio_para_tela(relatorio, grupos), cartao)
 
     def _aprovar(self, relatorio_id, ids, cartao, dupla):
         motor = self._motor_fabrica()

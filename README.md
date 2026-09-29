@@ -525,3 +525,19 @@ NENHUMA janela de terminal pendurada no DERVS
 
 Nenhum processo `WindowsTerminal` sobrou na máquina.
 
+## Central do PC (onda D, 29/09/2026)
+
+Pacote `dervs_central/` (só leitura) + `dervs_central_painel.py` (a cola com o painel):
+
+| Arquivo | Papel |
+|---|---|
+| `dervs_central/base.py` | roda PowerShell sem janela e sem o `PSModulePath` herdado; devolve sempre `{ok, itens, precisa_admin, erro}` |
+| `dervs_central/{disco,eventos,atualizacoes,winget,inicializacao,processos,seguranca,temporarios,repositorios,drivers,energia}.py` | um coletor por assunto, `rodar` injetável (teste com saída gravada) |
+| `dervs_central/nota.py`, `tendencia.py`, `resumo.py`, `explicacoes.py` | nota 0–100 com descontos, ritmo do disco, diagnóstico de até 4 frases, texto leigo por item |
+| `dervs_central/central.py` | orquestra os coletores, grava `%LOCALAPPDATA%\dervs\central\ultima.json` e `historico.jsonl`, máscara de pastas protegidas antes de qualquer envio ao Claude |
+| `dervs_central/limpeza.py` | transforma temporários em PROPOSTAS para o motor da onda C (não importa motor nem executor) |
+| `dervs_central_painel.py` | verbos `central_*` da tela, análise diária com o PC ocioso, "como está meu PC?" por voz, clique → `aprovar` → executor → desfazer |
+| `electron/renderer/painel-central.{js,css}` | a tela (só `textContent`; caixas começam desmarcadas; cartão usado uma vez) |
+
+Testes: `test_dervs_central.py`, `test_dervs_central_painel.py`,
+`electron/renderer/painel-central.test.js`. Uso: `COMO-USAR.md`, seção "Central do PC".

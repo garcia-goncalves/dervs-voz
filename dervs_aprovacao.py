@@ -245,6 +245,7 @@ class Motor:
         self._cartoes = {}      # relatorio_id -> senha do cartão
         self._registros = {}    # registro_id -> registro (com a senha de uso)
         self._aprovados = set()  # (relatorio_id, item_id) já aprovados uma vez
+        self._resultados = {}   # (relatorio_id, item_id) -> True se o executor fez, False se recusou
         self._quarentenas = {}  # desfazer_id -> o que o executor moveu nesta sessão
 
     # --------------------------------------------------- caminhos protegidos
@@ -511,6 +512,12 @@ class Motor:
             publico = {k: v for k, v in reg.items() if k != "token"}
             return {"ok": True, "item": copy.deepcopy(item), "registro": copy.deepcopy(publico)}
 
+    def marcar_resultado(self, relatorio_id, item_id, ok: bool):
+        """O executor conta como terminou: sem isto, um item que a aprovação queimou
+        e o executor recusou apareceria como "executado" no relatório."""
+        with self._trava:
+            self._resultados[(relatorio_id, item_id)] = bool(ok)
+
     # --------------------------------------------------- para a tela e a fachada
     def status(self, relatorio_id) -> dict | None:
         """Estado de cada item, SEM senha nenhuma."""
@@ -522,9 +529,11 @@ class Motor:
                           if r["relatorio_id"] == relatorio_id for i in r["usados"]}
             itens = []
             for item in guardado["dados"]["itens"]:
-                estado = ("executado" if item["id"] in executados else
-                          "aprovado" if (relatorio_id, item["id"]) in self._aprovados else
-                          "aguardando")
+                if item["id"] in executados:
+                    feito = self._resultados.get((relatorio_id, item["id"]))
+                    estado = "executado" if feito is True else "recusado" if feito is False else "executando"
+                else:
+                    estado = "aprovado" if (relatorio_id, item["id"]) in self._aprovados else "aguardando"
                 itens.append({"id": item["id"], "acao": item["acao"],
                               "alvo": item["caminho_real"] or item["alvo"],
                               "risco": item["risco"], "estado": estado})

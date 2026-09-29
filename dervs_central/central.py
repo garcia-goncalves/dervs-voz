@@ -10,6 +10,7 @@ import datetime
 import json
 import os
 import threading
+import time
 
 import dervs_caminhos_protegidos as cp
 from dervs_central import (atualizacoes, disco, drivers, energia, eventos, inicializacao, nota,
@@ -30,6 +31,19 @@ DEMAIS = (
     ("temporarios", temporarios.coletar), ("repositorios", repositorios.coletar),
     ("drivers", drivers.coletar), ("energia", energia.coletar),
 )
+
+
+def _substituir(tmp: str, destino: str, tentativas: int = 8):
+    """`os.replace` no Windows falha se alguém (a própria tela, o Defender) está
+    com o destino aberto naquele instante; tenta de novo por ~1 s."""
+    for n in range(tentativas):
+        try:
+            os.replace(tmp, destino)
+            return
+        except PermissionError:
+            if n == tentativas - 1:
+                raise
+            time.sleep(0.05 * (n + 1))
 
 
 def _seguro(nome, funcao):
@@ -151,7 +165,7 @@ class Central:
         tmp = self.arquivo_ultima + ".tmp"
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(ultima, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, self.arquivo_ultima)
+        _substituir(tmp, self.arquivo_ultima)
         calculo = nota.calcular(ultima)
         coletores = ultima["coletores"]
         livre = {v["volume"]: v["livre_bytes"] for v in ((coletores.get("espaco") or {}).get("itens") or [])}
@@ -163,7 +177,7 @@ class Central:
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             for l in linhas:
                 f.write(json.dumps(l, ensure_ascii=False) + "\n")
-        os.replace(tmp, self.arquivo_historico)
+        _substituir(tmp, self.arquivo_historico)
 
     # ------------------------------------------------------------ rotina diária
     def precisa_rotina_diaria(self) -> bool:

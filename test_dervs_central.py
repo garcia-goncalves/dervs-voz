@@ -252,7 +252,7 @@ def test_temporarios_miniaturas_so_pega_thumbcache(tmp_path):
 def test_temporarios_inclui_lixeira_lida_pela_api(tmp_path):
     r = temporarios.coletar(falso({}), pastas=[], ler_lixeira_fn=lambda: (3, 4096))
     assert r["itens"] == [{"nome": "Lixeira", "pasta": "", "tamanho_bytes": 4096, "arquivos": 3,
-                           "antigos_bytes": 0, "truncado": False, "legivel": True}]
+                           "antigos_bytes": 0, "truncado": False}]
 
 
 def test_temporarios_lixeira_que_nao_responde_e_omitida():
@@ -557,3 +557,77 @@ def test_o_modulo_de_limpeza_nao_importa_motor_nem_executor():
     fonte = open(limpeza.__file__, encoding="utf-8").read()
     codigo = "\n".join(l for l in fonte.splitlines() if l.startswith(("import", "from")))
     assert "aprovacao" not in codigo and "executor" not in codigo
+
+
+# ------------------------------------------------------------------ achados da revisão (29/09)
+TABELA_COM_NUMERO = """Name              Id               Version  Available Source
+--------------------------------------------------------------------
+7-Zip 25.01 (x64) 7zip.7zip        25.01    26.00     winget
+Git               Git.Git          2.40.0   2.46.0    winget
+2 upgrades available.
+"""
+
+
+def test_winget_programa_com_nome_que_comeca_por_numero_nao_para_o_parser():
+    assert [i["id"] for i in winget.interpretar_texto(TABELA_COM_NUMERO)] == ["7zip.7zip", "Git.Git"]
+
+
+def test_winget_linha_de_resumo_em_portugues_encerra_a_tabela():
+    texto = TABELA_COM_NUMERO.replace("2 upgrades available.", "2 atualizações disponíveis.")
+    assert len(winget.interpretar_texto(texto)) == 2
+
+
+def test_saude_unknown_nao_e_disco_doente():
+    r = nota.calcular(coletores(saude={"itens": [{"nome": "USB", "saude": "Unknown"}]},
+                                espaco={"itens": [{"volume": "E:", "pct_livre": 50, "saude": "Unknown"}]}))
+    assert r["nota"] == 100
+
+
+def test_aspas_dobra_as_tipograficas_que_o_powershell_confunde_com_aspa_simples():
+    esperado = "'" + "João" + "\u2019\u2019" + "s\u2018\u2018" + "'"
+    assert base.aspas("João\u2019s\u2018") == esperado
+
+
+def test_gravar_tenta_de_novo_quando_o_arquivo_esta_aberto_por_outro(tmp_path, monkeypatch):
+    chamadas = {"n": 0}
+    real = os.replace
+
+    def replace_que_falha_duas_vezes(a, b):
+        chamadas["n"] += 1
+        if chamadas["n"] <= 2:
+            raise PermissionError("em uso")
+        real(a, b)
+    monkeypatch.setattr(central.os, "replace", replace_que_falha_duas_vezes)
+    monkeypatch.setattr(central.time, "sleep", lambda s: None)
+    c = central.Central(str(tmp_path), coletores={"espaco": coletor_ok()})
+    assert c.analisar() is not None and c.ultima() is not None and chamadas["n"] >= 3
+
+
+def test_gravar_desiste_depois_de_varias_tentativas(tmp_path, monkeypatch):
+    monkeypatch.setattr(central.os, "replace", lambda a, b: (_ for _ in ()).throw(PermissionError("preso")))
+    monkeypatch.setattr(central.time, "sleep", lambda s: None)
+    c = central.Central(str(tmp_path), coletores={"espaco": coletor_ok()})
+    with pytest.raises(PermissionError):
+        c.analisar()
+    assert not c.em_andamento          # a trava é solta mesmo assim
+
+
+def test_resumo_nao_diz_em_ordem_quando_nenhuma_leitura_funcionou():
+    u = {"coletores": {n: {"ok": False, "itens": [], "erro": "x"} for n in ("espaco", "firewall")}}
+    frases = resumo.resumo_do_dia(u, [], AGORA)
+    assert "Seu PC está em ordem" not in " ".join(frases) and "Não consegui ler" in frases[0]
+
+
+def test_temporarios_nao_entra_em_juncao(tmp_path):
+    import subprocess
+    alvo = tmp_path / "fora"
+    alvo.mkdir()
+    _arquivo(str(alvo), "escondido.tmp", 60, 999)
+    pasta = tmp_path / "temp"
+    pasta.mkdir()
+    _arquivo(str(pasta), "ok.tmp", 60, 10)
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(pasta / "juncao"), str(alvo)],
+                   capture_output=True, check=True)
+    r = temporarios.coletar(falso({}), pastas=[("Temporários do usuário", str(pasta))],
+                            ler_lixeira_fn=lambda: (0, 0))
+    assert [os.path.basename(c["caminho"]) for c in r["candidatos"]] == ["ok.tmp"]

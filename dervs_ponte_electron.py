@@ -744,7 +744,7 @@ class PonteElectron:
 
     def _escrever_central(self, msg: dict):
         limpa = self._limpar_central(msg)
-        if len(json.dumps(limpa, ensure_ascii=False)) > _LIMITE_PLANO:
+        if len(json.dumps(limpa, ensure_ascii=False).encode("utf-8")) > _LIMITE_PLANO:
             limpa = {k: ([] if isinstance(v, list) else v) for k, v in limpa.items()}
         self._escrever(limpa)
 

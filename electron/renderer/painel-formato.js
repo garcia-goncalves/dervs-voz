@@ -92,9 +92,27 @@
     return ROTULOS_ESTADO[estado] || ROTULOS_ESTADO.ocioso;
   }
 
+  // O nome interno da ferramenta do Claude, em português para quem não é técnico.
+  const ROTULOS_FERRAMENTA = {
+    Bash: "executar um comando", PowerShell: "executar um comando", Write: "criar ou substituir um arquivo",
+    Edit: "editar um arquivo", NotebookEdit: "editar um caderno", Read: "ler um arquivo",
+    Glob: "procurar arquivos", Grep: "procurar texto nos arquivos", WebFetch: "abrir uma página da internet",
+    WebSearch: "pesquisar na internet",
+  };
+
+  function rotuloDaFerramenta(nome) {
+    const n = String(nome || "");
+    if (ROTULOS_FERRAMENTA[n]) return ROTULOS_FERRAMENTA[n];
+    if (n.startsWith("mcp__playwright")) return "usar o navegador";
+    if (n.includes("propor_acao")) return "propor uma limpeza ou mudança (você aprova depois, item a item)";
+    if (n.startsWith("mcp__")) return "usar uma ferramenta extra";
+    return n ? `usar ${n}` : "fazer uma ação";
+  }
+
   return {
     MS_QUADRO_FOCADO, MS_QUADRO_SEM_FOCO, msPorQuadro,
     formatarUsd, formatarKbs, formatarPercentual, formatarDisco,
     empurrar, pontosSparkline, tempoRestante, haQuanto, rotuloDoEstado,
+    rotuloDaFerramenta,
   };
 });

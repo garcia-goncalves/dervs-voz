@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import threading
+import types
 
 import pytest
 
@@ -406,3 +407,28 @@ def test_ponte_relatorio_leva_o_cartao_e_progresso_e_resultado_vao_como_verbos_p
     a, b, c = _enviadas(saida)
     assert a["cartao"] == "senha-do-cartao" and b == {"verbo": "central_progresso", "coletor": "eventos", "feitos": 3, "total": 13}
     assert c["verbo"] == "central_resultado" and c["ok"] is True
+
+
+def test_ponte_mede_o_limite_da_linha_em_bytes_e_nao_em_caracteres():
+    p, saida = _ponte_com_saida()
+    acentuado = "ç" * 590   # 590 caracteres = 1180 bytes; 50 itens estouram os 64 KiB em bytes
+    p.enviar_central({"nota": 80, "resumo": [acentuado] * 50})
+    linha = saida.linhas[0]
+    assert len(linha) < 64 * 1024 and _enviadas(saida)[0]["nota"] == 80
+
+
+def test_motor_de_aprovacao_nasce_uma_vez_so_mesmo_com_varias_threads(tmp_path, monkeypatch):
+    import dervs_electron as el
+    criados = []
+
+    class MotorFalso:
+        def __init__(self):
+            import time
+            time.sleep(0.05)
+            criados.append(self)
+    monkeypatch.setattr(el.aprovacao, "Motor", MotorFalso)
+    alvo = types.SimpleNamespace(aprovacao=None, _trava_motor=threading.Lock())
+    ts = [threading.Thread(target=lambda: el.Motor._motor_aprovacao(alvo)) for _ in range(6)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert len(criados) == 1

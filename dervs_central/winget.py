@@ -1,9 +1,11 @@
 """Programas com versão nova no winget. Só consulta; atualizar é ação com aprovação."""
+import re
 import subprocess
 
 import dervs_processos as processos
 from dervs_central.base import ErroConsulta, consultar, falha, resultado
 
+_LINHA_RESUMO = re.compile(r"^\d+\s+(?:upgrades?|atualiza|pacotes?|packages?)", re.IGNORECASE)
 _MODULO = ("Get-WinGetPackage | Where-Object IsUpdateAvailable | Select-Object Name,Id,"
            "InstalledVersion,@{n='Nova';e={[string]$_.AvailableVersions[0]}}")
 
@@ -41,7 +43,7 @@ def interpretar_texto(texto: str) -> list:
     ordem = sorted(marcas.items(), key=lambda kv: kv[1])
     itens = []
     for linha in corpo:
-        if not linha.strip() or linha.lstrip()[:1].isdigit():
+        if not linha.strip() or _LINHA_RESUMO.match(linha.strip()):
             break
         campos = {}
         for n, (nome, pos) in enumerate(ordem):

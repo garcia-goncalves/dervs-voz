@@ -14,7 +14,8 @@ import dervs_processos as processos
 TIMEOUT_PADRAO = 30
 _NEGADO = ("access is denied", "unauthorizedaccess", "acesso negado", "não é permitido",
            "requires elevation", "run as administrator", "administrador")
-_SEM_RESULTADO = ("no events were found", "nenhum evento", "no matching events")
+_SEM_RESULTADO = ("no events were found", "nenhum evento", "no matching events",
+                  "não foram encontrados eventos", "nao foram encontrados eventos")
 
 
 class ErroConsulta(Exception):
@@ -86,20 +87,20 @@ def consultar(rodar, consulta: str, timeout: float = TIMEOUT_PADRAO) -> list:
     """Roda e converte. Levanta `ErroConsulta` — os coletores traduzem em resultado."""
     rodar = rodar or rodar_powershell
     try:
-        try:
-            saida = rodar(consulta, timeout)
-        except TypeError:
-            saida = rodar(consulta)
-        return como_lista(saida)
+        return como_lista(rodar(consulta, timeout))
     except ErroConsulta:
         raise
     except json.JSONDecodeError as erro:
         raise ErroConsulta("resposta do PowerShell ilegível") from erro
 
 
+_ASPAS_SIMPLES = "'\u2018\u2019\u201a\u201b"   # o PowerShell trata as 4 tipográficas como o '
+
+
 def aspas(texto: str) -> str:
-    """Texto seguro dentro de aspas simples do PowerShell."""
-    return "'" + str(texto).replace("'", "''") + "'"
+    """Texto seguro dentro de aspas simples do PowerShell: dobra o ' e as quatro
+    aspas tipográficas que o PowerShell confunde com ele."""
+    return "'" + "".join(c * 2 if c in _ASPAS_SIMPLES else c for c in str(texto)) + "'"
 
 
 def texto_curto(valor, limite: int = 200) -> str:

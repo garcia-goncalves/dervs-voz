@@ -61,3 +61,12 @@ test("rótulo de estado desconhecido cai em espera", () => {
   assert.strictEqual(F.rotuloDoEstado("falando"), "FALANDO");
   assert.strictEqual(F.rotuloDoEstado("xis"), "EM ESPERA");
 });
+
+test("rotuloDaFerramenta traduz o nome interno para o leigo", () => {
+  assert.strictEqual(F.rotuloDaFerramenta("Bash"), "executar um comando");
+  assert.strictEqual(F.rotuloDaFerramenta("Write"), "criar ou substituir um arquivo");
+  assert.strictEqual(F.rotuloDaFerramenta("mcp__playwright__browser_click"), "usar o navegador");
+  assert.match(F.rotuloDaFerramenta("mcp__dervs__propor_acao"), /você aprova depois/);
+  assert.strictEqual(F.rotuloDaFerramenta("Outra"), "usar Outra");
+  assert.strictEqual(F.rotuloDaFerramenta(""), "fazer uma ação");
+});

@@ -185,7 +185,10 @@
     <section class="cartao cartao-plano" id="cartao-claude">
       <p class="cartao-plano-pergunta" id="claude-pedido-titulo"></p>
       <p class="cartao-plano-comando" id="claude-pedido-resumo"></p>
-      <p class="p-claude-entrada" id="claude-pedido-entrada"></p>
+      <details class="p-claude-detalhes">
+        <summary>Ver os detalhes técnicos</summary>
+        <p class="p-claude-entrada" id="claude-pedido-entrada"></p>
+      </details>
       <p class="p-claude-aviso" id="claude-pedido-corte" hidden></p>
       <p class="p-claude-nota" id="claude-pedido-fila" hidden></p>
       <p class="p-claude-aviso" id="claude-pedido-aviso" hidden></p>
@@ -201,41 +204,49 @@
   <dialog id="p-dialogo-central" class="p-dialogo p-dialogo-largo" aria-labelledby="central-titulo">
     <section class="cartao central">
       <header class="central-topo">
-        <h2 class="p-titulo" id="central-titulo">CENTRAL DO PC <span class="p-titulo-nota" id="central-quando"></span></h2>
-        <button type="button" id="central-fechar" class="p-mini" autofocus>FECHAR</button>
+        <div>
+          <h2 class="p-titulo" id="central-titulo" tabindex="-1">CENTRAL DO PC</h2>
+          <p class="central-nota-pequena" id="central-quando"></p>
+        </div>
+        <button type="button" id="central-fechar" class="p-mini">FECHAR</button>
       </header>
-      <div class="central-corpo">
+      <div class="central-corpo" id="central-corpo">
         <div class="central-cabeca">
-          <p class="central-nota" id="central-nota" data-faixa="sem" aria-label="Nota de saúde do PC">--</p>
-          <div>
+          <p class="central-nota" id="central-nota" data-faixa="sem" role="img" aria-label="Nota de saúde: ainda não analisado">--</p>
+          <div class="central-cabeca-lado">
             <p class="central-nota-de">de 100 · <span id="central-faixa">ainda não analisado</span></p>
-            <button type="button" id="central-analisar" class="p-mini p-mini-forte">ANALISAR AGORA</button>
+            <button type="button" id="central-analisar" class="p-mini p-mini-forte" aria-busy="false">ANALISAR AGORA</button>
+            <progress id="central-barra" class="central-progresso" max="13" value="0" hidden aria-label="Andamento da análise"></progress>
             <p class="central-nota-pequena" id="central-progresso" role="status" aria-live="polite"></p>
           </div>
         </div>
+        <p class="central-detalhe" id="central-sem-analise">Ainda não há análise. Clique em ANALISAR AGORA: leva de 30 segundos a 2 minutos e só lê o computador, não muda nada.</p>
         <ul class="central-lista" id="central-resumo" aria-label="Resumo do dia"></ul>
-        <p class="p-claude-aviso" id="central-aviso-leitura" hidden></p>
+        <p class="central-nota-pequena" id="central-aviso-leitura" hidden></p>
 
         <h3 class="central-sub">O QUE PESOU NA NOTA</h3>
         <ul class="central-lista" id="central-descontos"></ul>
-        <p class="p-vazio" id="central-descontos-vazio">Nenhum desconto: nada de errado encontrado.</p>
+        <p class="p-vazio central-vazio" id="central-descontos-vazio">Nenhum desconto: a análise não achou nada de errado.</p>
 
         <h3 class="central-sub">DISCOS</h3>
         <ul class="central-lista" id="central-discos"></ul>
         <p class="central-nota-pequena" id="central-tendencia"></p>
 
         <h3 class="central-sub">LIMPEZA</h3>
-        <p class="central-nota-pequena">Nada é apagado: o que você marcar vai para a quarentena do DERVS e dá para desfazer com um clique.</p>
+        <p class="central-detalhe">Nada é apagado. O que você marcar vai para a <strong>quarentena</strong> do DERVS (uma área de espera, diferente da Lixeira) e dá para desfazer com um clique.</p>
         <ul class="central-lista" id="central-temporarios"></ul>
-        <ul class="central-lista" id="central-informativos"></ul>
-        <button type="button" id="central-propor" class="p-mini p-mini-forte">VER SUGESTÃO DE LIMPEZA</button>
+        <button type="button" id="central-propor" class="p-mini central-propor">VER SUGESTÃO DE LIMPEZA</button>
         <div id="central-relatorio" hidden>
-          <p class="central-detalhe" id="central-relatorio-resumo" role="status"></p>
+          <p class="central-detalhe" id="central-relatorio-resumo" tabindex="-1"></p>
+          <p class="central-nota-pequena" id="central-relatorio-validade"></p>
           <ul class="central-lista" id="central-relatorio-itens"></ul>
-          <h4 class="central-sub" id="central-relatorio-recusados-titulo" hidden>FICARAM DE FORA</h4>
+          <h4 class="central-sub central-sub-menor" id="central-relatorio-recusados-titulo" hidden>NÃO SUGERIDOS, POR SEGURANÇA</h4>
           <ul class="central-lista" id="central-relatorio-recusados"></ul>
-          <button type="button" id="central-aprovar" class="p-mini p-mini-forte" disabled>MOVER OS MARCADOS PARA A QUARENTENA</button>
-          <p class="p-claude-aviso" id="central-aprovar-dica"></p>
+          <div class="central-acao">
+            <p class="central-detalhe" id="central-contador">Nenhum item marcado.</p>
+            <button type="button" id="central-aprovar" class="p-mini p-mini-forte" aria-disabled="true" aria-describedby="central-aprovar-dica">MOVER OS MARCADOS PARA A QUARENTENA</button>
+            <p class="central-nota-pequena central-dica" id="central-aprovar-dica"></p>
+          </div>
         </div>
         <p class="central-detalhe" id="central-resultado" role="status" aria-live="polite"></p>
 
@@ -244,19 +255,19 @@
         <p class="p-vazio" id="central-quarentena-vazio">Nada na quarentena.</p>
 
         <h3 class="central-sub">PARA FICAR DE OLHO <span class="p-titulo-nota">só leitura, nada é alterado</span></h3>
-        <p class="central-nota-pequena">Erros do Windows na última semana</p>
+        <h4 class="central-sub central-sub-menor">Erros do Windows na última semana</h4>
         <ul class="central-lista" id="central-eventos"></ul>
-        <p class="p-vazio" id="central-eventos-vazio">Nenhum erro grave registrado.</p>
-        <p class="central-nota-pequena">Programas com versão nova</p>
+        <p class="p-vazio central-vazio" id="central-eventos-vazio">Nenhum erro grave registrado.</p>
+        <h4 class="central-sub central-sub-menor">Programas com versão nova</h4>
         <ul class="central-lista" id="central-programas"></ul>
-        <p class="p-vazio" id="central-programas-vazio">Tudo atualizado.</p>
-        <p class="central-nota-pequena">O que abre com o Windows</p>
+        <p class="p-vazio central-vazio" id="central-programas-vazio">Tudo atualizado.</p>
+        <h4 class="central-sub central-sub-menor">O que abre com o Windows</h4>
         <p class="central-detalhe" id="central-inicializacao"></p>
-        <p class="central-nota-pequena">Programas que mais pesam agora</p>
+        <h4 class="central-sub central-sub-menor">Programas que mais pesam agora</h4>
         <ul class="central-lista" id="central-processos"></ul>
-        <p class="central-nota-pequena">Projetos com trabalho ainda não enviado ao GitHub</p>
+        <h4 class="central-sub central-sub-menor">Projetos com trabalho ainda não enviado ao GitHub</h4>
         <ul class="central-lista" id="central-repositorios"></ul>
-        <p class="p-vazio" id="central-repositorios-vazio">Tudo enviado.</p>
+        <p class="p-vazio central-vazio" id="central-repositorios-vazio">Tudo enviado.</p>
       </div>
     </section>
   </dialog>

@@ -369,3 +369,6 @@ button.p-chip:hover, button.p-chip:focus-visible { border-color: var(--acento); 
 /* foco de teclado bem visível (revisão de acessibilidade 29/09) */
 :focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
 body.painel { overflow: auto; }
+
+/* pedido de permissão: o texto técnico fica recolhido, o resumo humano fica à vista */
+.p-claude-detalhes summary { cursor: pointer; font-size: 12px; color: var(--texto-secundario); padding: 4px 0; }

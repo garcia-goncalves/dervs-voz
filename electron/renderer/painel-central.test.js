@@ -38,9 +38,9 @@ test("nomeDoCaminho pega o último pedaço nos dois tipos de barra", () => {
 });
 
 const itens = [
-  { id: "item-1", risco: "baixo" },
-  { id: "item-2", risco: "alto" },
-  { id: "item-3", risco: "medio" },
+  { id: "item-1", risco: "baixo", tamanho_bytes: 1024 },
+  { id: "item-2", risco: "alto", tamanho_bytes: 2048 },
+  { id: "item-3", risco: "medio", tamanho_bytes: 1024 },
 ];
 
 test("decidirAprovacao: nada marcado não aprova", () => {
@@ -76,6 +76,34 @@ test("haQuantoTempoLeitura", () => {
   assert.equal(C.haQuantoTempoLeitura("2026-09-29T11:59:40", agora), "agora há pouco");
   assert.equal(C.haQuantoTempoLeitura("2026-09-29T11:30:00", agora), "há 30 min");
   assert.equal(C.haQuantoTempoLeitura("2026-09-29T09:00:00", agora), "há 3 h");
-  assert.equal(C.haQuantoTempoLeitura("2026-09-27T12:00:00", agora), "há 2 dia(s)");
+  assert.equal(C.haQuantoTempoLeitura("2026-09-27T12:00:00", agora), "há 2 dias");
   assert.equal(C.haQuantoTempoLeitura("lixo", agora), "");
+});
+
+test("plural escolhe singular e plural sem parênteses", () => {
+  assert.equal(C.plural(1, "item", "itens"), "1 item");
+  assert.equal(C.plural(3, "item", "itens"), "3 itens");
+  assert.equal(C.plural(0, "dia", "dias"), "0 dias");
+});
+
+test("rotuloSaude traduz e não inventa", () => {
+  assert.equal(C.rotuloSaude("Healthy"), "boa");
+  assert.equal(C.rotuloSaude("Unhealthy"), "com problema");
+  assert.equal(C.rotuloSaude("Desconhecida"), "");
+});
+
+test("o botão de aprovar sempre explica por que está apagado", () => {
+  const nada = C.decidirAprovacao(itens, new Set(), new Set());
+  assert.match(C.dicaDoBotao(nada, false), /Marque pelo menos um item/);
+  const alto = C.decidirAprovacao(itens, new Set(["item-2"]), new Set());
+  assert.match(C.dicaDoBotao(alto, false), /risco alto/);
+  const ok = C.decidirAprovacao(itens, new Set(["item-1"]), new Set());
+  assert.equal(C.dicaDoBotao(ok, false), "");
+  assert.match(C.dicaDoBotao(ok, true), /não vale mais/);
+});
+
+test("contador de marcados soma o tamanho e usa singular/plural", () => {
+  assert.equal(C.contadorDeMarcados(C.decidirAprovacao(itens, new Set(), new Set())), "Nenhum item marcado.");
+  assert.equal(C.contadorDeMarcados(C.decidirAprovacao(itens, new Set(["item-1"]), new Set())), "1 item marcado · 1 KB");
+  assert.equal(C.contadorDeMarcados(C.decidirAprovacao(itens, new Set(["item-1", "item-3"]), new Set())), "2 itens marcados · 2 KB");
 });

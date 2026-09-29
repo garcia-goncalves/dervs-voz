@@ -349,11 +349,44 @@ gasta chave de API.
   conversa mesmo depois de fechar e abrir de novo.
 - **O que ele não faz sozinho:** apagar, desinstalar ou mexer em pasta do sistema
   (`C:\Windows`, `Program Files`, `.git`, `.ssh`). Ele só **propõe** e você decide;
-  por enquanto a execução dessas propostas ainda não existe (é a próxima etapa).
+  quem decide e executa é a **Central do PC** (a próxima seção): só o seu clique, item
+  a item, e nada é apagado — vai para a quarentena.
 - **Se ficar sem resposta:** confira se o `claude` está instalado e logado (abra um
   terminal e digite `claude`); o erro aparece em vermelho na própria caixa.
 
 ---
+
+## Central do PC: saúde, limpeza e desfazer
+
+No topo do painel, o botão **CENTRAL DO PC** mostra a nota do computador (0 a 100).
+Clique nele para abrir a Central.
+
+- **Analisar agora:** lê o computador (discos, erros do Windows na última semana,
+  atualizações, proteção contra vírus, firewall, programas que abrem sozinhos,
+  programas pesados, projetos ainda não enviados ao GitHub, drivers, energia). Leva de 30
+  segundos a 2 minutos. **Só lê: nada é mudado nessa etapa.** Sozinho, o DERVS repete
+  essa análise uma vez por dia, quando o computador está parado, e só avisa a nota.
+- **A nota:** começa em 100 e desconta por regra, e a tela mostra cada desconto com o
+  motivo (disco quase cheio −20, disco com defeito −40, proteção contra vírus desligada
+  −30, firewall desligado −20, atualização de segurança atrasada −15, e assim por
+  diante). **Explicar melhor** manda só aquele item ao Claude, que explica em palavras
+  simples.
+- **Por voz:** "DERVS, como está meu PC?" — ele fala até 4 frases: as 3 piores coisas e
+  a nota. Se a última análise tem mais de 24 horas, avisa e analisa antes.
+- **Limpeza (o que você decide):** **Ver sugestão de limpeza** monta um relatório com
+  cada arquivo velho de temporários: o que é, por que é seguro, o que muda e como
+  desfazer. Todas as caixas começam **desmarcadas**; você marca uma a uma e clica em
+  **Mover os marcados para a quarentena**. Não existe "marcar tudo". Item de risco alto
+  pede uma segunda caixa de confirmação. O relatório vale 15 minutos.
+- **Nada é apagado.** O item vai para a quarentena do DERVS
+  (`%LOCALAPPDATA%\dervs\quarentena`) e aparece em **Na quarentena** com o botão
+  **Desfazer**, que devolve o arquivo exatamente para onde estava. Nunca voz, nunca o
+  Claude: só o seu clique aprova e executa.
+- **Fica de fora, de propósito:** `C:\Windows\Temp`, `Windows.old` e a Lixeira só
+  aparecem com o tamanho (use a Limpeza de Disco do Windows), e programas, bibliotecas
+  e scripts nunca entram na sugestão.
+- **"1 leitura só funciona como administrador":** o detalhe de saúde do disco (SMART)
+  precisa de administrador. O resto da nota funciona sem.
 
 ## Quanto custa por mês
 

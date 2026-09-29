@@ -2,6 +2,7 @@
 de temporários. Só mede e lista — quem propõe e move é o motor de aprovação."""
 import ctypes
 import os
+import stat
 import time
 
 from dervs_central.base import resultado
@@ -57,8 +58,9 @@ def _varrer(pasta: str, so_miniaturas: bool, corte: float, agora: float):
                         truncado = True
                         break
                     try:
-                        if e.is_symlink():
-                            continue
+                        if e.is_symlink() or (getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0)
+                                              & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
+                            continue   # atalho ou junção: pode levar para fora dos temporários
                         if e.is_dir(follow_symlinks=False):
                             if not so_miniaturas:
                                 pilha.append(e.path)
@@ -91,12 +93,12 @@ def coletar(rodar=None, pastas=None, agora=None, ambiente=None, ler_lixeira_fn=N
             continue
         total, velhos, n, cand, trunc = _varrer(pasta, nome == "Miniaturas", corte, agora)
         itens.append({"nome": nome, "pasta": pasta, "tamanho_bytes": total, "arquivos": n,
-                      "antigos_bytes": velhos, "truncado": trunc, "legivel": n > 0 or total == 0})
+                      "antigos_bytes": velhos, "truncado": trunc})
         candidatos.extend(dict(c, grupo=nome) for c in cand)
     try:
         n, tamanho = (ler_lixeira_fn or ler_lixeira)()
         itens.append({"nome": "Lixeira", "pasta": "", "tamanho_bytes": tamanho, "arquivos": n,
-                      "antigos_bytes": 0, "truncado": False, "legivel": True})
+                      "antigos_bytes": 0, "truncado": False})
     except (OSError, AttributeError):
         pass
     candidatos.sort(key=lambda c: -c["tamanho_bytes"])

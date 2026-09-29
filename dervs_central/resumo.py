@@ -25,10 +25,13 @@ def resumo_do_dia(ultima: dict, historico: list | None = None,
         if dias is not None and dias <= ALERTA_DIAS_DISCO and len(frases) < LIMITE_FRASES:
             frases.append(f"No ritmo atual, o disco {volume} enche em cerca de {round(dias)} dias.")
             break
-    if not frases:
+    if not frases and calculo["sem_leitura"]:
+        frases.append("Não consegui ler as informações do computador direito, então não dá para dizer "
+                      "que está tudo em ordem.")
+    elif not frases:
         frases.append(f"Seu PC está em ordem, nota {calculo['nota']} de 100.")
     elif len(frases) < LIMITE_FRASES:
         frases.append(f"Nota de saúde: {calculo['nota']} de 100.")
-    if calculo["sem_leitura"] and len(frases) < LIMITE_FRASES:
+    if calculo["sem_leitura"] and len(frases) < LIMITE_FRASES and not frases[0].startswith("Não consegui"):
         frases.append("Algumas leituras falharam, então a nota pode estar incompleta.")
     return frases[:LIMITE_FRASES]

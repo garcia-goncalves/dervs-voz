@@ -260,12 +260,23 @@ def _quarentenar(motor, item: dict, info: dict, registro: dict) -> dict:
     if depois is None or depois["digest"] != info["digest"] or depois["ino"] != info["ino"]:
         devolveu = _mover_segurando(destino, real, info["ino"], lambda f: "", lambda f: "") == ""
         manifesto["estado"] = "devolvido" if devolveu else "em_quarentena"
-        _gravar_manifesto(pasta, manifesto)
+        try:
+            _gravar_manifesto(pasta, manifesto)
+        except OSError:
+            pass  # já estamos recusando; o log guarda o motivo
         return motor.recusar("executar", "o item mudou durante a execução — "
                              + ("foi devolvido para onde estava" if devolveu else
                                 "ficou na quarentena"), item_id=item["id"], alvo=real)
     manifesto["estado"] = "em_quarentena"
-    _gravar_manifesto(pasta, manifesto)
+    try:
+        _gravar_manifesto(pasta, manifesto)
+    except OSError:
+        # Sem o registro não há como desfazer: melhor devolver o item do que deixá-lo preso.
+        devolveu = _mover_segurando(destino, real, info["ino"], lambda f: "", lambda f: "") == ""
+        return motor.recusar("executar", "não consegui gravar o registro da quarentena — "
+                             + ("o item foi devolvido para onde estava" if devolveu else
+                                f"o item ficou em {destino}, sem registro para desfazer"),
+                             item_id=item["id"], alvo=real)
     with motor._trava:
         motor._quarentenas[desfazer_id] = {"alvo": real, "destino": destino,
                                            "conteudo": info["digest"], "ino": info["ino"]}
@@ -293,6 +304,13 @@ def executar(motor, registro_id, token, item_id, origem) -> dict:
         return motor.recusar("executar", consumo["motivo"], registro_id=str(registro_id)[:40],
                              item_id=str(item_id)[:40])
     item, registro = consumo["item"], consumo["registro"]
+    resposta = _executar_consumido(motor, item, registro, item_id)
+    motor.marcar_resultado(registro["relatorio_id"], item_id, bool(resposta.get("ok")))
+    return resposta
+
+
+def _executar_consumido(motor, item: dict, registro: dict, item_id) -> dict:
+    """A parte que age, depois de a aprovação ter sido conferida e queimada."""
     aprovada = registro["impressoes"][item_id]
     try:
         if item["acao"] in ap.ACOES_DE_ARQUIVO:

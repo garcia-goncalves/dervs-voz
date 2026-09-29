@@ -166,6 +166,7 @@ class Motor(dervs.PopUp):
         # O Claude Code (onda B). Só cria o objeto: o laço e o `claude` só sobem
         # na primeira pergunta. O perfil vem da config (`claude_perfil`).
         self.aprovacao = None        # o Motor da onda C: só a ponte do painel o vê
+        self._trava_motor = threading.Lock()   # três threads o pedem; nasce um só
         self.claude = claude_code.SessaoClaudeCode(
             ao_evento=lambda verbo, dados: self.ponte.enviar_claude(verbo, dados),
             ao_texto_final=self._claude_texto_final,
@@ -220,9 +221,10 @@ class Motor(dervs.PopUp):
     def _motor_aprovacao(self):
         """O Motor de aprovação, criado na primeira necessidade. Só a ponte do
         painel (a Central do PC) o usa; o Claude recebe apenas a Fachada."""
-        if self.aprovacao is None:
-            self.aprovacao = aprovacao.Motor()
-        return self.aprovacao
+        with self._trava_motor:
+            if self.aprovacao is None:
+                self.aprovacao = aprovacao.Motor()
+            return self.aprovacao
 
     def _fachada_aprovacao(self):
         """O Claude recebe a `Fachada` (só `analisar` e `status`), NUNCA o Motor:

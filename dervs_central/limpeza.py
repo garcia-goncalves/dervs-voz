@@ -19,6 +19,14 @@ LIMITE_PADRAO = 20
 EXTENSOES_FORA = (".exe", ".dll", ".sys", ".msi", ".msp", ".msix", ".ps1", ".bat", ".cmd", ".vbs",
                   ".js", ".lnk", ".scr", ".com", ".ocx")
 
+# Como a tela chama cada grupo, em palavras de quem não é técnico.
+TITULOS = {"Temporários do usuário": "Arquivo temporário", "Miniaturas": "Miniaturas de fotos do Windows"}
+O_QUE_E = {
+    "Temporários do usuário": "Sobra que um programa criou enquanto trabalhava e esqueceu de apagar.",
+    "Miniaturas": ("Cópias pequenas das suas fotos e vídeos que o Windows guarda para abrir as pastas mais "
+                   "rápido. Ele refaz sozinho quando precisar."),
+}
+
 _POR_QUE = {
     "Temporários do usuário": ("Arquivo temporário com mais de 7 dias, fora de uso agora. Programas "
                                "recriam o que precisam quando abrem."),
@@ -38,7 +46,7 @@ def propostas(ultima: dict, limite: int = LIMITE_PADRAO) -> list:
         # `explicacao` fica vazia de propósito: o motor a rotula "Explicação do Claude",
         # e este texto é do DERVS. A idade do arquivo vai junto do "por que é seguro".
         saida.append({
-            "acao": "quarentena", "alvo": c["caminho"], "risco": "baixo",
+            "acao": "quarentena", "alvo": c["caminho"], "risco": "baixo", "grupo": grupo,
             "por_que_seguro": f"{_POR_QUE[grupo]} Este está parado há {c.get('idade_dias', '?')} dias."})
         if len(saida) >= limite:
             break

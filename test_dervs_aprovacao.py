@@ -775,3 +775,38 @@ def test_explicacao_do_claude_vira_uma_linha_curta(motor, alvos):
     item = rel["itens"][0]
     assert "\n" not in item["o_que_e"] and "\r" not in item["o_que_e"]
     assert len(item["explicacao_claude"]) <= ap.LIMITE_EXPLICACAO
+
+
+# ------------------------------------------------------------ achados da auditoria de 29/09
+
+def test_item_recusado_pelo_executor_nao_aparece_como_executado(motor, alvos):
+    f = _arquivo(alvos)
+    rel, registro = _fluxo_ate_aprovar(motor, f)
+    f.write_text("conteúdo trocado depois da análise, de outro tamanho" + chr(10) + "x" * 40, encoding="utf-8")
+    r = _executar(motor, registro)
+    assert r["ok"] is False and f.exists()
+    assert motor.status(rel["id"])["itens"][0]["estado"] == "recusado"
+
+
+def test_item_executado_aparece_como_executado(motor, alvos):
+    f = _arquivo(alvos)
+    rel, registro = _fluxo_ate_aprovar(motor, f)
+    assert _executar(motor, registro)["ok"] is True
+    assert motor.status(rel["id"])["itens"][0]["estado"] == "executado"
+
+
+def test_se_o_registro_da_quarentena_falha_depois_de_mover_o_item_volta(motor, alvos, monkeypatch):
+    f = _arquivo(alvos)
+    _, registro = _fluxo_ate_aprovar(motor, f)
+    real = ex._gravar_manifesto
+    chamadas = {"n": 0}
+
+    def falha_na_segunda(pasta, manifesto):
+        chamadas["n"] += 1
+        if manifesto.get("estado") == "em_quarentena":
+            raise OSError("disco cheio")
+        real(pasta, manifesto)
+    monkeypatch.setattr(ex, "_gravar_manifesto", falha_na_segunda)
+    r = _executar(motor, registro)
+    assert r["ok"] is False and "devolvido" in r["motivo"]
+    assert f.exists()          # não ficou preso na quarentena sem como desfazer

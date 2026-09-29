@@ -512,7 +512,7 @@
     if (!p) return;
     const prazoMs = Math.max(1, Number(p.expiraS) || 300) * 1000;
     pedidoAtual = { id: p.id, timer: setTimeout(claudeFecharPedidoAtual, prazoMs), liberar: null };
-    $("claude-pedido-titulo").textContent = `O Claude quer usar: ${p.ferramenta}`;
+    $("claude-pedido-titulo").textContent = `O Claude pede sua permissão para ${F.rotuloDaFerramenta(p.ferramenta)}.`;
     $("claude-pedido-resumo").textContent = p.resumo;
     $("claude-pedido-entrada").textContent = p.entradaCortada || "";
     const corte = $("claude-pedido-corte");

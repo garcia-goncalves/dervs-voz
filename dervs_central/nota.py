@@ -9,6 +9,8 @@ aparece em `sem_leitura` para a tela avisar que a nota está incompleta.
 """
 
 CRITICOS = ("critical", "crítico", "critico")
+# Sem leitura de saúde não é doença: USB, adaptador e driver sem suporte devolvem "Unknown".
+SAUDE_SEM_PROBLEMA = ("Healthy", "Desconhecida", "Unknown", "")
 DIAS_SEGURANCA = 14
 LIMITE_LIVRE_PCT = 10
 
@@ -33,8 +35,8 @@ def descontos(ultima: dict) -> list:
         v = min(cheios, key=lambda x: x["pct_livre"])
         d.append(_desconto("disco_cheio", 20, f"disco {v['volume']} com menos de {LIMITE_LIVRE_PCT}% livre",
                            f"O disco {v['volume']} está quase cheio: só {v['pct_livre']:.0f}% livre."))
-    doentes = [x for x in _itens(ultima, "saude") if x.get("saude") not in ("Healthy", "Desconhecida", "")]
-    doentes += [v for v in _itens(ultima, "espaco") if v.get("saude") not in ("Healthy", "Desconhecida", "")]
+    doentes = [x for x in _itens(ultima, "saude") if x.get("saude") not in SAUDE_SEM_PROBLEMA]
+    doentes += [v for v in _itens(ultima, "espaco") if v.get("saude") not in SAUDE_SEM_PROBLEMA]
     if doentes:
         nome = doentes[0].get("nome") or doentes[0].get("volume") or "um disco"
         d.append(_desconto("disco_doente", 40, f"disco com saúde diferente de Healthy ({nome})",
