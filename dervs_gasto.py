@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""DERVS — o registrador do "gasto do dia" (estimativa em dólar).
+
+Cada chamada paga à nuvem (voz, transcrição, cérebro) vira UMA linha em
+`%LOCALAPPDATA%\\dervs\\gasto.jsonl`. O painel grande soma as linhas de hoje.
+É ESTIMATIVA local, calculada com preços de tabela — a fatura real da OpenAI
+é a que vale. Nunca grava texto, áudio nem chave: só data, tipo e valor.
+
+Preços (US$, tabela de 09/2026, arredondados para cima de propósito):
+  - voz (gpt-4o-mini-tts):           0,015 por minuto de áudio gerado
+  - transcrição (gpt-4o-transcribe): 0,006 por minuto de áudio enviado
+  - cérebro: por tokens, tabela por modelo (padrão gpt-4.1-nano: 0,10 / 0,40
+    por milhão de tokens de entrada / saída)
+
+Regra de ouro do projeto: registrar gasto NUNCA derruba a fala nem a escuta.
+Toda função pública engole erro. Sob pytest, sem `DERVS_GASTO_ARQUIVO`, nada é
+gravado (o teste não pode sujar o arquivo real do dono).
+"""
+import datetime
+import io
+import json
+import os
+import sys
+import threading
+import wave
+
+USD_TTS_POR_MIN = 0.015
+USD_STT_POR_MIN = 0.006
+# modelo -> (US$ por 1M tokens de entrada, US$ por 1M de saída)
+PRECOS_CEREBRO = {
+    "gpt-4.1-nano": (0.10, 0.40),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+}
+PRECO_CEREBRO_PADRAO = (0.40, 1.60)     # modelo desconhecido: assume o do meio
+
+_trava = threading.Lock()
+
+
+def caminho_padrao():
+    """`DERVS_GASTO_ARQUIVO` manda em tudo; sob pytest sem ele, `None` (não grava)."""
+    forcado = os.environ.get("DERVS_GASTO_ARQUIVO")
+    if forcado:
+        return forcado
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return None
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
+        return os.path.join(base, "dervs", "gasto.jsonl")
+    return os.path.expanduser("~/.local/state/dervs/gasto.jsonl")
+
+
+# --- estimativas puras -------------------------------------------------------
+
+def usd_voz(segundos) -> float:
+    return max(0.0, float(segundos)) / 60.0 * USD_TTS_POR_MIN
+
+
+def usd_transcricao(segundos) -> float:
+    return max(0.0, float(segundos)) / 60.0 * USD_STT_POR_MIN
+
+
+def usd_cerebro(modelo: str, tokens_entrada, tokens_saida) -> float:
+    pin, pout = PRECOS_CEREBRO.get(modelo or "", PRECO_CEREBRO_PADRAO)
+    return (max(0, int(tokens_entrada)) * pin + max(0, int(tokens_saida)) * pout) / 1_000_000
+
+
+def segundos_do_wav_bytes(dados: bytes):
+    """Duração de um wav em memória, ou None se não der para ler."""
+    try:
+        with wave.open(io.BytesIO(dados), "rb") as w:
+            return w.getnframes() / float(w.getframerate())
+    except Exception:
+        return None
+
+
+def segundos_do_wav_arquivo(caminho: str):
+    try:
+        with wave.open(caminho, "rb") as w:
+            return w.getnframes() / float(w.getframerate())
+    except Exception:
+        return None
+
+
+# --- disco -------------------------------------------------------------------
+
+def registrar(tipo: str, usd: float, detalhe: str = "", caminho=None, agora=None) -> bool:
+    """Acrescenta uma linha. Devolve True se gravou. Nunca levanta."""
+    try:
+        caminho = caminho or caminho_padrao()
+        if not caminho or not (usd > 0):
+            return False
+        agora = agora or datetime.datetime.now()
+        linha = json.dumps({"quando": agora.isoformat(timespec="seconds"),
+                            "tipo": str(tipo)[:16], "usd": round(float(usd), 6),
+                            "detalhe": str(detalhe)[:40]}, ensure_ascii=False)
+        with _trava:
+            os.makedirs(os.path.dirname(caminho) or ".", exist_ok=True)
+            with open(caminho, "a", encoding="utf-8") as f:
+                f.write(linha + "\n")
+        return True
+    except Exception:
+        return False
+
+
+def total_do_dia(caminho=None, hoje=None) -> dict:
+    """`{"total": US$, "tts": ..., "stt": ..., "cerebro": ...}` de HOJE."""
+    saida = {"total": 0.0, "tts": 0.0, "stt": 0.0, "cerebro": 0.0}
+    try:
+        caminho = caminho or caminho_padrao()
+        if not caminho:
+            return saida
+        dia = (hoje or datetime.date.today()).strftime("%Y-%m-%d")
+        with open(caminho, "r", encoding="utf-8", errors="replace") as f:
+            for linha in f:
+                try:
+                    r = json.loads(linha)
+                    if r["quando"][:10] != dia:
+                        continue
+                    usd = float(r["usd"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if usd != usd or usd < 0:       # NaN ou negativo: ignora
+                    continue
+                saida["total"] += usd
+                if r.get("tipo") in ("tts", "stt", "cerebro"):
+                    saida[r["tipo"]] += usd
+    except Exception:
+        pass
+    return {k: round(v, 6) for k, v in saida.items()}
+
+
+def formatar_usd(valor: float) -> str:
+    """'US$ 0,04' (duas casas; abaixo de 1 centavo mostra três, para o dono ver que mexe)."""
+    casas = 3 if 0 < valor < 0.01 else 2
+    return "US$ " + f"{valor:.{casas}f}".replace(".", ",")
+
+
+# --- ganchos de registro (chamados pelo tts / stt / cérebro) ------------------
+
+def registrar_voz(dados_wav: bytes, modelo: str = "") -> None:
+    seg = segundos_do_wav_bytes(dados_wav)
+    if seg:
+        registrar("tts", usd_voz(seg), modelo)
+
+
+def registrar_transcricao(segundos, modelo: str = "") -> None:
+    if segundos:
+        registrar("stt", usd_transcricao(segundos), modelo)
+
+
+def registrar_cerebro(modelo: str, usage) -> None:
+    """`usage` é o dict `usage` da resposta da OpenAI; sem ele, não registra."""
+    try:
+        if not isinstance(usage, dict):
+            return
+        registrar("cerebro", usd_cerebro(modelo, usage.get("prompt_tokens", 0),
+                                         usage.get("completion_tokens", 0)), modelo)
+    except Exception:
+        pass

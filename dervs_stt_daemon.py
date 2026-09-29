@@ -135,7 +135,14 @@ def _transcrever_openai(caminho: str) -> str:
         headers={"Authorization": "Bearer " + OPENAI_KEY,
                  "Content-Type": "multipart/form-data; boundary=" + boundary})
     with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read().decode("utf-8", "replace").strip()
+        texto = r.read().decode("utf-8", "replace").strip()
+    try:    # gasto do dia: pela duração do áudio enviado (nunca derruba a escuta)
+        import dervs_gasto
+        dervs_gasto.registrar_transcricao(dervs_gasto.segundos_do_wav_arquivo(caminho),
+                                          STT_MODELO)
+    except Exception:
+        pass
+    return texto
 
 
 def _transcrever(caminho: str) -> str:

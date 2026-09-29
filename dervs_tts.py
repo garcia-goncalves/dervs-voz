@@ -34,6 +34,7 @@ import re
 import urllib.request
 
 import dervs_config
+import dervs_gasto
 import dervs_nivel
 import dervs_processos as processos
 
@@ -170,6 +171,7 @@ def sintetizar_openai(texto: str, voz: str, modelo: str, instrucoes: str, chave:
             dados = r.read()
         if not dados.startswith(b"RIFF"):
             return None
+        dervs_gasto.registrar_voz(dados, modelo)    # estimativa do gasto do dia
         tmp = tempfile.NamedTemporaryFile(prefix="dervs_openai_", suffix=".wav", delete=False)
         try:
             tmp.write(consertar_cabecalho_wav(dados))

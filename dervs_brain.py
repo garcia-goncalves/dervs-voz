@@ -37,6 +37,8 @@ import subprocess
 import urllib.request
 import urllib.error
 
+import dervs_gasto
+
 # Caminho ABSOLUTO do 'claude'. Como serviço do systemd o PATH é mínimo e não
 # inclui ~/.local/bin — por isso "claude" cru dava [Errno 2]. Resolvemos aqui.
 CLAUDE = (shutil.which("claude")
@@ -682,6 +684,7 @@ def _pensar_openai(conversa: list, timeout: int) -> dict:
                  "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=min(timeout, 30)) as r:
         d = json.load(r)
+    dervs_gasto.registrar_cerebro(OPENAI_MODELO, d.get("usage"))    # gasto do dia
     texto = d["choices"][0]["message"]["content"]
     return _normalizar(_extrair_json(texto))
 

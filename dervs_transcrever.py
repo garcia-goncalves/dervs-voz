@@ -40,6 +40,7 @@ import subprocess
 import urllib.request
 
 import dervs_config
+import dervs_gasto
 
 # A API recusa acima de 25 MB. 24 deixa margem para o envelope do envio.
 LIMITE_BYTES = 24 * 1024 * 1024
@@ -239,7 +240,13 @@ def _enviar(caminho: str, chave: str, modelo: str, dica: str) -> str:
         headers={"Authorization": "Bearer " + chave,
                  "Content-Type": "multipart/form-data; boundary=" + limite})
     with urllib.request.urlopen(req, timeout=600) as r:
-        return r.read().decode("utf-8", "replace").strip()
+        texto = r.read().decode("utf-8", "replace").strip()
+    try:    # gasto do dia: pela duração do áudio enviado
+        seg = dervs_gasto.segundos_do_wav_arquivo(caminho) or duracao_segundos(caminho)
+        dervs_gasto.registrar_transcricao(seg, modelo)
+    except Exception:
+        pass
+    return texto
 
 
 def transcrever(caminho: str, avisar=print) -> str:
