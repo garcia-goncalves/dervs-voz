@@ -426,6 +426,8 @@ local** (e a nuvem descansa 1 min antes de tentar de novo). Trocar de voz:
 shimmer, alloy, fable). Voltar ao local: `"motor": "kokoro"`. Com a nuvem ligada o
 daemon do Kokoro (776 MB e ~80% de um núcleo enquanto sintetiza) nem sobe no boot.
 **29/09 — voz trocada de `ash` ("mole") para `echo`** (masculina; ele ouviu 10 vozes e depois echo/nova/shimmer lado a lado). Instrução reescrita: energia média-alta, ritmo firme, sem arrastar. Se ainda não soar brasileira o bastante, o próximo passo é voz nativa pt-BR (Azure Neural Francisca/Antonio, 500 mil caracteres grátis/mês) — depende de o dono criar a conta e passar a chave.
+**29/09 - bug do gasto inflado (achado na foto do painel):** cada fala de nuvem era registrada como ~US$ 22 porque o gasto media o wav ANTES de consertar o cabecalho `0xFFFFFFFF` (89 mil s). Agora mede depois (`sintetizar_openai`), com teste. As 23 linhas erradas do `gasto.jsonl` do dono foram trocadas por US$ 0,001 e marcadas como corrigidas.
+**29/09 - onda A da central do PC mesclada** (`51bbc89`): painel unico, bandeja, minimizar/restaurar/fechar; a revisao typescript achou 1 bloqueio (foco em Confirmar) e 3 menores, todos corrigidos. Proximas: B (Claude Code real), C (aprovacao), D (Central), E (harness), F (instalador). Spec: `docs/esteira/dervs-central-do-pc/spec.md`.
 
 ### 4.4. Não há CI
 
