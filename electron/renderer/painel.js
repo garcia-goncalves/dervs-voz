@@ -501,24 +501,37 @@
   const botaoPermitirClaude = $("claude-pedido-permitir");
   const botaoNegarClaude = $("claude-pedido-negar");
   const filaPedidos = [];
-  let pedidoAtual = null;   // { id, timer }
+  let pedidoAtual = null;   // { id, timer, liberar }
+  // Permitir só habilita depois deste atraso, a cada abertura: um duplo clique (ou
+  // um Enter que sobrou) não aprova o pedido seguinte sem o dono ter lido.
+  const ATRASO_PERMITIR_MS = 700;
 
   function claudeAbrirProximoPedido() {
     const p = filaPedidos.shift();
     if (!p) return;
     const prazoMs = Math.max(1, Number(p.expiraS) || 300) * 1000;
-    pedidoAtual = { id: p.id, timer: setTimeout(claudeFecharPedidoAtual, prazoMs) };
+    pedidoAtual = { id: p.id, timer: setTimeout(claudeFecharPedidoAtual, prazoMs), liberar: null };
     $("claude-pedido-titulo").textContent = `O Claude quer usar: ${p.ferramenta}`;
     $("claude-pedido-resumo").textContent = p.resumo;
     $("claude-pedido-entrada").textContent = p.entradaCortada || "";
+    const corte = $("claude-pedido-corte");
+    const escondidos = Number.isInteger(p.escondidos) ? p.escondidos : 0;
+    corte.textContent = escondidos > 0 ? `(cortado: ${escondidos} caracteres escondidos)` : "";
+    corte.hidden = escondidos <= 0;
     const aviso = $("claude-pedido-aviso");
-    const texto = p.nivel === "destrutivo" ? "Atenção: isto pode apagar ou quebrar coisas."
+    const texto = p.rede === true ? "Isto acessa a internet ou manda dados para fora deste PC."
+      : p.nivel === "destrutivo" ? "Atenção: isto pode apagar ou quebrar coisas."
       : p.nivel === "muda_estado" ? "Isto muda algo neste PC." : "";
     aviso.textContent = texto;
     aviso.hidden = !texto;
     dialogoClaude.setAttribute("data-nivel", typeof p.nivel === "string" ? p.nivel : "muda_estado");
-    botaoPermitirClaude.disabled = false;
+    // Negar fica sempre pronto (e com o foco); Permitir espera o atraso.
     botaoNegarClaude.disabled = false;
+    botaoPermitirClaude.disabled = true;
+    const id = p.id;
+    pedidoAtual.liberar = setTimeout(() => {
+      if (pedidoAtual && pedidoAtual.id === id) botaoPermitirClaude.disabled = false;
+    }, ATRASO_PERMITIR_MS);
     if (!dialogoClaude.open) dialogoClaude.showModal();
     botaoNegarClaude.focus();
   }
@@ -531,14 +544,14 @@
   }
 
   function claudeFecharPedidoAtual() {
-    if (pedidoAtual) { clearTimeout(pedidoAtual.timer); pedidoAtual = null; }
+    if (pedidoAtual) { clearTimeout(pedidoAtual.timer); clearTimeout(pedidoAtual.liberar); pedidoAtual = null; }
     if (dialogoClaude.open) dialogoClaude.close();
     if (filaPedidos.length) claudeAbrirProximoPedido();
   }
 
   function claudeFecharPedidos() {
     filaPedidos.length = 0;
-    if (pedidoAtual) { clearTimeout(pedidoAtual.timer); pedidoAtual = null; }
+    if (pedidoAtual) { clearTimeout(pedidoAtual.timer); clearTimeout(pedidoAtual.liberar); pedidoAtual = null; }
     if (dialogoClaude.open) dialogoClaude.close();
   }
 

@@ -71,6 +71,21 @@ def test_dialogo_do_claude_nasce_com_foco_em_negar_nunca_em_permitir():
     assert "botaoPermitirClaude.focus()" not in js
 
 
+def test_permitir_espera_um_atraso_a_cada_abertura_e_negar_nunca():
+    js = _fonte("renderer", "painel.js")
+    assert "ATRASO_PERMITIR_MS = 700" in js
+    assert "botaoPermitirClaude.disabled = true;" in js
+    assert "botaoNegarClaude.disabled = false;" in js
+    # a fila abre o próximo pedido pela mesma função, então o atraso vale para todos
+    assert js.count("claudeAbrirProximoPedido()") >= 3
+
+
+def test_dialogo_mostra_corte_e_aviso_de_rede():
+    js = _fonte("renderer", "painel.js")
+    assert "caracteres escondidos" in js and "p.rede === true" in js
+    assert "escondidos" in _fonte("main.js") and "rede: mensagem.rede === true" in _fonte("main.js")
+
+
 def test_painel_carrega_o_formatador_antes_do_painel_js():
     html = _fonte("renderer", "painel.html")
     assert html.index("painel-markdown.js") < html.index('src="painel.js"')

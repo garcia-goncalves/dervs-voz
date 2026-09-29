@@ -544,11 +544,24 @@ def test_enviar_claude_pedido_leva_so_os_campos_do_contrato():
     p._despachar_guardado()
     p.enviar_claude_pedido({"id": "abc", "ferramenta": "Bash", "resumo": "pip install x",
                             "entrada_cortada": "{}", "nivel": "muda_estado", "expira_s": 300,
-                            "segredo": "não pode ir"})
+                            "escondidos": 12, "rede": True, "segredo": "não pode ir"})
     dado = json.loads(_linhas_escritas(processo)[0])
     assert dado == {"verbo": "claude_pedido", "id": "abc", "ferramenta": "Bash",
                     "resumo": "pip install x", "entrada_cortada": "{}",
-                    "nivel": "muda_estado", "expira_s": 300}
+                    "nivel": "muda_estado", "expira_s": 300, "escondidos": 12, "rede": True}
+
+
+def test_pedido_do_claude_leva_o_comando_inteiro_e_o_numero_de_caracteres_escondidos():
+    """O diálogo mostra o comando inteiro (até 500) e avisa do corte do resto."""
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    comando = "git push origin " + "b" * 480
+    p.enviar_claude_pedido({"id": "a", "ferramenta": "Bash", "resumo": comando,
+                            "entrada_cortada": "x" * 5000, "escondidos": "4000", "rede": "sim"})
+    dado = json.loads(_linhas_escritas(processo)[0])
+    assert dado["resumo"] == comando
+    assert len(dado["entrada_cortada"]) <= 1000
+    assert dado["escondidos"] == 4000 and dado["rede"] is True
 
 
 def test_enviar_claude_roteia_pelo_verbo_e_ignora_verbo_desconhecido():

@@ -456,6 +456,8 @@ function tratarLinhaDoPython(linha) {
           ferramenta: mensagem.ferramenta,
           resumo: mensagem.resumo,
           entradaCortada: typeof mensagem.entrada_cortada === "string" ? mensagem.entrada_cortada : "",
+          escondidos: Number.isInteger(mensagem.escondidos) && mensagem.escondidos > 0 ? mensagem.escondidos : 0,
+          rede: mensagem.rede === true,
           nivel: typeof mensagem.nivel === "string" ? mensagem.nivel : "muda_estado",
           expiraS: Number.isFinite(mensagem.expira_s) ? mensagem.expira_s : 300,
         });

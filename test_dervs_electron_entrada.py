@@ -722,6 +722,30 @@ def test_pergunta_recusada_do_painel_devolve_fim_com_erro(motor):
     assert fim and fim[0][1]["ok"] is False
 
 
+def test_motor_entrega_ao_claude_a_fachada_e_nunca_o_motor_de_aprovacao(motor, monkeypatch):
+    """Se o MCP recebesse o Motor da onda C, o Claude aprovaria sozinho."""
+    import dervs_aprovacao
+    criados = []
+
+    class MotorFalso:
+        def __init__(self, *a, **k):
+            criados.append(1)
+
+        def analisar(self, itens, origem="claude"):
+            return {"id": "r", "itens": [], "recusados": []}
+
+        def status(self, relatorio_id):
+            return None
+
+    monkeypatch.setattr(dervs_electron.aprovacao, "Motor", MotorFalso)
+    assert criados == [], "o motor de aprovação só nasce quando alguém propõe"
+    fachada = motor.claude.obter_fachada()
+    assert criados == [1]
+    assert isinstance(fachada, dervs_aprovacao.Fachada)
+    assert not hasattr(fachada, "aprovar") and not hasattr(fachada, "abrir_cartao")
+    assert motor.claude.obter_fachada() is fachada
+
+
 def test_encerrar_tambem_encerra_a_sessao_do_claude(motor, monkeypatch):
     monkeypatch.setattr(dervs_electron.dervs, "encerrar_tudo", lambda alvo: None)
     motor.claude = SessaoClaudeFalsa()

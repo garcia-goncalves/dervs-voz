@@ -32,6 +32,7 @@ import time
 from PyQt6 import QtCore, QtWidgets
 
 import dervs
+import dervs_aprovacao as aprovacao
 import dervs_claude_code as claude_code
 import dervs_config as config
 import dervs_diario as diario
@@ -160,10 +161,12 @@ class Motor(dervs.PopUp):
         self._cartao_pendente = None
         # O Claude Code (onda B). Só cria o objeto: o laço e o `claude` só sobem
         # na primeira pergunta. O perfil vem da config (`claude_perfil`).
+        self.aprovacao = None        # o Motor da onda C: só a ponte do painel o vê
         self.claude = claude_code.SessaoClaudeCode(
             ao_evento=lambda verbo, dados: self.ponte.enviar_claude(verbo, dados),
             ao_texto_final=self._claude_texto_final,
             ao_aviso=self._claude_aviso,
+            fachada_fabrica=self._fachada_aprovacao,
             perfil=config.carregar()["claude_perfil"])
         super().__init__()
         # Etapa 4: a `Voz` já sabe emitir o nível de amplitude enquanto fala,
@@ -196,6 +199,15 @@ class Motor(dervs.PopUp):
                         "Diga 'para' se quiser interromper.")
                 return
         super().executar()
+
+    def _fachada_aprovacao(self):
+        """O Claude recebe a `Fachada` (só `analisar` e `status`), NUNCA o Motor:
+        aprovar, cartão e senha de uso ficam com a ponte do painel (onda D). O
+        Motor cria pasta e arquivos em %LOCALAPPDATA%\dervs, por isso só nasce aqui,
+        na primeira proposta."""
+        if self.aprovacao is None:
+            self.aprovacao = aprovacao.Motor()
+        return aprovacao.Fachada(self.aprovacao)
 
     def _claude_texto_final(self, texto, origem):
         """Thread do laço do Claude. Só a pergunta feita por VOZ é respondida

@@ -24,8 +24,12 @@ TRAVAS (cada uma tem teste que quebra se alguém mexer):
   - `can_use_tool` vira o verbo `claude_pedido`; sem resposta em 5 minutos, NEGA.
     Voz nunca aprova nível `muda_estado`/`destrutivo` (voz não é senha — ver
     `test_dervs_voz_nao_e_senha.py`).
-  - O servidor MCP `dervs` não tem ferramenta "executar": `propor_acao` só
-    REGISTRA o pedido; executar é clique do dono, numa onda futura (C).
+  - O gancho vale para TODA ferramenta e devolve `ask` para o que não é leitura
+    pura: as regras `allow` do settings do dono rodam DEPOIS dele, e sem isso
+    `Bash(git push:*)` executava sem nunca chegar ao painel.
+  - O servidor MCP `dervs` não tem ferramenta "executar": `propor_acao` só entrega
+    a proposta à `Fachada` da onda C (analisar/status); aprovar e executar são
+    clique do dono, no painel, e o Motor nunca chega aqui.
   - Tudo que o Claude escreve é DADO, nunca ordem: a tela só usa `textContent`.
 
 Só o que é puro (frase de voz, resumo para fala, nível de risco, caminho
@@ -70,108 +74,198 @@ SETTING_SOURCES = {"dono": ("user", "project", "local"), "equipe": ("project",)}
 LIMITE_PERGUNTA = 8000          # caracteres que a caixa de texto aceita
 TIMEOUT_PEDIDO_S = 300          # sem resposta do dono em 5 min: NEGA
 ESPERA_INTERRUPT_S = 5          # depois disto, mata a árvore de processos
-LIMITE_RESUMO = 200
-LIMITE_ENTRADA = 600
+LIMITE_RESUMO = 500             # o comando/caminho aparece INTEIRO até aqui; acima, o gancho nega
+LIMITE_ENTRADA = 1000           # o resto dos parâmetros; o corte é contado e avisado na tela
 
 FERRAMENTAS_DE_COMANDO = ("Bash", "PowerShell")
 FERRAMENTAS_DE_ESCRITA = ("Edit", "Write", "MultiEdit", "NotebookEdit")
-MATCHER_DO_GANCHO = "|".join(FERRAMENTAS_DE_COMANDO + FERRAMENTAS_DE_ESCRITA)
 _SO_LEITURA = ("Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead")
 FERRAMENTAS_DERVS = ("mcp__dervs__central_coletar", "mcp__dervs__propor_acao",
                      "mcp__dervs__status_aprovacao")
 # A "pasta do harness" (onda E) ainda não existe: até lá, a própria pasta do DERVS.
 PASTA_HARNESS = os.path.dirname(os.path.abspath(__file__))
 
+LIMITE_ITENS_PROPOSTA = 50
 ETIQUETA_GASTO = "assinatura (equivalente)"     # medida, não cobrança
 
 
-# --- caminhos protegidos -----------------------------------------------------
-# TODO(onda C): o módulo `dervs_caminhos_protegidos` (com `esta_protegido`) é da
-# onda C e ainda não existe nesta branch. Este piso interno cobre o mínimo e
-# SEMPRE vale; se o módulo da C aparecer, o veredito dele soma-se ao daqui
-# (protegido se QUALQUER um disser que é). Não inventar aquele módulo neste arquivo.
+# --- caminhos protegidos (onda C) ---------------------------------------------
+# A lista de verdade é a da onda C (`dervs_caminhos_protegidos`): normaliza o
+# caminho, resolve 8.3/`\\?\`/junção/atalho e sabe do arquivo do dono
+# (`caminhos_protegidos.json`). O import é OBRIGATÓRIO e falha FECHADA: sem o
+# módulo, ou com resposta fora do formato `(bool, motivo)`, TUDO é protegido.
+# (Antes havia um "piso interno" que deixava passar `\\?\C:\Windows\x`, nomes
+# 8.3, `~\.claude.json` e a própria pasta do DERVS.)
+#
+# Decisão consciente: a C protege "dentro de repositório", então o Claude do painel
+# NÃO edita código de projetos — isso é feito no VS Code. O painel é para
+# manutenção do PC.
 try:
-    from dervs_caminhos_protegidos import esta_protegido as _protegido_da_onda_c
+    import dervs_caminhos_protegidos as _cp
 except ImportError:
-    _protegido_da_onda_c = None
+    _cp = None
 
-_PASTAS_DE_SISTEMA = re.compile(r"^[a-z]:\\(?:windows|program files[^\\]*)(?:\\|$)")
+_MOTIVO_EXTRA = "pasta que você marcou como protegida"      # texto da onda C
 
 
-def _protegido_interno(caminho) -> bool:
-    """Piso mínimo: C:\\Windows, C:\\Program Files*, qualquer `.git`, `.claude` ou
-    `.ssh` no caminho."""
+def protegido_com_motivo(caminho, **kw):
+    """`(protegido, motivo)`. Qualquer dúvida é `True`."""
+    if _cp is None:
+        return True, "o motor de caminhos protegidos (onda C) não está disponível"
     try:
-        p = os.path.normcase(os.path.normpath(
-            os.path.expandvars(os.path.expanduser(str(caminho)))))
-    except (TypeError, ValueError):
-        return True               # não deu para entender o caminho: na dúvida, protege
-    partes = [x for x in re.split(r"[\\/]+", p) if x]
-    if ".git" in partes or ".claude" in partes or ".ssh" in partes:
-        return True
-    if _PASTAS_DE_SISTEMA.match(p.replace("/", "\\")):
-        return True
-    raiz = os.path.normcase(os.environ.get("SystemRoot") or r"C:\Windows")
-    if p == raiz or p.startswith(raiz + os.sep):
-        return True
-    return False
+        r = _cp.esta_protegido(caminho, **kw)
+    except Exception as e:
+        return True, f"erro ao consultar os caminhos protegidos ({type(e).__name__})"
+    if isinstance(r, tuple) and len(r) == 2 and isinstance(r[0], bool):
+        return r[0], str(r[1])
+    return True, "resposta inesperada do motor de caminhos protegidos"
 
 
 def esta_protegido(caminho) -> bool:
-    if _protegido_interno(caminho):
-        return True
-    if _protegido_da_onda_c is not None:
-        try:
-            return bool(_protegido_da_onda_c(caminho))
-        except Exception:
-            return True           # o motor da C quebrou: fecha, não abre
-    return False
+    return protegido_com_motivo(caminho)[0]
+
+
+def _parece_segredo(texto: str) -> bool:
+    return any(re.search(p, texto, re.IGNORECASE) for p in seg._SEGREDOS)
+
+
+def leitura_proibida(caminho):
+    """Motivo pelo qual o Claude NÃO pode LER este caminho (segredo, ou pasta que
+    o dono marcou como protegida — dado de paciente), ou `None`. Vale para
+    qualquer perfil: o perfil `equipe` não tem regra de `deny` de Read."""
+    if not isinstance(caminho, str) or not caminho:
+        return None
+    if _parece_segredo(caminho):
+        return "parece um arquivo de segredo (chave, senha, credencial)"
+    if _cp is None:
+        return "o motor de caminhos protegidos (onda C) não está disponível"
+    try:
+        extras = _cp.carregar_extras(_cp.arquivo_extras())
+    except Exception:
+        return "a lista de pastas protegidas está ilegível — nada é lido até consertar"
+    if not extras:
+        return None
+    sem, _ = protegido_com_motivo(caminho, extras=[])
+    com, motivo = protegido_com_motivo(caminho, extras=extras)
+    if com and (not sem or motivo == _MOTIVO_EXTRA):
+        return "fica numa pasta que o dono marcou como protegida"
+    return None
 
 
 # --- risco e resumo de uma ferramenta -----------------------------------------
+# Rede e persistência NUNCA são "reversível" neste contexto, mesmo que o
+# `dervs_safety` (feito para o planejador de voz) deixe passar.
+_REDE = re.compile(
+    r"\b(?:git\s+(?:push|remote|clone|fetch|pull|ls-remote|submodule)|gh|curl|wget|"
+    r"Invoke-WebRequest|iwr|Invoke-RestMethod|irm|Start-BitsTransfer|bitsadmin|scp|sftp|"
+    r"ssh|ftp|telnet|nc|ncat|socat|npm\s+publish|Test-NetConnection|tnc)\b", re.IGNORECASE)
+_LANCA_PROCESSO = re.compile(
+    r"^\s*(?:start|start-process|saps|type|invoke-item|ii)\b", re.IGNORECASE)
+_GIT = re.compile(r"^\s*git\b", re.IGNORECASE)
+_GIT_LEITURA = re.compile(
+    r"^\s*git\s+(?:status|log|diff|show)(?:\s+[^\s;&|`$<>()\"']+)*\s*$", re.IGNORECASE)
+_GIT_BRANCH_LISTA = re.compile(
+    r"^\s*git\s+branch(?:\s+(?:-a|-r|-v|-vv|--list|--all|--remotes))*\s*$", re.IGNORECASE)
+_GIT_PERIGO = re.compile(
+    r"--output|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|--git-dir|"
+    r"--work-tree|--open-files-in-pager|(?:^|\s)-c(?:\s|$)", re.IGNORECASE)
+_NOME_DE_REDE = re.compile(r"fetch|http|browser|navigate|web|url|download|request|search",
+                           re.IGNORECASE)
+
+
+def _git_e_leitura(comando: str) -> bool:
+    if _GIT_PERIGO.search(comando):
+        return False
+    return bool(_GIT_LEITURA.match(comando) or _GIT_BRANCH_LISTA.match(comando))
+
+
+def classificar(nome: str, entrada: dict) -> dict:
+    """`{"nivel": reversivel|muda_estado|destrutivo, "rede": bool}` — a mesma
+    régua serve para o gancho, para o diálogo e para a regra "voz não aprova"."""
+    entrada = entrada if isinstance(entrada, dict) else {}
+    if nome in _SO_LEITURA or nome in FERRAMENTAS_DERVS:
+        return {"nivel": "reversivel", "rede": False}
+    if nome in FERRAMENTAS_DE_COMANDO:
+        comando = str(entrada.get("command", ""))
+        d = seg.decidir_risco(comando)
+        nivel = d["nivel"]
+        rede = bool(d["toca_alvo"] or _REDE.search(comando))
+        if _GIT.match(comando) and not _git_e_leitura(comando):
+            nivel = seg._nivel_max(nivel, "muda_estado")
+        if _LANCA_PROCESSO.match(comando) or rede:
+            nivel = seg._nivel_max(nivel, "muda_estado")
+        return {"nivel": nivel, "rede": rede}
+    rede = nome in ("WebFetch", "WebSearch") or (
+        nome.startswith("mcp__") and bool(_NOME_DE_REDE.search(nome)))
+    return {"nivel": "muda_estado", "rede": rede}
+
 
 def nivel_da_ferramenta(nome: str, entrada: dict) -> str:
-    """`reversivel` | `muda_estado` | `destrutivo` — o mesmo vocabulário da casa."""
-    if nome in FERRAMENTAS_DE_COMANDO:
-        return seg.decidir_risco(str((entrada or {}).get("command", "")))["nivel"]
-    if nome in _SO_LEITURA or nome in FERRAMENTAS_DERVS:
-        return "reversivel"
-    return "muda_estado"          # escrever, rede, desconhecido: no mínimo um clique
+    return classificar(nome, entrada)["nivel"]
 
 
-def resumo_da_ferramenta(nome: str, entrada: dict) -> str:
+def _campo_do_resumo(nome: str, entrada: dict) -> str:
     entrada = entrada if isinstance(entrada, dict) else {}
     for chave in ("command", "file_path", "notebook_path", "path", "pattern",
                   "url", "query"):
         if isinstance(entrada.get(chave), str) and entrada[chave]:
-            return entrada[chave][:LIMITE_RESUMO]
-    return json.dumps(entrada, ensure_ascii=False, default=str)[:LIMITE_RESUMO]
+            return entrada[chave]
+    return json.dumps(entrada, ensure_ascii=False, default=str)
 
 
-def entrada_cortada(entrada) -> str:
-    return json.dumps(entrada, ensure_ascii=False, default=str)[:LIMITE_ENTRADA]
+def resumo_da_ferramenta(nome: str, entrada: dict) -> str:
+    return _campo_do_resumo(nome, entrada)[:LIMITE_RESUMO]
+
+
+def para_a_tela(nome: str, entrada: dict):
+    """`(resumo, entrada_cortada, escondidos)` do que o diálogo mostra. O comando
+    de Bash/PowerShell aparece INTEIRO no resumo (o gancho nega o que não cabe),
+    então sai do JSON; qualquer outro corte é contado em `escondidos`."""
+    campo = _campo_do_resumo(nome, entrada)
+    resto = dict(entrada) if isinstance(entrada, dict) else {}
+    if nome in FERRAMENTAS_DE_COMANDO:
+        resto.pop("command", None)
+    completo = json.dumps(resto, ensure_ascii=False, default=str)
+    escondidos = max(0, len(campo) - LIMITE_RESUMO) + max(0, len(completo) - LIMITE_ENTRADA)
+    return campo[:LIMITE_RESUMO], completo[:LIMITE_ENTRADA], escondidos
 
 
 # --- o gancho PreToolUse -------------------------------------------------------
 _TOKEN = re.compile(r"[^\s\"'|;&<>()]+")
+_FERRAMENTAS_DE_LEITURA_COM_CAMINHO = ("Read", "Glob", "Grep", "LS", "NotebookRead")
+
+
+_URL = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+_ABSOLUTO = re.compile(r"^(?:[A-Za-z]:|\\|~|%|\$env:)", re.IGNORECASE)
+_PEDACO_SENSIVEL = re.compile(r"(?:^|[\\/])\.(?:git|claude|ssh)(?:[\\/]|$)", re.IGNORECASE)
 
 
 def _caminhos_no_comando(comando: str):
-    """Pedaços do comando que parecem caminho (têm barra, começam com `.` ou `~`,
-    ou têm letra de unidade). É heurística: o objetivo é não deixar um comando
-    que MUDA algo passar por cima de pasta protegida."""
+    """Pedaços do comando que parecem caminho ABSOLUTO (unidade, UNC, `~`, `%VAR%`,
+    `$env:`), mais qualquer pedaço com `.git`/`.claude`/`.ssh` no meio. URL não é
+    caminho. Caminho relativo qualquer não dá para resolver sem o diretório do
+    comando (a onda C o trata como inválido), então só entra se tiver esses nomes.
+    É heurística: o objetivo é não deixar um comando que MUDA algo passar por
+    cima de pasta protegida."""
     for t in _TOKEN.findall(comando or ""):
-        if "\\" in t or "/" in t or t.startswith((".", "~")) or re.match(r"^[A-Za-z]:", t):
+        if _URL.match(t):
+            continue
+        if _ABSOLUTO.match(t) or _PEDACO_SENSIVEL.search(t):
             yield t
 
 
-def motivo_de_bloqueio(nome: str, entrada: dict, protegido=esta_protegido):
+def motivo_de_bloqueio(nome: str, entrada: dict, protegido=esta_protegido,
+                       leitura=leitura_proibida):
     """Devolve o motivo (texto para o Claude ler) se a ferramenta deve ser
-    NEGADA antes de qualquer regra; `None` deixa o fluxo normal seguir."""
+    NEGADA antes de qualquer regra; `None` deixa seguir."""
     entrada = entrada if isinstance(entrada, dict) else {}
     proposta = "Use a ferramenta mcp__dervs__propor_acao: o dono decide no painel."
     if nome in FERRAMENTAS_DE_COMANDO:
         comando = str(entrada.get("command", ""))
+        if len(comando) > LIMITE_RESUMO or "\n" in comando or "\r" in comando:
+            return ("O DERVS bloqueou: o comando é longo demais ou tem quebra de linha, e o "
+                    "painel só mostra ao dono uma linha curta. Divida em passos menores "
+                    "(um comando curto de cada vez).")
         d = seg.decidir_risco(comando)
         if d["nivel"] == "destrutivo":
             porque = "; ".join(d["motivos"]) or "destrutivo"
@@ -188,22 +282,52 @@ def motivo_de_bloqueio(nome: str, entrada: dict, protegido=esta_protegido):
             return f"O DERVS bloqueou: a escrita veio sem caminho legível. {proposta}"
         if protegido(caminho):
             return f"O DERVS bloqueou: {caminho} é um caminho protegido. {proposta}"
+        return None
+    if nome in _FERRAMENTAS_DE_LEITURA_COM_CAMINHO:
+        for chave in ("file_path", "path", "notebook_path", "pattern", "glob"):
+            valor = entrada.get(chave)
+            if not isinstance(valor, str) or not valor:
+                continue
+            # `pattern` do Grep é o TEXTO procurado, não um caminho.
+            if chave == "pattern" and nome == "Grep":
+                continue
+            motivo = leitura(valor)
+            if motivo:
+                return f"O DERVS não deixa o Claude ler {valor[:120]}: {motivo}."
     return None
 
 
-def criar_gancho(protegido=esta_protegido):
-    """O callback `PreToolUse` do SDK. Falha FECHADA: se o próprio gancho
-    quebrar, nega."""
+def decisao_do_gancho(nome, entrada, protegido=esta_protegido, leitura=leitura_proibida):
+    """`("deny", motivo)`, `("ask", motivo)` ou `(None, None)`.
+
+    `ask` faz o pedido cair SEMPRE no `can_use_tool` (o diálogo do painel), mesmo
+    que uma regra `allow` do settings do dono o liberasse: o gancho roda antes das
+    regras. Só passa direto a leitura pura, as 3 ferramentas do servidor `dervs`
+    e o comando que o `dervs_safety` classifica como reversível (sem rede)."""
+    motivo = motivo_de_bloqueio(nome, entrada, protegido, leitura)
+    if motivo:
+        return "deny", motivo
+    if nome in _SO_LEITURA or nome in FERRAMENTAS_DERVS:
+        return None, None
+    if nome in FERRAMENTAS_DE_COMANDO and classificar(nome, entrada)["nivel"] == "reversivel":
+        return None, None
+    return "ask", "O DERVS pede a confirmação do dono no painel."
+
+
+def criar_gancho(protegido=esta_protegido, leitura=leitura_proibida):
+    """O callback `PreToolUse` do SDK, registrado SEM filtro de ferramenta.
+    Falha FECHADA: se o próprio gancho quebrar, nega."""
     async def gancho(entrada, tool_use_id, contexto):
         try:
-            motivo = motivo_de_bloqueio(entrada.get("tool_name", ""),
-                                        entrada.get("tool_input") or {}, protegido)
+            acao, motivo = decisao_do_gancho(entrada.get("tool_name", ""),
+                                             entrada.get("tool_input") or {}, protegido, leitura)
         except Exception as e:
+            acao = "deny"
             motivo = f"O DERVS não conseguiu avaliar a ferramenta ({type(e).__name__}); negada."
-        if motivo is None:
+        if acao is None:
             return {}
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                       "permissionDecision": "deny",
+                                       "permissionDecision": acao,
                                        "permissionDecisionReason": motivo}}
     return gancho
 
@@ -233,7 +357,10 @@ def montar_opcoes(perfil, *, can_use_tool, gancho, servidor_mcp, resume=None,
         add_dirs=_unidades_para_leitura(),      # leitura da máquina inteira
         include_partial_messages=True,          # streaming palavra a palavra
         can_use_tool=can_use_tool,
-        hooks={"PreToolUse": [sdk.HookMatcher(matcher=MATCHER_DO_GANCHO, hooks=[gancho])]},
+        # SEM filtro de ferramenta (`matcher=None`): as regras `allow` do settings do
+        # dono são resolvidas DEPOIS do gancho, e um filtro deixava as demais
+        # ferramentas (ex.: `Bash(git push:*)`) executarem sem chegar ao painel.
+        hooks={"PreToolUse": [sdk.HookMatcher(matcher=None, hooks=[gancho])]},
         mcp_servers={"dervs": servidor_mcp},
         allowed_tools=list(FERRAMENTAS_DERVS),  # o gancho ainda roda antes delas
         resume=resume,
@@ -264,10 +391,6 @@ def _caminho(nome_env: str, arquivo: str):
 
 def caminho_sessao():
     return _caminho("DERVS_CLAUDE_SESSAO", "claude_sessao.json")
-
-
-def caminho_propostas():
-    return _caminho("DERVS_CLAUDE_PROPOSTAS", "claude_propostas.jsonl")
 
 
 def ler_sessao(caminho, perfil):
@@ -450,11 +573,53 @@ def _texto_mcp(texto, erro=False):
     return r
 
 
-def _redigir(texto: str) -> str:
-    """Não grava no log o que parece segredo (mesmos padrões do `dervs_safety`)."""
-    if any(re.search(p, texto, re.IGNORECASE) for p in seg._SEGREDOS):
-        return "[redigido: parece conter segredo]"
-    return texto
+def _pids_filhos():
+    """PIDs dos filhos diretos DESTE processo (para achar o `claude` sem depender
+    de atributo privado do SDK)."""
+    try:
+        import psutil
+        return {c.pid for c in psutil.Process().children()}
+    except Exception:
+        return set()
+
+
+def _marca_do_pid(pid):
+    try:
+        import psutil
+        return psutil.Process(pid).create_time()
+    except Exception:
+        return None
+
+
+def _pid_confere(pid, marca) -> bool:
+    """O PID ainda é o mesmo processo de quando o registramos (PID reaproveitado
+    pelo Windows não pode ser morto por engano)."""
+    if pid is None or marca is None:
+        return False
+    return _marca_do_pid(pid) == marca
+
+
+class _ProcessoPorPid:
+    """A cara de `Popen` para `encerrar_arvore` quando só se conhece o PID."""
+
+    def __init__(self, pid):
+        self.pid = pid
+
+    def poll(self):
+        try:
+            import psutil
+            return None if psutil.Process(self.pid).is_running() else 0
+        except Exception:
+            return 0
+
+    def kill(self):
+        import psutil
+        psutil.Process(self.pid).kill()
+
+    def wait(self, timeout=None):
+        limite = time.time() + (timeout or 0)
+        while self.poll() is None and time.time() < limite:
+            time.sleep(0.05)
 
 
 # --- a sessão --------------------------------------------------------------------
@@ -470,7 +635,7 @@ class SessaoClaudeCode:
 
     def __init__(self, ao_evento, ao_texto_final=None, ao_aviso=None,
                  perfil=PERFIL_PADRAO, fabrica_cliente=None, arquivo_sessao="padrao",
-                 arquivo_propostas="padrao", cwd=None, protegido=esta_protegido,
+                 fachada_fabrica=None, cwd=None, protegido=esta_protegido,
                  timeout_pedido=TIMEOUT_PEDIDO_S, espera_interrupt=ESPERA_INTERRUPT_S,
                  encerrar_arvore=dervs_processos.encerrar_arvore):
         self._ao_evento = ao_evento
@@ -479,8 +644,10 @@ class SessaoClaudeCode:
         self.perfil = perfil if perfil in SETTING_SOURCES else PERFIL_PADRAO
         self._fabrica = fabrica_cliente or self._fabrica_padrao
         self._arquivo_sessao = caminho_sessao() if arquivo_sessao == "padrao" else arquivo_sessao
-        self._arquivo_propostas = (caminho_propostas() if arquivo_propostas == "padrao"
-                                   else arquivo_propostas)
+        # A ÚNICA porta para o motor de aprovação (onda C): a `Fachada` (só
+        # `analisar` e `status`). O Motor, o cartão e a senha de uso NUNCA chegam aqui.
+        self._fachada_fabrica = fachada_fabrica
+        self._fachada = None
         self._cwd = cwd
         self._protegido = protegido
         self._timeout_pedido = timeout_pedido
@@ -492,7 +659,8 @@ class SessaoClaudeCode:
         self._comandos = None
         self._cliente = None                  # só o trabalhador mexe
         self._pedidos = _Pedidos()
-        self._propostas = {}
+        self._pid = None                      # o `claude` que o SDK abriu, se soubermos
+        self._pid_marca = None
         self._ocupado = False
         self._interrompido = False
         self._fim_do_turno = threading.Event()
@@ -627,6 +795,7 @@ class SessaoClaudeCode:
             gancho=criar_gancho(self._protegido), servidor_mcp=servidor,
             resume=self._session_id, cwd=self._cwd)
         cliente = self._fabrica(opcoes)
+        antes = _pids_filhos()
         try:
             await cliente.connect()
         except Exception:
@@ -636,6 +805,17 @@ class SessaoClaudeCode:
             raise
         self._cliente = cliente
         self._custo_acumulado = 0.0
+        self._registrar_pid(antes)
+
+    def _registrar_pid(self, antes):
+        """Guarda o PID do `claude` (com a hora de criação, contra PID reaproveitado).
+        Vem do SDK se o atributo existir; senão, é o filho novo deste processo."""
+        pid = getattr(self._processo_do_cliente(), "pid", None)
+        if pid is None:
+            novos = _pids_filhos() - antes
+            pid = min(novos) if novos else None
+        self._pid = pid
+        self._pid_marca = _marca_do_pid(pid) if pid is not None else None
 
     async def _descartar_cliente(self):
         cliente, self._cliente = self._cliente, None
@@ -660,16 +840,24 @@ class SessaoClaudeCode:
             self._matar_processo()
 
     def _processo_do_cliente(self):
+        # `_transport._process` é atributo PRIVADO do SDK: pode sumir numa versão
+        # nova. Por isso tudo é getattr, e `_matar_processo` tem o PID guardado.
         transporte = getattr(self._cliente, "_transport", None)
         return getattr(transporte, "_process", None)
 
     def _matar_processo(self):
         proc = self._processo_do_cliente()
         if proc is not None:
-            try:
-                self._encerrar_arvore(_ProcessoAnyio(proc))
-            except Exception:
-                pass
+            alvo = _ProcessoAnyio(proc)
+        elif self._pid is not None and _pid_confere(self._pid, self._pid_marca):
+            alvo = _ProcessoPorPid(self._pid)
+        else:
+            sys.stderr.write("claude_code: não sei qual processo encerrar (o SDK mudou?)\n")
+            return
+        try:
+            self._encerrar_arvore(alvo)
+        except Exception:
+            pass
 
     # ---- um turno ---------------------------------------------------------------
     def _emitir(self, verbo, dados):
@@ -800,12 +988,14 @@ class SessaoClaudeCode:
 
     # ---- permissão -----------------------------------------------------------------
     async def _can_use_tool(self, nome, entrada, contexto):
-        nivel = nivel_da_ferramenta(nome, entrada)
+        risco = classificar(nome, entrada)
+        nivel = risco["nivel"]
         id_, futuro = self._pedidos.abrir(asyncio.get_running_loop(), nivel)
+        resumo, cortada, escondidos = para_a_tela(nome, entrada)
         self._emitir("claude_pedido", {
-            "id": id_, "ferramenta": nome, "resumo": resumo_da_ferramenta(nome, entrada),
-            "entrada_cortada": entrada_cortada(entrada), "nivel": nivel,
-            "expira_s": int(self._timeout_pedido)})
+            "id": id_, "ferramenta": nome, "resumo": resumo,
+            "entrada_cortada": cortada, "escondidos": escondidos, "nivel": nivel,
+            "rede": risco["rede"], "expira_s": int(self._timeout_pedido)})
         try:
             permitir = await asyncio.wait_for(futuro, self._timeout_pedido)
         except asyncio.TimeoutError:
@@ -819,28 +1009,15 @@ class SessaoClaudeCode:
                     "sem perguntar a ele.")
 
     # ---- ferramentas do servidor MCP `dervs` -----------------------------------------
-    def registrar_proposta(self, itens) -> str:
-        id_ = "p-" + uuid.uuid4().hex[:8]
-        limpos = [{str(k)[:40]: _redigir(str(v)[:300]) for k, v in i.items()}
-                  for i in itens[:50] if isinstance(i, dict)]
-        self._propostas[id_] = {"itens": limpos, "estado": "pendente"}
-        if self._arquivo_propostas:
+    def obter_fachada(self):
+        """A `Fachada` da onda C, criada na primeira vez que alguém a pede (o Motor
+        cria pasta e arquivos em %LOCALAPPDATA%\\dervs)."""
+        if self._fachada is None and self._fachada_fabrica is not None:
             try:
-                os.makedirs(os.path.dirname(self._arquivo_propostas) or ".", exist_ok=True)
-                with open(self._arquivo_propostas, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"quando": datetime.datetime.now().isoformat(
-                        timespec="seconds"), "id": id_, "itens": limpos},
-                        ensure_ascii=False) + "\n")
-            except OSError:
-                pass
-        self._emitir("claude_ferramenta", {
-            "nome": "propor_acao",
-            "resumo": f"proposta {id_} com {len(limpos)} item(ns) — aguarda o dono; nada foi executado"})
-        return id_
-
-    def estado_da_proposta(self, id_):
-        p = self._propostas.get(id_)
-        return None if p is None else p["estado"]
+                self._fachada = self._fachada_fabrica()
+            except Exception as e:
+                sys.stderr.write(f"claude_code: motor de aprovação indisponível ({type(e).__name__})\n")
+        return self._fachada
 
 
 def criar_servidor_dervs(sessao: SessaoClaudeCode):
@@ -859,26 +1036,57 @@ def criar_servidor_dervs(sessao: SessaoClaudeCode):
 
     @sdk.tool("propor_acao",
               "Propõe ao dono uma lista de ações (limpar, desinstalar, desativar...). "
-              "NÃO executa nada: só registra o pedido e mostra no painel; quem "
-              "executa é o clique do dono. Cada item: acao, alvo, o_que_e, "
-              "por_que_seguro, como_desfazer.",
+              "NÃO executa nada: o motor de aprovação confere cada item no disco e monta "
+              "um relatório que o dono lê e aprova no painel. Cada item: acao, alvo, "
+              "por_que_seguro (obrigatório), explicacao, o_que_muda.",
               {"type": "object", "required": ["itens"],
                "properties": {"itens": {"type": "array", "items": {"type": "object"}}}})
     async def propor_acao(args):
         itens = args.get("itens") if isinstance(args, dict) else None
-        if not isinstance(itens, list) or not itens or not all(isinstance(i, dict) for i in itens):
-            return _texto_mcp("itens precisa ser uma lista não vazia de objetos.", erro=True)
-        id_ = sessao.registrar_proposta(itens)
-        return _texto_mcp(f"Proposta {id_} registrada. NADA foi executado: o dono "
-                          "decide no painel do DERVS.")
+        if (not isinstance(itens, list) or not 1 <= len(itens) <= LIMITE_ITENS_PROPOSTA
+                or not all(isinstance(i, dict) for i in itens)):
+            return _texto_mcp(f"itens precisa ser uma lista de 1 a {LIMITE_ITENS_PROPOSTA} "
+                              "objetos.", erro=True)
+        fachada = sessao.obter_fachada()
+        if fachada is None:
+            return _texto_mcp("O motor de aprovação está indisponível agora; nada foi feito.",
+                              erro=True)
+        try:
+            rel = fachada.analisar(itens)
+        except Exception as e:                       # sem a mensagem: pode ter segredo
+            return _texto_mcp(f"Não consegui montar o relatório ({type(e).__name__}).", erro=True)
+        id_ = str(rel.get("id", ""))[:64]
+        recusados = rel.get("recusados") or []
+        linhas = [f"Relatório {id_}: {len(rel.get('itens') or [])} item(ns) aceito(s), "
+                  f"{len(recusados)} recusado(s). NADA foi executado: o dono decide no "
+                  "painel do DERVS."]
+        for r in recusados[:10]:
+            linhas.append(f"- recusado: {str(r.get('alvo', ''))[:80]} — "
+                          f"{str(r.get('motivo', ''))[:200]}")
+        sessao._emitir("claude_ferramenta", {
+            "nome": "propor_acao",
+            "resumo": f"relatório {id_}: {len(rel.get('itens') or [])} aceito(s), "
+                      f"{len(recusados)} recusado(s) — aguarda o dono; nada foi executado"})
+        return _texto_mcp("\n".join(linhas))
 
-    @sdk.tool("status_aprovacao", "Diz em que pé está uma proposta feita com propor_acao.",
+    @sdk.tool("status_aprovacao", "Diz em que pé está um relatório feito com propor_acao.",
               {"relatorio_id": str})
     async def status_aprovacao(args):
-        estado = sessao.estado_da_proposta(str((args or {}).get("relatorio_id", "")))
-        if estado is None:
-            return _texto_mcp("Não conheço essa proposta.")
-        return _texto_mcp("Proposta pendente: o dono ainda não decidiu. Nada foi executado.")
+        fachada = sessao.obter_fachada()
+        if fachada is None:
+            return _texto_mcp("O motor de aprovação está indisponível agora.", erro=True)
+        id_ = str((args or {}).get("relatorio_id", ""))[:64]
+        try:
+            st = fachada.status(id_)
+        except Exception as e:
+            return _texto_mcp(f"Não consegui consultar ({type(e).__name__}).", erro=True)
+        if st is None:
+            return _texto_mcp("Não conheço esse relatório.")
+        linhas = [f"Relatório {id_}:" + (" vencido" if st.get("vencido") else "")]
+        for i in (st.get("itens") or [])[:50]:
+            linhas.append(f"- {i.get('id')}: {i.get('estado')} "
+                          f"({i.get('acao')}, risco {i.get('risco')})")
+        return _texto_mcp("\n".join(linhas))
 
     ferramentas = {t.name: t for t in (central_coletar, propor_acao, status_aprovacao)}
     return (sdk.create_sdk_mcp_server("dervs", tools=list(ferramentas.values())),

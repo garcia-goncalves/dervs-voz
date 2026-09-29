@@ -85,7 +85,9 @@ Verbos Python → Electron (só estes):
   claude_ferramenta {"nome", "resumo"} — o Claude usou uma ferramenta (linha de
             progresso na conversa).
   claude_pedido {"id", "ferramenta", "resumo", "entrada_cortada", "nivel",
-            "expira_s"} — o Claude pede permissão. O `id` vale UMA resposta.
+            "expira_s", "escondidos", "rede"} — o Claude pede permissão. O `id`
+            vale UMA resposta; `escondidos` é quantos caracteres NÃO couberam na
+            tela (a tela avisa); `rede` marca o que sai deste PC.
   claude_fim {"ok", "custo", "erro"}  — o turno acabou. `custo` é o equivalente
             em dólar da assinatura (medida, não cobrança).
 
@@ -152,6 +154,8 @@ _LIMITE_LISTA = 50             # itens de agenda/diário mandados ao painel
 _LIMITE_ITEM = 200             # texto de um item de agenda (título hostil)
 _LIMITE_PERGUNTA = 8000        # caracteres da caixa de texto do Claude Code
 _LIMITE_ERRO_CLAUDE = 300      # mensagem de erro de um turno do Claude
+_LIMITE_RESUMO_PEDIDO = 500    # o comando/caminho do pedido de permissão aparece inteiro até aqui
+_LIMITE_ENTRADA_PEDIDO = 1000  # o resto dos parâmetros (o corte é avisado em `escondidos`)
 _ESTRANGULA_SEG = 0.05         # 50 ms = no máximo 20 mensagens de volume/s
 
 _EXECUTAVEL_PADRAO = os.path.join(
@@ -586,10 +590,12 @@ class PonteElectron:
             "verbo": "claude_pedido",
             "id": str(pedido.get("id", ""))[:64],
             "ferramenta": str(pedido.get("ferramenta", ""))[:64],
-            "resumo": str(pedido.get("resumo", ""))[:_LIMITE_ITEM],
-            "entrada_cortada": str(pedido.get("entrada_cortada", ""))[:1000],
+            "resumo": str(pedido.get("resumo", ""))[:_LIMITE_RESUMO_PEDIDO],
+            "entrada_cortada": str(pedido.get("entrada_cortada", ""))[:_LIMITE_ENTRADA_PEDIDO],
             "nivel": str(pedido.get("nivel", "muda_estado"))[:16],
-            "expira_s": int(pedido.get("expira_s") or 0)})
+            "expira_s": int(pedido.get("expira_s") or 0),
+            "escondidos": max(0, int(pedido.get("escondidos") or 0)),
+            "rede": bool(pedido.get("rede"))})
 
     def enviar_claude_fim(self, ok, custo, erro):
         try:

@@ -137,8 +137,17 @@ terminal — com o seu `~/.claude` (CLAUDE.md, skills, agentes, MCPs) — pela
   qualquer regra; todo pedido de permissão vira o diálogo do painel (foco em
   **Negar**; sem resposta em 5 min, nega; voz nunca aprova o que muda o estado).
 - **Servidor MCP `dervs` em processo:** `central_coletar` (stub até a onda D),
-  `propor_acao` (só registra o pedido em `%LOCALAPPDATA%\dervs\claude_propostas.jsonl`
-  e mostra no painel — **não executa nada**) e `status_aprovacao`.
+  `propor_acao` (entrega a proposta à `Fachada` do motor de aprovação da onda C, só
+  `analisar` e `status`; o Motor, o cartão e a senha de uso nunca chegam ao Claude;
+  **não executa nada**) e `status_aprovacao`.
+- **Gancho em TODA ferramenta (revisão de segurança, 29/09):** as regras `allow` do
+  `~/.claude/settings.json` do dono valem antes do `can_use_tool`, então o gancho
+  `PreToolUse` roda sem filtro de nome e devolve `ask` para tudo que não é leitura
+  pura, ferramenta `dervs` ou comando reversível (rede, `git push/commit`, `gh`,
+  `Start-Process`, `type` nunca são). Comando maior que 500 caracteres ou com quebra
+  de linha é negado (o diálogo mostra o comando inteiro ou nada); o corte de outros
+  parâmetros é contado na tela. Ler segredo (`_SEGREDOS`) ou pasta protegida pelo
+  dono (`caminhos_protegidos.json`) é negado em qualquer perfil.
 - **Sessão contínua:** o `session_id` fica em `%LOCALAPPDATA%\dervs\claude_sessao.json`
   e o app reabre retomando a conversa; NOVA CONVERSA zera. **Parar** manda
   `interrupt`; se o Claude não obedecer em 5 s, `dervs_processos.encerrar_arvore`
