@@ -304,6 +304,37 @@ def test_arquivo_de_segredo_nunca_e_leitura(comando):
 
 
 @pytest.mark.parametrize("comando", [
+    "tail -n 5 /etc/ssh/ssh_host_ed25519_key", "tail -n 5 /root/.docker/config.json",
+    "tail -n 5 /root/.bash_history", "tail -n 5 /etc/gshadow-", "tail -n 5 /dev/zero",
+    "tail -n 5 /proc/kcore", "tail -n 5 /etc/passwd", "tail -n 5 /var/logx/a",
+    "tail -n 5 /var/lib/docker/containers/a/config.v2.json", "tail -n 5 /tmp/x",
+    "tail -n 5 /var/log", "ls /etc/ssh", "ls /root", "ls /dev", "ls /proc", "ls /home/u",
+    "ls /var/logx", "ls /srvx", "ls /optional", "ls /var/wwwx", "ls /var", "ls /",
+    "ls -la /etc", "ls -lh /root/.docker",
+])
+def test_caminho_fora_dos_prefixos_permitidos_nao_e_leitura_mas_nao_e_recusado(comando):
+    assert dss.classificar_comando(comando)["nivel"] == "muda_estado"
+
+
+@pytest.mark.parametrize("comando", [
+    "tail -n 5 /var/log/syslog", "tail -n 20 /var/log/nginx/error.log", "ls /var/log", "ls /var/log/",
+    "ls /srv", "ls /srv/app", "ls -la /opt", "ls -l /opt/app/logs", "ls /var/www", "ls -lah /var/www/site",
+])
+def test_caminho_dentro_dos_prefixos_permitidos_e_leitura(comando):
+    assert dss.classificar_comando(comando)["nivel"] == "leitura"
+
+
+@pytest.mark.parametrize("comando", [
+    "tail -n 5 /var/log/.env", "tail -n 5 /var/log/id_rsa", "tail -n 5 /var/log/app/site.pem",
+    "ls /srv/secrets", "ls /opt/app/.ssh", "ls /var/www/.env", "ls /srv/.aws",
+    "tail -n 5 /var/log/shadow",
+])
+def test_dentro_do_prefixo_o_nome_de_segredo_continua_bloqueado(comando):
+    r = dss.classificar_comando(comando)
+    assert r["nivel"] == "muda_estado" and r["le_segredo"]
+
+
+@pytest.mark.parametrize("comando", [
     "rm -rf /", "rm -rf /var/www", "rm -fr x", "rm -r x", "rm --recursive x", "rm -f x",
     "sudo rm -rf /srv", "dd if=/dev/zero of=/dev/sda", "mkfs.ext4 /dev/sdb1", "mkfs /dev/sdb",
     "shutdown -h now", "reboot", "poweroff", "halt", "init 0",
@@ -380,23 +411,36 @@ def test_clique_reaproveitado_em_outra_proposta_do_mesmo_comando_e_recusado(ctx)
     assert len(ctx.exec.chamadas) == 1
 
 
-@pytest.mark.parametrize("com_relatorio", [True, False])
-def test_clique_para_outro_comando_nao_vale(ctx, com_relatorio):
+def test_clique_para_outro_comando_nao_vale_e_nao_e_queimado(ctx):
     inofensivo = ctx.term.propor("prod", "touch /tmp/a")
     perigoso = ctx.term.propor("prod", "systemctl restart nginx")
-    prova = clicar(ctx.motor, inofensivo, com_relatorio)
+    prova = clicar(ctx.motor, inofensivo)
     res = ctx.term.executar(perigoso["proposta_id"], prova)
     assert not res["ok"]
     assert ctx.exec.chamadas == []
+    # o clique de outra ação continua inteiro: ainda vale para a dele
+    assert ctx.term.executar(inofensivo["proposta_id"], prova)["ok"]
 
 
-@pytest.mark.parametrize("com_relatorio", [True, False])
-def test_clique_para_outro_apelido_nao_vale(ctx, com_relatorio):
+def test_clique_para_outro_apelido_nao_vale_e_nao_e_queimado(ctx):
     em_lab = ctx.term.propor("lab", "touch /tmp/a")
     em_prod = ctx.term.propor("prod", "touch /tmp/a")
-    prova = clicar(ctx.motor, em_lab, com_relatorio)
+    prova = clicar(ctx.motor, em_lab)
     assert not ctx.term.executar(em_prod["proposta_id"], prova)["ok"]
     assert ctx.exec.chamadas == []
+    assert ctx.term.executar(em_lab["proposta_id"], prova)["ok"]
+
+
+@pytest.mark.parametrize("rel", ["falta", None, "", 5, "outro-relatorio"])
+def test_prova_sem_relatorio_certo_e_recusada_sem_consumir_nada(ctx, rel):
+    r = ctx.term.propor("prod", "touch /tmp/a")
+    completa = clicar(ctx.motor, r)
+    prova = {k: v for k, v in completa.items() if k != "relatorio_id"}
+    if rel != "falta":
+        prova["relatorio_id"] = rel
+    assert not ctx.term.executar(r["proposta_id"], prova)["ok"]
+    assert ctx.exec.chamadas == []
+    assert ctx.term.executar(r["proposta_id"], completa)["ok"]   # o clique não foi gasto
 
 
 def test_aprovacao_por_voz_ou_outro_origem_nao_existe(ctx):
@@ -447,11 +491,39 @@ def test_sem_mecanismo_de_aprovacao_muda_estado_nunca_roda(tmp_path):
 def test_aprovacao_e_presa_ao_hash_do_par(ctx):
     r = ctx.term.propor("prod", "touch /tmp/a")
     assert len(r["hash"]) == 64
-    assert r["hash"] == dss.hash_do_par("prod", "touch /tmp/a")
-    assert r["hash"] != dss.hash_do_par("lab", "touch /tmp/a")
-    assert r["hash"] != dss.hash_do_par("prod", "touch /tmp/b")
+    prod = dict(HOSTS["prod"])
+    lab = {"host": "lab.exemplo.test", "usuario": "andre", "porta": 22}
+    assert r["hash"] == dss.hash_do_par("prod", "touch /tmp/a", prod)
+    assert r["hash"] != dss.hash_do_par("lab", "touch /tmp/a", prod)
+    assert r["hash"] != dss.hash_do_par("prod", "touch /tmp/b", prod)
+    # o destino também entra: host, usuário e porta
+    for campo, outro in (("host", "203.0.113.99"), ("usuario", "root"), ("porta", 22)):
+        assert r["hash"] != dss.hash_do_par("prod", "touch /tmp/a", dict(prod, **{campo: outro}))
     # separador ambíguo não pode colidir
-    assert dss.hash_do_par("a", "b c") != dss.hash_do_par("a b", "c")
+    assert dss.hash_do_par("a", "b c", lab) != dss.hash_do_par("a b", "c", lab)
+
+
+@pytest.mark.parametrize("novo", [
+    {"host": "198.51.100.7", "usuario": "deploy", "porta": 2222},
+    {"host": "203.0.113.10", "usuario": "root", "porta": 2222},
+    {"host": "203.0.113.10", "usuario": "deploy", "porta": 22},
+])
+def test_cadastro_mudou_entre_clique_e_execucao_e_recusado(ctx, novo):
+    for comando in ("uptime", "touch /tmp/a"):
+        r = ctx.term.propor("prod", comando)
+        prova = clicar(ctx.motor, r) if r["aprovacao"] else None
+        ctx.arq_hosts.write_text(json.dumps(dict(HOSTS, prod=novo)), encoding="utf-8")
+        assert not ctx.term.executar(r["proposta_id"], prova)["ok"]
+        ctx.arq_hosts.write_text(json.dumps(HOSTS), encoding="utf-8")
+    assert ctx.exec.chamadas == []
+
+
+@pytest.mark.parametrize("host", ["fe80::1%eth0", "fe80::1%25eth0", "user@host.test", "a%b.test",
+                                  "@h.test", "h.test%"])
+def test_host_com_porcento_ou_arroba_e_descartado(ctx, host):
+    ctx.arq_hosts.write_text(json.dumps({"x": {"host": host, "usuario": "u"}, "lab": HOSTS["lab"]}),
+                             encoding="utf-8")
+    assert ctx.term.apelidos() == ["lab"]
 
 
 def test_proposta_adulterada_na_memoria_nao_executa(ctx):
@@ -466,7 +538,7 @@ def test_classificacao_e_refeita_na_hora_de_executar(ctx):
     r = ctx.term.propor("prod", "touch /tmp/a")
     prova = clicar(ctx.motor, r)
     ctx.term._propostas[r["proposta_id"]]["comando"] = "rm -rf /"
-    ctx.term._propostas[r["proposta_id"]]["hash"] = dss.hash_do_par("prod", "rm -rf /")
+    ctx.term._propostas[r["proposta_id"]]["hash"] = dss.hash_do_par("prod", "rm -rf /", dict(HOSTS["prod"]))
     assert not ctx.term.executar(r["proposta_id"], prova)["ok"]
     assert ctx.exec.chamadas == []
 
@@ -538,6 +610,53 @@ def test_chave_privada_na_saida_some_inteira_mesmo_passando_do_bloco_do_redator(
     assert "antes" in res["saida"] and "depois" in res["saida"]
 
 
+def test_fim_de_chave_sem_comeco_apaga_tudo_ate_ali(ctx):
+    """tail -n 6 de uma chave: o BEGIN ficou para trás, sobrou corpo em base64 e o END."""
+    tipo = b"OPENSSH PRIV" + b"ATE KEY"
+    corpo = b"\n".join([b"b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW" + b"Q" * 10] * 5)
+    fim = b"-----END " + tipo + b"-----"
+    ctx.exec.resposta = (0, corpo + b"\n" + fim + b"\napos o fim\n")
+    r = ctx.term.propor("prod", "uptime")
+    saida = ctx.term.executar(r["proposta_id"])["saida"]
+    assert "b3BlbnNzaC1r" not in saida and "QQQQQQ" not in saida
+    assert "apos o fim" in saida
+
+
+def test_fim_de_chave_orfao_no_meio_apaga_so_ate_a_linha_dele(ctx):
+    tipo = b"RSA PRIV" + b"ATE KEY"
+    ctx.exec.resposta = (0, b"MIIEowIBAAKCAQEA" + b"Z" * 40 + b"\n-----END " + tipo + b"-----\nnormal\n")
+    r = ctx.term.propor("prod", "uptime")
+    saida = ctx.term.executar(r["proposta_id"])["saida"]
+    assert "ZZZZZZ" not in saida and "normal" in saida
+
+
+# nomes montados em partes: o scanner de segredo do repo barra o par literal
+CASOS_JSON = [
+    ("auth", ":", "dXNlcjpzZWNyZXRvLWRlLXRlc3RlLTEyMzQ=", "dXNlcjpz"),
+    ("pass" + "word", ": ", "hunter2hunter2", "hunter2hunter2"),
+    ("tok" + "en", ":", "abcdefghijklmnop123456", "abcdefghijklmnop123456"),
+    ("sec" + "ret", " : ", "valor-secreto-xyz", "valor-secreto-xyz"),
+    ("api_" + "key", ":", "k-1234567890abcdef", "k-1234567890abcdef"),
+    ("k" + "ey", ":", "chave-curta-123", "chave-curta-123"),
+    ("client_" + "secret", ":", "a" + chr(92) + chr(34) + "b-segredo-longo", "segredo-longo"),
+]
+
+
+@pytest.mark.parametrize("nome,sep,conteudo,valor", CASOS_JSON)
+def test_par_json_com_aspas_e_redigido(ctx, nome, sep, conteudo, valor):
+    linha = '{"auths":{"reg.test":{"' + nome + '"' + sep + '"' + conteudo + '"}}}'
+    ctx.exec.resposta = (0, (linha + chr(10) + "normal" + chr(10)).encode())
+    r = ctx.term.propor("prod", "uptime")
+    saida = ctx.term.executar(r["proposta_id"])["saida"]
+    assert valor not in saida and "normal" in saida
+
+
+def test_json_inocente_nao_e_apagado(ctx):
+    ctx.exec.resposta = (0, b'{"nome":"nginx","estado":"ativo"}\n')
+    r = ctx.term.propor("prod", "uptime")
+    assert "nginx" in ctx.term.executar(r["proposta_id"])["saida"]
+
+
 def test_saida_gigante_e_cortada_em_64kb(ctx):
     import time
     ctx.exec.resposta = (0, b"x" * (dss.TETO_SAIDA * 3))
@@ -595,6 +714,38 @@ def test_ssh_ausente_e_recusa_clara(ctx, monkeypatch):
     r = ctx.term.propor("prod", "uptime")
     res = ctx.term.executar(r["proposta_id"])
     assert not res["ok"] and "ssh" in res["motivo"].lower()
+    assert ctx.exec.chamadas == []
+
+
+def test_localizar_ssh_so_aceita_o_do_system32(tmp_path, monkeypatch):
+    raiz = tmp_path / "Windows"
+    monkeypatch.setenv("SystemRoot", str(raiz))
+    # um ssh "do PATH", da pasta atual e .cmd/.bat não podem ser escolhidos
+    falso = tmp_path / "bin"
+    falso.mkdir()
+    for nome in ("ssh.exe", "ssh.cmd", "ssh.bat"):
+        (falso / nome).write_text("x")
+    monkeypatch.setenv("PATH", str(falso))
+    monkeypatch.chdir(falso)
+    assert dss.localizar_ssh() is None
+    oficial = raiz / "System32" / "OpenSSH"
+    oficial.mkdir(parents=True)
+    (oficial / "ssh.exe").write_text("x")
+    assert os.path.normcase(dss.localizar_ssh()) == os.path.normcase(str(oficial / "ssh.exe"))
+
+
+def test_modulo_nao_procura_ssh_no_path():
+    fonte = open(os.path.join(AQUI, "dervs_ssh.py"), encoding="utf-8").read()
+    assert "which(" not in fonte and "import shutil" not in fonte
+
+
+def test_sem_ssh_do_sistema_o_terminal_fica_indisponivel_em_portugues(ctx, monkeypatch, tmp_path):
+    monkeypatch.setenv("SystemRoot", str(tmp_path / "nada"))
+    ctx.term._ssh_exe = None
+    r = ctx.term.propor("prod", "uptime")
+    res = ctx.term.executar(r["proposta_id"])
+    assert not res["ok"] and "OpenSSH" in res["motivo"]
+    assert ctx.exec.chamadas == []
 
 
 # --- o executor de verdade (sem rede: roda o próprio Python no lugar do ssh)
@@ -705,26 +856,49 @@ def test_tentativa_recusada_por_clique_ruim_nao_gasta_o_teto(ctx):
 
 # ------------------------------------------------ 1. só a interface local chama
 
-@pytest.mark.parametrize("arquivo", ["dervs_ponte_web.py", "dervs_ponte_tratador.py"])
-def test_ponte_web_e_tratador_nao_importam_o_ssh(arquivo):
-    arvore = ast.parse(open(os.path.join(AQUI, arquivo), encoding="utf-8").read())
-    for no in ast.walk(arvore):
-        if isinstance(no, ast.Import):
-            assert all("dervs_ssh" not in a.name for a in no.names)
-        elif isinstance(no, ast.ImportFrom):
-            assert "dervs_ssh" not in (no.module or "")
-            assert all("dervs_ssh" not in a.name for a in no.names)
-        elif isinstance(no, ast.Constant) and isinstance(no.value, str):
-            assert "dervs_ssh" not in no.value  # nem import_module("dervs_ssh")
+# Só a futura tela LOCAL poderá entrar aqui, e só com revisão de segurança. Por ora ninguém.
+PERMITIDOS = frozenset()
 
 
-def test_nenhum_modulo_de_ponte_ou_cerebro_importa_o_ssh():
-    """Quem recebe recado de fora (painel web, Electron, cérebros) fica longe do ssh."""
-    for arq in ("dervs_ponte_web.py", "dervs_ponte_tratador.py", "dervs_ponte_electron.py",
-                "dervs_cerebros.py", "dervs_claude_code.py", "dervs_brain.py"):
-        caminho = os.path.join(AQUI, arq)
-        if os.path.exists(caminho):
-            assert "dervs_ssh" not in open(caminho, encoding="utf-8").read(), arq
+def _arquivos_python_do_repo():
+    achados = [os.path.join(AQUI, n) for n in sorted(os.listdir(AQUI))
+               if n.startswith("dervs") and n.endswith(".py") and n not in ("dervs_ssh.py",)]
+    eletron = os.path.join(AQUI, "electron")
+    for raiz, pastas, nomes in os.walk(eletron):
+        pastas[:] = [d for d in pastas if d != "node_modules"]
+        achados += [os.path.join(raiz, n) for n in nomes if n.endswith(".py")]
+    return achados
+
+
+def test_varredura_por_ast_nenhum_dervs_nem_electron_importa_o_ssh():
+    arquivos = _arquivos_python_do_repo()
+    assert len(arquivos) > 20 and any(a.endswith("dervs_ponte_web.py") for a in arquivos)
+    for caminho in arquivos:
+        nome = os.path.basename(caminho)
+        if nome in PERMITIDOS:
+            continue
+        arvore = ast.parse(open(caminho, encoding="utf-8").read())
+        for no in ast.walk(arvore):
+            if isinstance(no, ast.Import):
+                assert all("dervs_ssh" not in a.name for a in no.names), nome
+            elif isinstance(no, ast.ImportFrom):
+                assert "dervs_ssh" not in (no.module or ""), nome
+                assert all("dervs_ssh" not in a.name for a in no.names), nome
+            elif isinstance(no, ast.Constant) and isinstance(no.value, str):
+                assert "dervs_ssh" not in no.value, nome   # nem import_module("dervs_ssh")
+
+
+def test_nenhum_js_do_electron_fala_do_ssh():
+    for raiz, pastas, nomes in os.walk(os.path.join(AQUI, "electron")):
+        pastas[:] = [d for d in pastas if d != "node_modules"]
+        for n in nomes:
+            if n.endswith((".js", ".html", ".json")) and n != "package-lock.json":
+                assert "dervs_ssh" not in open(os.path.join(raiz, n), encoding="utf-8",
+                                               errors="replace").read(), n
+
+
+def test_permitidos_comeca_vazio():
+    assert PERMITIDOS == frozenset()
 
 
 def test_modulo_nao_exporta_nada_para_a_fachada_do_claude():

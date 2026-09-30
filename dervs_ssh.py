@@ -35,7 +35,6 @@ import json
 import os
 import re
 import secrets
-import shutil
 import subprocess
 import threading
 import time
@@ -86,7 +85,7 @@ def _porta_valida(valor) -> bool:
 
 
 def _host_valido(host) -> bool:
-    if not isinstance(host, str) or not host:
+    if not isinstance(host, str) or not host or "%" in host or "@" in host:
         return False
     if _HOST.fullmatch(host):
         return True
@@ -131,7 +130,11 @@ def carregar_hosts(caminho: str) -> dict:
 
 # Única lista de leitura. Comparação com `fullmatch`, sem IGNORECASE.
 _UNIDADE = r"[A-Za-z0-9][A-Za-z0-9@._-]{0,63}"
-_CAMINHO = r"/[A-Za-z0-9._@+/-]{1,200}"
+_CHARS = r"[A-Za-z0-9._@+/-]"
+# Leitura só sob prefixos PERMITIDOS; o resto (chave do host, histórico, /dev, /proc...)
+# vira `muda_estado` com clique. Dentro dos prefixos o nome de segredo ainda bloqueia.
+_CAMINHO_TAIL = rf"/var/log/{_CHARS}{{1,200}}"
+_CAMINHO_LS = rf"(?:/var/log|/srv|/opt|/var/www)(?:/{_CHARS}{{0,200}})?"
 _N = r"[1-9][0-9]{0,2}"
 _LEITURAS = [re.compile(p) for p in (
     r"uptime", r"hostname", r"date", r"whoami", r"df -h", r"free -m",
@@ -139,9 +142,9 @@ _LEITURAS = [re.compile(p) for p in (
     rf"systemctl status {_UNIDADE}",
     rf"journalctl -n {_N} --no-pager",
     rf"journalctl -u {_UNIDADE} -n {_N} --no-pager",
-    rf"tail -n {_N} {_CAMINHO}",
-    rf"ls {_CAMINHO}",
-    rf"ls -(?:l|la|lh|lah) {_CAMINHO}",
+    rf"tail -n {_N} {_CAMINHO_TAIL}",
+    rf"ls {_CAMINHO_LS}",
+    rf"ls -(?:l|la|lh|lah) {_CAMINHO_LS}",
 )]
 
 # Qualquer um destes caracteres (ou `..`) tira o comando da leitura.
@@ -184,9 +187,12 @@ _DESTRUTIVOS = [(re.compile(p, re.IGNORECASE), m) for p, m in (
 )]
 
 
-def hash_do_par(apelido: str, comando: str) -> str:
-    """Impressão digital do que o dono viu: o par (apelido, comando), inteiro."""
-    texto = json.dumps(["ssh", apelido, comando], ensure_ascii=True, separators=(",", ":"))
+def hash_do_par(apelido: str, comando: str, host: dict) -> str:
+    """Impressão digital do que o dono viu: apelido, comando E o destino que o
+    apelido tinha na hora (host, usuário, porta). Se o cadastro mudar depois do
+    clique, o hash muda e a execução é recusada."""
+    texto = json.dumps(["ssh", apelido, comando, host["host"], host["usuario"], host["porta"]],
+                       ensure_ascii=True, separators=(",", ":"))
     return hashlib.sha256(texto.encode("ascii")).hexdigest()
 
 
@@ -224,11 +230,12 @@ def classificar_comando(comando) -> dict:
 # ------------------------------------------------------------ o ssh de verdade
 
 def localizar_ssh() -> str | None:
+    """SÓ o OpenSSH do Windows, em System32/OpenSSH dentro de %SystemRoot%. Nada de PATH,
+    pasta atual, .cmd ou .bat: um `ssh` plantado nesses lugares receberia o
+    comando e a chave do dono."""
     raiz = os.environ.get("SystemRoot") or r"C:\Windows"
     candidato = os.path.join(raiz, "System32", "OpenSSH", "ssh.exe")
-    if os.path.isfile(candidato):
-        return candidato
-    return shutil.which("ssh")
+    return candidato if os.path.isfile(candidato) else None
 
 
 def montar_argv(ssh_exe: str, host: dict, comando: str) -> list:
@@ -283,8 +290,17 @@ def executar_ssh_padrao(argv, timeout):
 _TRACOS = "-" * 5      # o bloco PEM é montado em partes (o scanner de segredo do repo)
 _CHAVE_PRIVADA = re.compile(_TRACOS + r"BEGIN [^\n-]*" + _TRACOS + r"[\s\S]*?(?:" + _TRACOS
                             + r"END [^\n-]*" + _TRACOS + r"|\Z)")
+_FIM_DE_CHAVE = re.compile(_TRACOS + r"END [^\n-]*KEY" + _TRACOS)
+_PAR_JSON = re.compile(r'"([\w.\-]{1,60})"(\s*:\s*)"((?:[^"\\]|\\.){0,4000})"')
 _MARCA_DE_CHAVE = re.compile(r"id_(?:rsa|dsa|ecdsa|ed25519)|\.pem\b|[\\/]\.ssh[\\/]")
 _PALAVRA = re.compile(r"\S+")
+
+
+def _valor_json(m) -> str:
+    """`"auth":"base64..."`: o redator geral só enxerga nome=valor sem aspas."""
+    if dervs_log_acoes._nome_secreto(m.group(1)):
+        return f'"{m.group(1)}"{m.group(2)}"{_TROCA}"'
+    return m.group(0)
 
 
 def _sem_caminho_de_chave(linha: str) -> str:
@@ -307,11 +323,18 @@ def _limpar_saida(bruto) -> tuple[str, bool]:
         truncada = len(texto.encode("utf-8", errors="replace")) > TETO_SAIDA
         texto = texto[:TETO_SAIDA]
     texto = _CHAVE_PRIVADA.sub(_TROCA, texto)
+    # `tail -n 6` de uma chave deixa só o corpo em base64 e a linha END: sem BEGIN
+    # antes, apaga do começo do texto até o fim dessa linha.
+    fins = list(_FIM_DE_CHAVE.finditer(texto))
+    if fins:
+        corte = texto.find("\n", fins[-1].end())
+        texto = _TROCA + "\n" + (texto[corte + 1:] if corte != -1 else "")
     blocos, atual = [], ""
     for linha in texto.splitlines(keepends=True):
         if len(linha) > _LINHA_MAX:
             linha = linha[:_LINHA_MAX] + " [linha cortada]\n"
         linha = _sem_caminho_de_chave(linha)
+        linha = _PAR_JSON.sub(_valor_json, linha)
         if atual and len(atual) + len(linha) > _LINHA_MAX + 50:
             blocos.append(atual)
             atual = ""
@@ -363,8 +386,10 @@ class AprovadorMotor:
         if not (isinstance(registro_id, str) and isinstance(token_de_uso, str)):
             return False, "falta o clique de aprovação"
         rel = prova.get("relatorio_id")
-        if rel is not None and rel != ref["relatorio_id"]:
-            return False, "esse clique foi dado para outro comando"   # sem queimar o clique
+        if not isinstance(rel, str) or rel != ref["relatorio_id"]:
+            # sem relatório ou de outro: recusa ANTES de consumir, para não queimar
+            # o clique que pertence a outra ação
+            return False, "esse clique não é deste comando (falta o relatório certo)"
         r = self._consumir(registro_id, token_de_uso, ref["item_id"])
         if not r.get("ok"):
             return False, str(r.get("motivo", "aprovação recusada"))
@@ -427,14 +452,15 @@ class TerminalSSH:
         if not isinstance(apelido, str) or not _APELIDO.fullmatch(apelido):
             return self._recusa("propor", "apelido em formato inválido",
                                 apelido=repr(apelido)[:40])
-        if apelido not in self._hosts():
+        hosts = self._hosts()
+        if apelido not in hosts:
             return self._recusa("propor", "apelido fora da lista de servidores permitidos",
                                 apelido=apelido)
         c = classificar_comando(comando)
         if c["nivel"] == "recusado":
             return self._recusa("propor", c["motivo"], apelido=apelido,
                                 comando=comando if isinstance(comando, str) else repr(comando)[:40])
-        impressao = hash_do_par(apelido, comando)
+        impressao = hash_do_par(apelido, comando, hosts[apelido])
         ref = None
         if c["nivel"] == "muda_estado":
             if self._aprovador is None:
@@ -482,14 +508,16 @@ class TerminalSSH:
         host = self._hosts().get(apelido)
         if host is None:
             return recusa("o apelido saiu da lista de servidores permitidos", apelido=apelido)
-        if hash_do_par(apelido, comando) != p["hash"]:
-            return recusa("a proposta não confere com o que foi mostrado", apelido=apelido)
+        if hash_do_par(apelido, comando, host) != p["hash"]:
+            return recusa("a proposta, ou o cadastro do servidor, mudou desde que você viu — "
+                          "proponha de novo", apelido=apelido)
         c = classificar_comando(comando)
         if c["nivel"] == "recusado" or c["nivel"] != p["nivel"]:
             return recusa("o comando não passa mais na classificação", apelido=apelido)
         ssh_exe = self._ssh_exe or localizar_ssh()
         if not ssh_exe:
-            return recusa("o ssh.exe do sistema não foi encontrado", apelido=apelido)
+            return recusa("o terminal SSH está indisponível: o OpenSSH do Windows (ssh.exe em "
+                          "System32/OpenSSH) não está instalado", apelido=apelido)
 
         # Reserva a sessão e o lugar no teto ANTES de consumir o clique: negar por
         # sessão ocupada ou por teto não pode gastar a aprovação do dono.
