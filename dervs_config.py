@@ -205,6 +205,13 @@ PADRAO = {
     # docs/esteira/dervs-painel-completo/briefing.md, "fora_de_escopo".
     "dervs_app_url": "http://localhost:4777",
 
+    # --- Ponte com o DERVS web (dervs_ponte_web.py) ---
+    # Só saída: o VOZ manda seu estado e busca recados do painel. Usa o token de
+    # computador pareado de ~/.dervs/agente.json; sem token, não liga (e diz por quê).
+    "ponte_web_ligada": True,
+    "ponte_web_alvo": "https://dervs.com.br",
+    "ponte_web_intervalo_s": 60,
+
     # --- Claude Code dentro do painel (onda B da central do PC) ---
     # Perfil da sessão do Claude Code: "dono" carrega o ~/.claude inteiro
     # (CLAUDE.md, skills, agentes, MCPs, plugins) + o projeto; "equipe" carrega só
@@ -290,6 +297,14 @@ def _validar(conf: dict) -> dict:
         # tratar como caminho de arquivo local ou outro protocolo — o botão
         # só serve para abrir uma página web.
         conf["dervs_app_url"] = PADRAO["dervs_app_url"]
+    if not isinstance(conf.get("ponte_web_ligada"), bool):
+        conf["ponte_web_ligada"] = PADRAO["ponte_web_ligada"]
+    if not isinstance(conf.get("ponte_web_alvo"), str) or not conf["ponte_web_alvo"].startswith(
+            ("http://", "https://")):
+        conf["ponte_web_alvo"] = PADRAO["ponte_web_alvo"]
+    iv = conf.get("ponte_web_intervalo_s")
+    if isinstance(iv, bool) or not isinstance(iv, (int, float)) or not 10 <= iv <= 3600:
+        conf["ponte_web_intervalo_s"] = PADRAO["ponte_web_intervalo_s"]
     if conf.get("claude_perfil") not in ("dono", "equipe"):
         conf["claude_perfil"] = PADRAO["claude_perfil"]
     return conf

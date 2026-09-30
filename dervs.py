@@ -1748,8 +1748,17 @@ if __name__ == "__main__":
     _mostrar.append(ponte.chegou.emit)
     bandeja = _montar_bandeja(app, l)  # ícone fixo na bandeja
 
+    # Ponte com o DERVS web: só saída, liga só com token de computador pareado.
+    # Falhar aqui nunca derruba a voz (o motivo vai para o log do console).
+    import dervs_ponte_web
+    _ponte_web, _motivo_ponte = dervs_ponte_web.iniciar_da_config(cfg.carregar())
+    if _ponte_web is None:
+        print("[ponte-web] desligada: " + _motivo_ponte, file=sys.stderr)
+
     def _encerrar():
         encerrar_tudo(l.pop)
+        if _ponte_web is not None:
+            _ponte_web.parar(2)
         posse.soltar()       # libera a vez para o próximo DERVS
     app.aboutToQuit.connect(_encerrar)
 
