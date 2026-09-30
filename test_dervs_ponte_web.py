@@ -452,3 +452,12 @@ def test_resposta_que_goteja_estoura_o_prazo(monkeypatch):
 
     with pytest.raises(TimeoutError):
         pw.PonteWeb._ler_com_prazo(Lenta())
+
+
+def test_estado_tem_exatamente_as_chaves_do_contrato(painel, arquivo_token, tmp_path):
+    import dervs_log_acoes as la
+    p = pw.PonteWeb(painel.url, TratadorFalso(), arquivo_token=arquivo_token(painel.url),
+                    log=la.LogAcoes(str(tmp_path / "l.jsonl")), estado_fn=pw.estado_do_voz)
+    p.ciclo()
+    assert set(painel.estados[0]) == {"versao", "enviado_em", "cerebro_ativo", "cerebros",
+                                      "gasto_dia_usd"}

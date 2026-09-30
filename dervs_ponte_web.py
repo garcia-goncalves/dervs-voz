@@ -200,7 +200,8 @@ class PonteWeb:
         return b"".join(partes)
 
     def enviar_estado(self):
-        corpo = {"versao": VERSAO, "enviado_em": _agora(), "intervalo_s": self.intervalo_s}
+        # o painel recusa (400) qualquer chave fora das cinco do contrato
+        corpo = {"versao": VERSAO, "enviado_em": _agora()}
         corpo.update(self._estado_fn() or {})
         self._falar("POST", "/agente/voz/estado", corpo)
 

@@ -9,7 +9,7 @@ e recusa redirecionamento. Acesso `maquina` nas três rotas. Teto de 64 KB.
 
 | Rota | Quem chama | Corpo |
 |---|---|---|
-| `POST /agente/voz/estado` | VOZ, a cada ~60 s | `versao`, `enviado_em`, `intervalo_s`, `cerebro_ativo`, `cerebros{nome:{disponivel,motivo}}`, `gasto_dia_usd`. **Não é sinal de vida**: a vigília é julgada só pelo `visto_em` de `/agente/relatorio`. Sem `/estado` há mais de 2x `intervalo_s`, o painel mostra "sem informação" naquele campo. |
+| `POST /agente/voz/estado` | VOZ, a cada ~60 s | `versao`, `enviado_em`, `cerebro_ativo`, `cerebros{nome:{disponivel,motivo}}`, `gasto_dia_usd` (EXATAMENTE estas cinco chaves: o servidor responde 400 a qualquer outra, NaN ou Infinity). **Não é sinal de vida**: a vigília é julgada só pelo `visto_em` de `/agente/relatorio`. Sem `/estado` há mais de 2x `intervalo_s`, o painel mostra "sem informação" naquele campo. |
 | `GET /agente/voz/recados` | VOZ | resposta `{"recados":[{id,criado_em,tipo,alvo,texto,nivel,cerebro_pedido}]}` |
 | `POST /agente/voz/resultado` | VOZ | `id`, `cerebro`, `estado`, `resumo`(<=1000), `custo_usd`, `duracao_s`, `terminado_em` |
 
