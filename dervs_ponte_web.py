@@ -29,6 +29,8 @@ import json
 import os
 import re
 import threading
+import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -40,6 +42,8 @@ TETO_DA_RESPOSTA = 64 * 1024
 TETO_DO_RESUMO = 1000
 TETO_DO_TEXTO = 500
 MAX_RECADOS_POR_CICLO = 10
+MAX_RECADOS_POR_HORA = 60      # teto de trabalho que o painel pode pedir (quem invade a conta não afoga o PC)
+PRAZO_DA_RESPOSTA_S = 30       # prazo TOTAL de uma chamada (o timeout do urllib vale por leitura)
 ESPERA_DA_REDE_S = 20
 INTERVALO_PADRAO_S = 60
 TETO_DA_ESPERA_S = 900
@@ -121,6 +125,8 @@ class PonteWeb:
         self.motivo = None
         self._vistos = OrderedDict()
         self._prontos = OrderedDict()   # resultado pronto que o painel ainda não recebeu
+        self._marcas = []               # quando cada recado foi aceito (teto por hora)
+        self._avisou_teto = False
         self._parar = threading.Event()
         self._thread = None
         if log is None:
@@ -156,7 +162,7 @@ class PonteWeb:
             pedido.add_header("Content-Type", "application/json")
         try:
             with self._abridor.open(pedido, timeout=ESPERA_DA_REDE_S) as r:
-                bruto = r.read(TETO_DA_RESPOSTA + 1)
+                bruto = self._ler_com_prazo(r)
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
                 raise PonteIndisponivel(
@@ -176,6 +182,22 @@ class PonteWeb:
         except ValueError:
             raise PonteIndisponivel("O painel respondeu algo que não entendi.")
         return resposta if isinstance(resposta, dict) else {}
+
+    @staticmethod
+    def _ler_com_prazo(resposta) -> bytes:
+        """Lê em blocos conferindo o relógio: um servidor que goteja 1 byte a cada
+        19 s não prende a thread da ponte (o timeout do socket vale por leitura)."""
+        limite = time.monotonic() + PRAZO_DA_RESPOSTA_S
+        partes, total = [], 0
+        while total <= TETO_DA_RESPOSTA:
+            if time.monotonic() > limite:
+                raise TimeoutError("prazo da resposta estourou")
+            bloco = resposta.read(min(4096, TETO_DA_RESPOSTA + 1 - total))
+            if not bloco:
+                break
+            partes.append(bloco)
+            total += len(bloco)
+        return b"".join(partes)
 
     def enviar_estado(self):
         corpo = {"versao": VERSAO, "enviado_em": _agora(), "intervalo_s": self.intervalo_s}
@@ -198,11 +220,13 @@ class PonteWeb:
         if recado.get("nivel") not in NIVEIS:
             return "nível de recado desconhecido"
         alvo = recado.get("alvo")
-        if alvo not in (None, "") and not (isinstance(alvo, str) and _PROJETO.match(alvo)):
+        if alvo not in (None, "") and not (isinstance(alvo, str) and _PROJETO.fullmatch(alvo)):
             return "nome de projeto inválido"
         texto = recado.get("texto", "")
         if not isinstance(texto, str) or len(texto) > TETO_DO_TEXTO:
             return "texto grande demais"
+        if any(unicodedata.category(c) in ("Cc", "Cf") and c != chr(10) for c in texto):
+            return "texto com caractere de controle"
         if recado.get("cerebro_pedido", "auto") not in CEREBROS_PEDIDOS:
             return "cérebro pedido desconhecido"
         return None
@@ -213,6 +237,19 @@ class PonteWeb:
                  "texto": recado.get("texto")}
         dados.update(extra or {})
         self.log.registrar(evento, dados)
+
+    def _cabe_na_hora(self) -> bool:
+        agora = time.monotonic()
+        self._marcas = [m for m in self._marcas if agora - m < 3600]
+        if len(self._marcas) >= MAX_RECADOS_POR_HORA:
+            if not self._avisou_teto:
+                self._avisou_teto = True
+                self._rastro("alerta", {"motivo": "teto de %d recados por hora; o resto espera"
+                                        % MAX_RECADOS_POR_HORA})
+            return False
+        self._avisou_teto = False
+        self._marcas.append(agora)
+        return True
 
     def _rastro(self, evento: str, dados: dict):
         try:
@@ -225,10 +262,12 @@ class PonteWeb:
         if not isinstance(recado, dict):
             return None
         rid = recado.get("id")
-        if not isinstance(rid, str) or not _ID.match(rid):
+        if not isinstance(rid, str) or not _ID.fullmatch(rid):
             self._rastro("recusou", {"motivo": "recado sem id válido"})
             return None
         if rid in self._vistos or rid in self._prontos:
+            return None
+        if not self._cabe_na_hora():
             return None
         self._vistos[rid] = True
         while len(self._vistos) > 500:

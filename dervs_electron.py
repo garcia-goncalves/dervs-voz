@@ -41,6 +41,7 @@ import dervs_instancia as instancia
 import dervs_registro as registro
 import dervs_safety as seg
 import dervs_painel as painel
+import dervs_ponte_web as ponte_web
 import dervs_sistema as sistema
 from dervs_ponte_electron import PonteElectron
 
@@ -646,6 +647,9 @@ def _encerrar(motor: Motor, ponte: PonteElectron, posse, parar_sistema: threadin
     para a thread do painel de sistema, fecha o processo do Electron, e libera
     a trava de instância única."""
     parar_sistema.set()
+    ponte_web_ativa = getattr(motor, "ponte_web", None)
+    if ponte_web_ativa is not None:
+        ponte_web_ativa.parar(2)
     sessao_claude = getattr(motor, "claude", None)
     if sessao_claude is not None:
         sessao_claude.encerrar()         # não deixa `claude` órfão
@@ -739,6 +743,14 @@ def main():
     painel.iniciar_loop_painel(ponte, parar_sistema, voz=motor.voz)
     # Central do PC: análise diária com o PC ocioso (só lê e avisa).
     motor.central_pc.iniciar_rotina_diaria(parar_sistema)
+    # Ponte com o DERVS web (só saída, só com token pareado). Usa o MESMO registro
+    # do Motor de aprovação: duas instâncias sobre o mesmo arquivo quebrariam a
+    # corrente de hashes e acusariam adulteração falsa.
+    motor.ponte_web, motivo_ponte = ponte_web.iniciar_da_config(
+        conf, log=motor._motor_aprovacao().log)
+    if motor.ponte_web is None:
+        sys.stderr.write("dervs: ponte com o painel web desligada: %s" % motivo_ponte + chr(10))
+        sys.stderr.flush()
 
     app.aboutToQuit.connect(lambda: _encerrar(motor, ponte, posse, parar_sistema))
     app.exec()

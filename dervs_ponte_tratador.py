@@ -16,6 +16,7 @@ import datetime
 import json
 import os
 import threading
+import time
 
 import dervs_config
 from dervs_central import repositorios
@@ -41,6 +42,7 @@ class TratadorLocal:
         self._arquivo = arquivo_propostas or arquivo_padrao()
         self._estado_fn = estado_fn or (lambda: {})
         self._git = git_fn or repositorios.rodar_git
+        self._geral = (0.0, "")        # (quando, texto): a varredura cara roda no máximo a cada 30 s
 
     def _raizes_ou_padrao(self):
         return self._raizes or [os.path.join(os.path.expanduser("~"), "source", "repos")]
@@ -74,6 +76,14 @@ class TratadorLocal:
         return "Não achei o projeto %s entre os que o DERVS-VOZ monitora." % nome
 
     def _resumo_geral(self) -> str:
+        quando, texto = self._geral
+        if texto and time.monotonic() - quando < 30:
+            return texto
+        texto = self._varrer()
+        self._geral = (time.monotonic(), texto)
+        return texto
+
+    def _varrer(self) -> str:
         itens = repositorios.coletar(self._raizes_ou_padrao(), rodar_git_fn=self._git).get("itens")
         if not itens:
             return "Nenhum projeto com commit sem push."

@@ -84,3 +84,14 @@ def test_proposta_repetida_nao_entra_duas_vezes(repos, tmp_path):
     tr.propor({"id": "r-1", "tipo": "propor", "texto": "x"})
     msg = tr.propor({"id": "r-1", "tipo": "propor", "texto": "x"})
     assert len(tr.pendentes()) == 1 and "já estava" in msg
+
+
+def test_varredura_geral_roda_no_maximo_uma_vez_por_janela(repos, tmp_path):
+    chamadas = []
+    tr = t.TratadorLocal(raizes=[repos], arquivo_propostas=str(tmp_path / "p.jsonl"),
+                         git_fn=lambda repo: chamadas.append(repo) or SAIDA)
+    tr.leitura({"tipo": "analisar"})
+    n = len(chamadas)
+    for _ in range(20):
+        tr.leitura({"tipo": "analisar"})
+    assert n > 0 and len(chamadas) == n

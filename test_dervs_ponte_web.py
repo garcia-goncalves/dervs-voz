@@ -406,9 +406,49 @@ def test_resultado_que_nao_chegou_e_reenviado_sem_refazer(ponte, painel):
 
 def test_falha_do_tratador_deixa_rastro_so_com_o_tipo(ponte, painel):
     def quebra(recado):
-        raise PermissionError("C:\segredo\senha.txt")
+        raise PermissionError(r"C:\segredo\senha.txt")
     ponte.tratador.leitura = quebra
     painel.recados = [_recado()]
     ponte.ciclo()
     linhas = json.dumps(ponte.log.ler())
     assert "PermissionError" in linhas and "segredo" not in linhas
+
+
+# ------------------------------------------------------------------ revisão de segurança
+
+def test_teto_de_recados_por_hora(ponte, painel):
+    painel.recados = [_recado(id="t%d" % i) for i in range(10)]
+    for _ in range(pw.MAX_RECADOS_POR_HORA // 10 + 2):
+        painel.recados = [_recado(id="t%d-%d" % (i, len(ponte._vistos))) for i in range(10)]
+        ponte.ciclo()
+    assert len(ponte.tratador.lidos) == pw.MAX_RECADOS_POR_HORA
+    alertas = [l for l in ponte.log.ler() if l["evento"] == "alerta"]
+    assert len(alertas) == 1        # um aviso só, não uma linha por recado
+
+
+@pytest.mark.parametrize("texto", ["abre‮isto", "a​b", "x\x00y", "a\x1bb"])
+def test_texto_com_caractere_de_controle_e_recusado(ponte, painel, texto):
+    painel.recados = [_recado(texto=texto)]
+    ponte.ciclo()
+    assert ponte.tratador.lidos == [] and painel.resultados[0]["estado"] == "recusado"
+
+
+@pytest.mark.parametrize("ruim", [{"alvo": "dervs-voz\n"}])
+def test_quebra_de_linha_no_fim_nao_passa(ponte, painel, ruim):
+    painel.recados = [_recado(**ruim), _recado(id="r-2\n")]
+    ponte.ciclo()
+    assert ponte.tratador.lidos == []
+    assert [r["id"] for r in painel.resultados] == ["r-1"]
+
+
+def test_resposta_que_goteja_estoura_o_prazo(monkeypatch):
+    monkeypatch.setattr(pw, "PRAZO_DA_RESPOSTA_S", 0.05)
+
+    class Lenta:
+        def read(self, n):
+            import time
+            time.sleep(0.03)
+            return b"x"
+
+    with pytest.raises(TimeoutError):
+        pw.PonteWeb._ler_com_prazo(Lenta())
