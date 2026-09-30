@@ -97,6 +97,9 @@ Verbos Python → Electron (só estes):
             tela; nunca para o Claude.
   central_resultado {"ok", "motivo", "itens", …} — o que a aprovação, a limpeza
             ou o desfazer fez (ou recusou, com o motivo).
+  integracao {"parte", …}            — a tela Integração (cérebro, painel web, terminal SSH):
+            `parte` = cerebros | web | fila | avisos | ssh | ssh_cartao | ssh_resultado |
+            ssh_cancelado | mensagem. Tudo texto de terceiro: a tela só usa `textContent`.
   claude_fim {"ok", "custo", "erro"}  — o turno acabou. `custo` é o equivalente
             em dólar da assinatura (medida, não cobrança).
 
@@ -133,6 +136,13 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
             só a lista explícita de itens marcados; `dupla` lista os de risco alto.
   central_desfazer {"desfazer_id"}    — devolve um item da quarentena.
   central_explicar {"codigo"}         — manda UM item da nota ao Claude.
+  integracao_pedir                    — a tela abriu: manda o estado de todos os blocos.
+  integracao_cerebro {"nome"}         — escolhe o cérebro (claude_code | hermes).
+  integracao_dispensar {"id"}         — dispensa um pedido da fila do painel web.
+  integracao_conserto {"aviso_id"}    — "Pedir conserto" de UM aviso (id local, não o do alerta).
+  integracao_ssh_rodar {"apelido", "comando"} — terminal SSH: leitura roda, o resto vira cartão.
+  integracao_ssh_confirmar {"proposta_id", "segunda": true} — a segunda confirmação do cartão.
+  integracao_ssh_cancelar {"proposta_id"} — desiste do cartão.
 
 Regras duras (valem para os dois lados da ponte, e este arquivo cumpre a
 parte do Python):
@@ -153,6 +163,7 @@ parte do Python):
 import hmac
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -177,6 +188,14 @@ _LIMITE_RESUMO_PEDIDO = 500    # o comando/caminho do pedido de permissão apare
 _LIMITE_ENTRADA_PEDIDO = 1000  # o resto dos parâmetros (o corte é avisado em `escondidos`)
 _VERBOS_CENTRAL = ("central_pedir", "central_analisar", "central_propor_limpeza",
                    "central_aprovar", "central_desfazer", "central_explicar")
+_VERBOS_INTEGRACAO = ("integracao_pedir", "integracao_cerebro", "integracao_dispensar",
+                      "integracao_conserto", "integracao_ssh_rodar", "integracao_ssh_confirmar",
+                      "integracao_ssh_cancelar")
+_LIMITE_COMANDO_SSH = 400      # o mesmo teto do terminal (cabe inteiro no cartão)
+_LIMITE_SAIDA_SSH = 16000      # caracteres da saída do servidor que vão para a tela
+_ID_DO_PEDIDO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+_ID_LOCAL = re.compile(r"[A-Za-z0-9]{1,40}")
+_APELIDO_SSH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
 _LIMITE_TEXTO_CENTRAL = 600    # cada texto de item da Central (nomes de arquivo, explicações)
 _ESTRANGULA_SEG = 0.05         # 50 ms = no máximo 20 mensagens de volume/s
 
@@ -201,7 +220,7 @@ class PonteElectron:
     """
 
     def __init__(self, ao_sair, ao_plano, ao_pronto, ao_microfone=None,
-                 ao_reuniao=None, ao_claude=None, ao_central=None):
+                 ao_reuniao=None, ao_claude=None, ao_central=None, ao_integracao=None):
         """`ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`.
         `ao_microfone(ligar: bool)` roda na thread de leitura da ponte — quem
         o fornece precisa atravessar para a thread da tela antes de mexer em
@@ -214,6 +233,7 @@ class PonteElectron:
         sessão (`dervs_claude_code.SessaoClaudeCode`) é segura entre threads."""
         self._ao_claude = ao_claude
         self._ao_central = ao_central   # verbos `central_*` já validados (onda D)
+        self._ao_integracao = ao_integracao   # verbos `integracao_*` já validados (tela Integração)
         self._ao_microfone = ao_microfone
         self._ao_reuniao = ao_reuniao
         self._ultimo_microfone_guardado = None
@@ -446,6 +466,8 @@ class PonteElectron:
             self._tratar_claude(verbo, dado)
         elif verbo in _VERBOS_CENTRAL:
             self._tratar_central(verbo, dado)
+        elif verbo in _VERBOS_INTEGRACAO:
+            self._tratar_integracao(verbo, dado)
         else:
             sys.stderr.write(f"ponte: verbo desconhecido vindo do Electron: {verbo!r}\n")
 
@@ -480,6 +502,37 @@ class PonteElectron:
                 return
         if self._ao_central is not None:
             self._chamar(self._ao_central, verbo, dados)
+
+    def _tratar_integracao(self, verbo, dado):
+        """Valida os verbos da tela Integração. O formato exato passa; o resto é linha
+        ignorada no stderr. O que é sensível (aprovar o SSH) ainda é conferido de novo
+        pelo `IntegracaoLocal` e pelo Motor de aprovação."""
+        def casa(campo, padrao):
+            v = dado.get(campo)
+            return v if isinstance(v, str) and padrao.fullmatch(v) else None
+        dados = {}
+        if verbo == "integracao_cerebro":
+            dados = {"nome": casa("nome", re.compile(r"[a-z_]{1,20}"))}
+        elif verbo == "integracao_dispensar":
+            dados = {"id": casa("id", _ID_DO_PEDIDO)}
+        elif verbo == "integracao_conserto":
+            dados = {"aviso_id": casa("aviso_id", _ID_LOCAL)}
+        elif verbo == "integracao_ssh_rodar":
+            comando = dado.get("comando")
+            dados = {"apelido": casa("apelido", _APELIDO_SSH),
+                     "comando": comando if (isinstance(comando, str) and comando.strip()
+                                            and len(comando) <= _LIMITE_COMANDO_SSH) else None}
+        elif verbo == "integracao_ssh_confirmar":
+            # só o booleano de verdade confirma (mesma checagem estrita de `autorizado`)
+            dados = {"proposta_id": casa("proposta_id", _ID_LOCAL),
+                     "segunda": True if dado.get("segunda") is True else None}
+        elif verbo == "integracao_ssh_cancelar":
+            dados = {"proposta_id": casa("proposta_id", _ID_LOCAL)}
+        if None in dados.values():
+            sys.stderr.write(f"ponte: {verbo} inválido, ignorado\n")
+            return
+        if self._ao_integracao is not None:
+            self._chamar(self._ao_integracao, verbo, dados)
 
     def _tratar_claude(self, verbo, dado):
         """Valida os verbos do Claude Code ANTES de entregar: tudo aqui vem de
@@ -761,6 +814,30 @@ class PonteElectron:
 
     def enviar_central_resultado(self, resultado: dict):
         self._escrever_central({"verbo": "central_resultado", **resultado})
+
+    # ---- tela Integração ---------------------------------------------------------
+    # Mesmo cuidado da Central (texto cortado, lista limitada), mas com teto próprio:
+    # a saída de um comando no servidor é o único texto que passa de 600 caracteres.
+    def _limpar_integracao(self, valor, chave="", fundo=0):
+        if isinstance(valor, str):
+            return valor[:_LIMITE_SAIDA_SSH if chave == "saida" else _LIMITE_TEXTO_CENTRAL]
+        if fundo > 4:
+            return None
+        if isinstance(valor, dict):
+            return {str(k)[:64]: self._limpar_integracao(v, str(k), fundo + 1) for k, v in valor.items()}
+        if isinstance(valor, (list, tuple)):
+            return [self._limpar_integracao(v, chave, fundo + 1) for v in list(valor)[:100]]
+        if isinstance(valor, (bool, int, float)) or valor is None:
+            return valor
+        return str(valor)[:_LIMITE_TEXTO_CENTRAL]
+
+    def enviar_integracao(self, parte: str, dados: dict):
+        limpa = self._limpar_integracao({"verbo": "integracao", "parte": str(parte)[:30], **(dados or {})})
+        if len(json.dumps(limpa, ensure_ascii=False).encode("utf-8")) > _LIMITE_PLANO:
+            limpa = {k: ([] if isinstance(v, list) else ("" if k == "saida" else v))
+                     for k, v in limpa.items()}
+            limpa["truncada"] = True
+        self._escrever(limpa)
 
     def enviar_reuniao(self, restante_s):
         """Segundos restantes do modo reunião, ou `None` quando não há."""

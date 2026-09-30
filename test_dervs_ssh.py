@@ -857,8 +857,9 @@ def test_tentativa_recusada_por_clique_ruim_nao_gasta_o_teto(ctx):
 
 # ------------------------------------------------ 1. só a interface local chama
 
-# Só a futura tela LOCAL poderá entrar aqui, e só com revisão de segurança. Por ora ninguém.
-PERMITIDOS = frozenset()
+# Só o módulo da tela LOCAL (Electron) entra aqui; ninguém mais, e cada acréscimo pede revisão
+# de segurança. O Claude, os cérebros e a ponte web ficam de fora.
+PERMITIDOS = frozenset({"dervs_integracao_painel.py"})
 
 
 def _arquivos_python_do_repo():
@@ -898,8 +899,8 @@ def test_nenhum_js_do_electron_fala_do_ssh():
                                                errors="replace").read(), n
 
 
-def test_permitidos_comeca_vazio():
-    assert PERMITIDOS == frozenset()
+def test_permitidos_e_so_a_tela_local():
+    assert PERMITIDOS == frozenset({"dervs_integracao_painel.py"})
 
 
 def test_modulo_nao_exporta_nada_para_a_fachada_do_claude():

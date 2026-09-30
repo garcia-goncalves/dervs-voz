@@ -130,6 +130,7 @@ class PonteWeb:
         self._estado_fn = estado_fn or (lambda: {})
         self.intervalo_s = intervalo_s
         self.motivo = None
+        self.calma = False              # o último ciclo falhou por situação esperada (painel sem a ponte ainda)
         self._vistos = OrderedDict()
         self._prontos = OrderedDict()   # resultado pronto que o painel ainda não recebeu
         self._marcas = []               # quando cada recado foi aceito (teto por hora)
@@ -370,12 +371,15 @@ class PonteWeb:
                     feitos += 1
         except PonteIndisponivel as e:
             self.motivo = str(e)
+            self.calma = bool(e.calma)
             return {"ok": False, "motivo": self.motivo, "recados": feitos, "calma": e.calma}
         except Exception as e:
             self._rastro("alerta", {"falha": type(e).__name__})
             self.motivo = "Erro inesperado na ponte com o painel web."
+            self.calma = False
             return {"ok": False, "motivo": self.motivo, "recados": feitos}
         self.motivo = None
+        self.calma = False
         return {"ok": True, "motivo": "", "recados": feitos}
 
     def _laco(self):

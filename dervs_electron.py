@@ -38,6 +38,7 @@ import dervs_claude_code as claude_code
 import dervs_config as config
 import dervs_diario as diario
 import dervs_instancia as instancia
+import dervs_integracao_painel as integracao_painel
 import dervs_registro as registro
 import dervs_safety as seg
 import dervs_painel as painel
@@ -695,10 +696,15 @@ def main():
     ao_reuniao_alvo = []
     ao_claude_alvo = []
     ao_central_alvo = []
+    ao_integracao_alvo = []
 
     def _ao_central_inicial(verbo, dados):
         if ao_central_alvo:
             ao_central_alvo[0](verbo, dados)
+
+    def _ao_integracao_inicial(verbo, dados):
+        if ao_integracao_alvo:
+            ao_integracao_alvo[0](verbo, dados)
 
     def _ao_microfone_inicial(ligar):
         if ao_microfone_alvo:
@@ -715,7 +721,7 @@ def main():
     ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial,
                           ao_pronto=lambda: None, ao_microfone=_ao_microfone_inicial,
                           ao_reuniao=_ao_reuniao_inicial, ao_claude=_ao_claude_inicial,
-                          ao_central=_ao_central_inicial)
+                          ao_central=_ao_central_inicial, ao_integracao=_ao_integracao_inicial)
     motor = Motor(ponte)
     ao_claude_alvo.append(_construir_ao_claude(motor))
     ao_central_alvo.append(motor.central_pc.tratar)
@@ -748,13 +754,26 @@ def main():
     # Ponte com o DERVS web (só saída, só com token pareado). Usa o MESMO registro
     # do Motor de aprovação: duas instâncias sobre o mesmo arquivo quebrariam a
     # corrente de hashes e acusariam adulteração falsa.
-    tratador_web = ponte_tratador.TratadorLocal(
-        estado_fn=ponte_web.estado_do_voz,
-        # o aviso do painel é DADO: só aparece na conversa (a tela usa textContent)
-        aviso_fn=lambda texto, alvo: ponte.enviar_fala(
-            "dervs", "Aviso do painel web (%s): %s" % (alvo or "geral", texto)))
+    # A tela Integração (cérebro, painel web, terminal SSH). Só a tela LOCAL chega aqui: o
+    # Claude e a ponte do Claude não recebem nada disto. O Seletor é o MESMO da ponte web
+    # (o Hermes guarda a checagem do WSL em cache nele) e o Motor de aprovação, o MESMO do resto.
+    integracao = integracao_painel.IntegracaoLocal(
+        ponte, motor_fabrica=motor._motor_aprovacao, seletor_fn=ponte_web.seletor_de_cerebros,
+        ponte_web_fn=lambda: (getattr(motor, "ponte_web", None), getattr(motor, "ponte_web_motivo", "")))
+    ao_integracao_alvo.append(integracao.tratar)
+
+    def _aviso_do_painel(texto, alvo):
+        # o aviso do painel é DADO: vai para a conversa (a tela usa textContent) E para a
+        # lista da tela Integração (redigido, teto de 100), onde o "Pedir conserto" mora
+        ponte.enviar_fala("dervs", "Aviso do painel web (%s): %s" % (alvo or "geral", texto))
+        integracao.ao_aviso(texto, alvo)
+
+    tratador_web = ponte_tratador.TratadorLocal(estado_fn=ponte_web.estado_do_voz,
+                                                aviso_fn=_aviso_do_painel)
+    integracao.tratador = tratador_web
     motor.ponte_web, motivo_ponte = ponte_web.iniciar_da_config(
         conf, tratador=tratador_web, log=motor._motor_aprovacao().log)
+    motor.ponte_web_motivo = motivo_ponte
     if motor.ponte_web is None:
         sys.stderr.write("dervs: ponte com o painel web desligada: %s" % motivo_ponte + chr(10))
         sys.stderr.flush()

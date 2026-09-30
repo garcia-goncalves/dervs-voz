@@ -129,6 +129,40 @@ class TratadorLocal:
             pass
         return saida
 
+    def dispensar(self, pedido_id) -> bool:
+        """O dono diz "não quero" a um pedido da fila: marca `dispensado` no arquivo e
+        ele sai de `pendentes()`. NÃO executa nada e não apaga a linha (fica o rastro
+        do que o painel pediu). True se achou um pendente com esse id."""
+        if not isinstance(pedido_id, str) or not pedido_id:
+            return False
+        with _TRAVA:
+            try:
+                with open(self._arquivo, "r", encoding="utf-8") as f:
+                    linhas = f.read().splitlines()
+            except OSError:
+                return False
+            achou, saida = False, []
+            for linha in linhas:
+                try:
+                    item = json.loads(linha)
+                except ValueError:
+                    saida.append(linha)
+                    continue
+                if (isinstance(item, dict) and item.get("id") == pedido_id
+                        and item.get("estado") == "pendente"):
+                    item["estado"] = "dispensado"
+                    item["dispensado_em"] = datetime.datetime.now().isoformat(timespec="seconds")
+                    linha = json.dumps(item, ensure_ascii=False)
+                    achou = True
+                saida.append(linha)
+            if achou:
+                # grava num arquivo ao lado e troca: queda no meio não deixa a fila pela metade
+                temporario = self._arquivo + ".tmp"
+                with open(temporario, "w", encoding="utf-8", newline="\n") as f:
+                    f.write("\n".join(saida) + "\n")
+                os.replace(temporario, self._arquivo)
+            return achou
+
     def propor(self, recado) -> str:
         import dervs_log_acoes
         with _TRAVA:
