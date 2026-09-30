@@ -933,7 +933,7 @@ def test_proposta_entra_como_executar_ssh_com_texto_leigo(ctx):
     assert item["acao"] == "executar_ssh" and item["alvo"] == "ssh:prod"
     assert item["risco"] == "alto"
     assert "Vai rodar o comando systemctl restart nginx no servidor prod" in item["o_que_muda"]
-    assert "registro mostra exatamente o que rodou" in item["como_desfazer"]
+    assert "registro guarda exatamente o que rodou" in item["como_desfazer"]
     assert "Explicação do Claude" not in item["o_que_e"]
     assert ctx.motor.status(r["aprovacao"]["relatorio_id"])["itens"][0]["acao"] == "executar_ssh"
 

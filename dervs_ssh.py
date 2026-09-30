@@ -378,7 +378,8 @@ class AprovadorMotor:
             raise ValueError(motivo)
         return {"relatorio_id": relatorio["id"], "item_id": relatorio["itens"][0]["id"]}
 
-    def consumir(self, ref: dict, prova, apelido: str, hash_do_par_: str) -> tuple[bool, str]:
+    def consumir(self, ref: dict, prova, apelido: str, hash_do_par_: str,
+                 comando=None) -> tuple[bool, str]:
         if not isinstance(prova, dict):
             return False, "falta o clique de aprovação"
         registro_id = prova.get("registro_id", prova.get("id"))
@@ -395,7 +396,8 @@ class AprovadorMotor:
             return False, str(r.get("motivo", "aprovação recusada"))
         item, registro = r["item"], r["registro"]
         if (registro.get("relatorio_id") != ref["relatorio_id"]
-                or item.get("acao") != "executar_ssh" or item.get("alvo") != f"ssh:{apelido}" or item.get("versao") != hash_do_par_):
+                or item.get("acao") != "executar_ssh" or item.get("alvo") != f"ssh:{apelido}" or item.get("versao") != hash_do_par_
+                or (comando is not None and item.get("comando") != comando)):
             return False, "esse clique foi dado para outro comando"
         return True, ""
 
@@ -537,7 +539,7 @@ class TerminalSSH:
                     ok, motivo = False, "sem mecanismo de aprovação"
                 else:
                     try:
-                        ok, motivo = self._aprovador.consumir(p["ref"], prova, apelido, p["hash"])
+                        ok, motivo = self._aprovador.consumir(p["ref"], prova, apelido, p["hash"], p["comando"])
                     except Exception:
                         ok, motivo = False, "a aprovação não pôde ser conferida"
                 if not ok:

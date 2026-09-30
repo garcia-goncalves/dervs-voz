@@ -830,8 +830,8 @@ def test_executar_ssh_e_acao_propria_com_texto_leigo(motor):
     assert item["comando"] == "systemctl restart nginx"
     assert "Vai rodar o comando systemctl restart nginx no servidor prod" in item["o_que_muda"]
     assert "o servidor pode mudar" in item["o_que_muda"]
-    assert "Depende do comando" in item["como_desfazer"]
-    assert "registro mostra exatamente o que rodou" in item["como_desfazer"]
+    assert "não desfaz" in item["como_desfazer"]
+    assert "registro guarda exatamente o que rodou" in item["como_desfazer"]
     assert "alterar config" not in item["o_que_e"] and "Explicação do Claude" not in item["o_que_e"]
     assert item["impressao"]
 

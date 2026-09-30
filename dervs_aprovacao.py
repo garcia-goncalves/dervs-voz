@@ -347,7 +347,8 @@ class Motor:
                 and _APELIDO_SSH.fullmatch(alvo[4:])):
             raise Recusado("o servidor do comando SSH veio fora do formato (ssh:<apelido>)")
         if (not isinstance(comando, str) or not comando or len(comando) > LIMITE_COMANDO_SSH
-                or not comando.isprintable() or comando != comando.strip()):
+                or not comando.isprintable() or comando != comando.strip()
+                or "  " in comando):
             raise Recusado("o comando SSH veio vazio, longo demais ou com caractere invisível")
         if not (isinstance(versao, str) and _HASH_SSH.fullmatch(versao)):
             raise Recusado("falta a impressão digital do comando SSH")
@@ -358,7 +359,7 @@ class Motor:
             "o_que_e": f"Comando no servidor {apelido}: {comando}",
             "o_que_muda": f"Vai rodar o comando {comando} no servidor {apelido}; o servidor "
                           f"pode mudar.",
-            "como_desfazer": "Depende do comando; o registro mostra exatamente o que rodou.",
+            "como_desfazer": "O DERVS não desfaz isto; o registro guarda exatamente o que rodou.",
             "reversivel": False, "risco": "alto",
             "impressao": impressao_de_sistema("executar_ssh", f"{alvo}|{comando}", versao),
         }
