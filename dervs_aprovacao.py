@@ -43,6 +43,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -62,7 +63,14 @@ _AMOSTRA = 64 * 1024
 
 ACOES_DE_ARQUIVO = ("quarentena", "lixeira")
 ACOES_DE_SISTEMA = ("desinstalar", "desativar_inicializacao", "atualizar", "instalar",
-                    "alterar_servico", "alterar_registro", "alterar_firewall", "alterar_config")
+                    "alterar_servico", "alterar_registro", "alterar_firewall", "alterar_config",
+                    "executar_ssh")
+# Ação que só nasce de UM canal interno. A Fachada (Claude) sempre analisa com
+# origem="claude", então nunca consegue criar um relatório destas.
+ACOES_SO_DE_ORIGEM = {"executar_ssh": "ssh"}
+LIMITE_COMANDO_SSH = 400   # igual a dervs_ssh.MAX_COMANDO (um teste confere)
+_APELIDO_SSH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
+_HASH_SSH = re.compile(r"[0-9a-f]{64}")
 RISCOS = ("baixo", "medio", "alto")
 
 _O_QUE_MUDA_SISTEMA = {
@@ -74,6 +82,7 @@ _O_QUE_MUDA_SISTEMA = {
     "alterar_registro": "Muda uma configuração interna do Windows (o registro).",
     "alterar_firewall": "Muda uma regra do firewall — o que pode entrar e sair pela rede.",
     "alterar_config": "Muda uma configuração do sistema.",
+    "executar_ssh": "Roda um comando num servidor; o servidor pode mudar.",
 }
 
 _EXTENSOES = [
@@ -329,6 +338,31 @@ class Motor:
             "impressao": impressao_de(real, info["digest"]), "identidade": info["ino"],
         }
 
+    def _item_de_ssh(self, proposta: dict) -> dict:
+        """Comando do terminal SSH. O comando e o apelido têm de chegar EXATAMENTE
+        como o dono vai ler (nada de limpar texto por baixo); `versao` é o hash do
+        par que o terminal confere de novo ao executar."""
+        alvo, comando, versao = proposta.get("alvo"), proposta.get("comando"), proposta.get("versao")
+        if not (isinstance(alvo, str) and alvo.startswith("ssh:")
+                and _APELIDO_SSH.fullmatch(alvo[4:])):
+            raise Recusado("o servidor do comando SSH veio fora do formato (ssh:<apelido>)")
+        if (not isinstance(comando, str) or not comando or len(comando) > LIMITE_COMANDO_SSH
+                or not comando.isprintable() or comando != comando.strip()):
+            raise Recusado("o comando SSH veio vazio, longo demais ou com caractere invisível")
+        if not (isinstance(versao, str) and _HASH_SSH.fullmatch(versao)):
+            raise Recusado("falta a impressão digital do comando SSH")
+        apelido = alvo[4:]
+        return {
+            "alvo": alvo, "caminho_real": "", "onde": "", "versao": versao, "comando": comando,
+            "tipo": "comando no servidor", "tamanho_bytes": 0, "data": "",
+            "o_que_e": f"Comando no servidor {apelido}: {comando}",
+            "o_que_muda": f"Vai rodar o comando {comando} no servidor {apelido}; o servidor "
+                          f"pode mudar.",
+            "como_desfazer": "Depende do comando; o registro mostra exatamente o que rodou.",
+            "reversivel": False, "risco": "alto",
+            "impressao": impressao_de_sistema("executar_ssh", f"{alvo}|{comando}", versao),
+        }
+
     def _item_de_sistema(self, proposta: dict, acao: str) -> dict:
         alvo = _texto(proposta.get("alvo"), "alvo", True, minimo=1)[:300]
         versao = _texto(proposta.get("versao"), "versao", False)[:100]
@@ -342,12 +376,16 @@ class Motor:
             "impressao": impressao_de_sistema(acao, alvo, versao),
         }
 
-    def _analisar_um(self, proposta) -> dict:
+    def _analisar_um(self, proposta, origem=None) -> dict:
         if not isinstance(proposta, dict):
             raise Recusado("proposta sem formato de item")
         acao = proposta.get("acao")
         if acao not in ACOES_DE_ARQUIVO + ACOES_DE_SISTEMA:
             raise Recusado(f"ação desconhecida ({str(acao)[:40]!r}) — o motor não faz o que não conhece")
+        dona = ACOES_SO_DE_ORIGEM.get(acao)
+        if dona is not None and origem != dona:
+            raise Recusado(f"a ação {acao} só nasce do terminal {dona.upper()} do próprio DERVS — "
+                           f"nem o Claude nem outro canal pode propor")
         por_que = _texto(proposta.get("por_que_seguro"), "por_que_seguro", True)
         explicacao = _texto(proposta.get("explicacao"), "explicacao", False,
                             limite=LIMITE_EXPLICACAO)
@@ -357,6 +395,9 @@ class Motor:
             risco_proposto = "alto"  # risco ilegível sobe, nunca desce
         if acao in ACOES_DE_ARQUIVO:
             item = self._item_de_arquivo(proposta, acao)
+        elif acao == "executar_ssh":
+            item = self._item_de_ssh(proposta)
+            explicacao = muda_extra = ""   # o texto da tela é só o do motor
         else:
             item = self._item_de_sistema(proposta, acao)
         item["acao"] = acao
@@ -380,7 +421,7 @@ class Motor:
         for proposta in itens:
             alvo = str(proposta.get("alvo", ""))[:300] if isinstance(proposta, dict) else ""
             try:
-                item = self._analisar_um(proposta)
+                item = self._analisar_um(proposta, origem)
             except Recusado as erro:
                 recusados.append({"alvo": alvo, "motivo": str(erro)})
                 continue
@@ -487,8 +528,10 @@ class Motor:
         return {"ok": True, "registro": devolver}
 
     # --------------------------------------------------- 4. consumir (executor)
-    def consumir_aprovacao(self, registro_id, token, item_id) -> dict:
-        """Confere e QUEIMA a aprovação de um item, de uma vez só, sob trava."""
+    def consumir_aprovacao(self, registro_id, token, item_id, consumidor=None) -> dict:
+        """Confere e QUEIMA a aprovação de um item, de uma vez só, sob trava.
+        Ação que tem dono próprio (`ACOES_SO_DE_ORIGEM`) só é consumida por ele:
+        o executor de arquivos, chamado sem `consumidor`, recusa SEM gastar o clique."""
         with self._trava:
             reg = self._registros.get(registro_id) if isinstance(registro_id, str) else None
             if reg is None:
@@ -506,6 +549,10 @@ class Motor:
             if guardado is None or _hash_do_relatorio(guardado["dados"]["itens"]) != reg["relatorio_hash"]:
                 return {"ok": False, "motivo": "o relatório mudou depois da aprovação"}
             item = next(i for i in guardado["dados"]["itens"] if i["id"] == item_id)
+            dono = ACOES_SO_DE_ORIGEM.get(item["acao"])
+            if consumidor != dono:
+                return {"ok": False, "motivo": "este clique é de outro tipo de ação — quem executa "
+                                               "não é este caminho"}
             if item["impressao"] != reg["impressoes"][item_id]:
                 return {"ok": False, "motivo": "a impressão digital do item não confere"}
             reg["usados"].append(item_id)

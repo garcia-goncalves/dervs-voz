@@ -810,3 +810,88 @@ def test_se_o_registro_da_quarentena_falha_depois_de_mover_o_item_volta(motor, a
     r = _executar(motor, registro)
     assert r["ok"] is False and "devolvido" in r["motivo"]
     assert f.exists()          # não ficou preso na quarentena sem como desfazer
+
+
+# ------------------------------------------------------------ ação própria do terminal SSH
+
+HASH_SSH = "a" * 64
+
+
+def _proposta_ssh(comando="systemctl restart nginx", apelido="prod", **extra):
+    return dict({"acao": "executar_ssh", "alvo": f"ssh:{apelido}", "comando": comando,
+                 "versao": HASH_SSH, "por_que_seguro": POR_QUE, "risco": "medio"}, **extra)
+
+
+def test_executar_ssh_e_acao_propria_com_texto_leigo(motor):
+    rel = motor.analisar([_proposta_ssh()], origem="ssh")
+    item = rel["itens"][0]
+    assert item["acao"] == "executar_ssh" and item["alvo"] == "ssh:prod"
+    assert item["risco"] == "alto" and item["reversivel"] is False
+    assert item["comando"] == "systemctl restart nginx"
+    assert "Vai rodar o comando systemctl restart nginx no servidor prod" in item["o_que_muda"]
+    assert "o servidor pode mudar" in item["o_que_muda"]
+    assert "Depende do comando" in item["como_desfazer"]
+    assert "registro mostra exatamente o que rodou" in item["como_desfazer"]
+    assert "alterar config" not in item["o_que_e"] and "Explicação do Claude" not in item["o_que_e"]
+    assert item["impressao"]
+
+
+def test_executar_ssh_risco_nunca_desce_de_alto(motor):
+    for risco in ("baixo", "medio", "alto", "lixo"):
+        rel = motor.analisar([_proposta_ssh(risco=risco)], origem="ssh")
+        assert rel["itens"][0]["risco"] == "alto"
+
+
+@pytest.mark.parametrize("origem", ["claude", "central", "voz", "clique", "", None])
+def test_so_o_terminal_ssh_cria_relatorio_de_executar_ssh(motor, origem):
+    rel = motor.analisar([_proposta_ssh()], origem=origem)
+    assert rel["itens"] == [] and rel["recusados"]
+
+
+def test_fachada_do_claude_nunca_cria_relatorio_de_executar_ssh(motor):
+    fachada = ap.Fachada(motor)
+    rel = fachada.analisar([_proposta_ssh()])
+    assert rel["itens"] == [] and "ssh" in rel["recusados"][0]["motivo"].lower()
+    assert motor.log.ler()[-1]["evento"] == "recusou"
+
+
+@pytest.mark.parametrize("proposta", [
+    _proposta_ssh(comando=""), _proposta_ssh(comando=None), _proposta_ssh(comando=5),
+    _proposta_ssh(comando="ls\nrm x"), _proposta_ssh(comando=" ls"), _proposta_ssh(comando="a" * 401),
+    _proposta_ssh(apelido="x y"), _proposta_ssh(apelido="../a"),
+    dict(_proposta_ssh(), alvo="prod"), dict(_proposta_ssh(), versao=""),
+    dict(_proposta_ssh(), versao="curta"), dict(_proposta_ssh(), versao=HASH_SSH.upper()),
+])
+def test_executar_ssh_malformado_e_recusado(motor, proposta):
+    rel = motor.analisar([proposta], origem="ssh")
+    assert rel["itens"] == [] and len(rel["recusados"]) == 1
+
+
+def test_limite_de_comando_do_motor_acompanha_o_do_terminal():
+    import dervs_ssh
+    assert ap.LIMITE_COMANDO_SSH == dervs_ssh.MAX_COMANDO
+
+
+def test_executar_ssh_exige_dupla_confirmacao(motor):
+    rel = motor.analisar([_proposta_ssh()], origem="ssh")
+    assert not _aprovar(motor, rel)["ok"]
+    rel = motor.analisar([_proposta_ssh()], origem="ssh")
+    assert not _aprovar(motor, rel, dupla_confirmacao=["outro"])["ok"]
+    rel = motor.analisar([_proposta_ssh()], origem="ssh")
+    assert _aprovar(motor, rel, dupla_confirmacao=["item-1"])["ok"]
+
+
+def test_executor_generico_nao_queima_o_clique_do_ssh(motor):
+    rel = motor.analisar([_proposta_ssh()], origem="ssh")
+    reg = _aprovar(motor, rel, dupla_confirmacao=["item-1"])["registro"]
+    assert _executar(motor, reg)["ok"] is False
+    # o clique continua inteiro para quem é dono dele
+    assert motor.consumir_aprovacao(reg["id"], reg["token"], "item-1", consumidor="ssh")["ok"]
+    assert not motor.consumir_aprovacao(reg["id"], reg["token"], "item-1", consumidor="ssh")["ok"]
+
+
+def test_consumidor_ssh_nao_consome_item_de_outra_acao(motor, alvos):
+    f = _arquivo(alvos)
+    _, reg = _fluxo_ate_aprovar(motor, f)
+    assert not motor.consumir_aprovacao(reg["id"], reg["token"], "item-1", consumidor="ssh")["ok"]
+    assert _executar(motor, reg)["ok"]  # o executor de arquivo ainda consegue

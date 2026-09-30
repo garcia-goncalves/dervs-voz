@@ -81,7 +81,8 @@ def clicar(motor, proposta, com_relatorio=True):
     """O clique do dono no painel: abre o cartão, aprova, devolve a prova."""
     ref = proposta["aprovacao"]
     cartao = motor.abrir_cartao(ref["relatorio_id"])
-    r = motor.aprovar(ref["relatorio_id"], [ref["item_id"]], origem="clique", cartao=cartao)
+    r = motor.aprovar(ref["relatorio_id"], [ref["item_id"]], origem="clique", cartao=cartao,
+                      dupla_confirmacao=[ref["item_id"]])
     assert r["ok"], r
     prova = {"registro_id": r["registro"]["id"], "token": r["registro"]["token"]}
     if com_relatorio:
@@ -918,3 +919,90 @@ def test_real_uptime_no_servidor_de_teste(tmp_path):
     assert r["ok"] and r["nivel"] == "leitura"
     res = t.executar(r["proposta_id"])
     assert res["ok"], res
+
+
+# ------------------------------------------------ 9. ação própria `executar_ssh` no Motor
+
+def _item(c, proposta):
+    return c.motor._relatorios[proposta["aprovacao"]["relatorio_id"]]["dados"]["itens"][0]
+
+
+def test_proposta_entra_como_executar_ssh_com_texto_leigo(ctx):
+    r = ctx.term.propor("prod", "systemctl restart nginx")
+    item = _item(ctx, r)
+    assert item["acao"] == "executar_ssh" and item["alvo"] == "ssh:prod"
+    assert item["risco"] == "alto"
+    assert "Vai rodar o comando systemctl restart nginx no servidor prod" in item["o_que_muda"]
+    assert "registro mostra exatamente o que rodou" in item["como_desfazer"]
+    assert "Explicação do Claude" not in item["o_que_e"]
+    assert ctx.motor.status(r["aprovacao"]["relatorio_id"])["itens"][0]["acao"] == "executar_ssh"
+
+
+def test_clique_sem_dupla_confirmacao_nao_serve_para_muda_estado(ctx):
+    r = ctx.term.propor("prod", "touch /tmp/a")
+    ref = r["aprovacao"]
+    cartao = ctx.motor.abrir_cartao(ref["relatorio_id"])
+    sem = ctx.motor.aprovar(ref["relatorio_id"], [ref["item_id"]], origem="clique", cartao=cartao)
+    assert not sem["ok"] and "confirmação dupla" in sem["motivo"]
+    cartao = ctx.motor.abrir_cartao(ref["relatorio_id"])
+    com = ctx.motor.aprovar(ref["relatorio_id"], [ref["item_id"]], origem="clique", cartao=cartao,
+                            dupla_confirmacao=[ref["item_id"]])
+    assert com["ok"]
+
+
+def test_a_fachada_nao_forja_proposta_que_o_terminal_execute(ctx):
+    fachada = ap.Fachada(ctx.motor)
+    rel = fachada.analisar([{"acao": "executar_ssh", "alvo": "ssh:prod", "comando": "touch /tmp/forjado",
+                             "versao": dss.hash_do_par("prod", "touch /tmp/forjado", HOSTS["prod"]),
+                             "por_que_seguro": "Comando do terminal SSH do próprio DERVS."}])
+    assert rel["itens"] == []
+    assert ctx.exec.chamadas == []
+
+
+def test_terminal_usa_o_log_do_motor_e_nao_cria_outro(ctx):
+    assert ctx.term._log is ctx.motor.log
+    r = ctx.term.propor("prod", "touch /tmp/a")
+    prova = clicar(ctx.motor, r)
+    assert ctx.term.executar(r["proposta_id"], prova)["ok"]
+    ev = eventos(ctx)
+    assert ev.count("aprovou") == 2      # o do Motor e o do terminal, no MESMO arquivo
+    assert ev[-1] == "executou"
+
+
+def test_fluxo_completo_proposta_clique_execucao_termina_executou(ctx):
+    r = ctx.term.propor("prod", "systemctl restart nginx")
+    rid = r["aprovacao"]["relatorio_id"]
+    assert ctx.motor.status(rid)["itens"][0]["estado"] == "aguardando"
+    prova = clicar(ctx.motor, r)
+    assert ctx.motor.status(rid)["itens"][0]["estado"] == "aprovado"
+    res = ctx.term.executar(r["proposta_id"], prova)
+    assert res["ok"] and len(ctx.exec.chamadas) == 1
+    assert ctx.motor.status(rid)["itens"][0]["estado"] == "executado"
+    assert eventos(ctx)[-1] == "executou"
+
+
+def test_executor_falso_que_falha_termina_como_recusado_no_status(ctx):
+    ctx.exec.excecao = RuntimeError("boom")
+    r = ctx.term.propor("prod", "touch /tmp/a")
+    prova = clicar(ctx.motor, r)
+    assert not ctx.term.executar(r["proposta_id"], prova)["ok"]
+    assert ctx.motor.status(r["aprovacao"]["relatorio_id"])["itens"][0]["estado"] == "recusado"
+
+
+def test_o_executor_generico_do_painel_nao_gasta_o_clique_do_terminal(ctx):
+    import dervs_executor_seguro as exs
+    r = ctx.term.propor("prod", "touch /tmp/a")
+    ref = r["aprovacao"]
+    cartao = ctx.motor.abrir_cartao(ref["relatorio_id"])
+    reg = ctx.motor.aprovar(ref["relatorio_id"], [ref["item_id"]], origem="clique", cartao=cartao,
+                            dupla_confirmacao=[ref["item_id"]])["registro"]
+    assert not exs.executar(ctx.motor, reg["id"], reg["token"], ref["item_id"], origem="clique")["ok"]
+    prova = {"registro_id": reg["id"], "token": reg["token"], "relatorio_id": ref["relatorio_id"]}
+    assert ctx.term.executar(r["proposta_id"], prova)["ok"]
+
+
+def test_leitura_segue_sem_cartao_e_sem_relatorio(ctx):
+    antes = len(ctx.motor._relatorios)
+    r = ctx.term.propor("prod", "uptime")
+    assert r["aprovacao"] is None and len(ctx.motor._relatorios) == antes
+    assert ctx.term.executar(r["proposta_id"])["ok"]

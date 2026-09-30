@@ -354,10 +354,11 @@ class AprovadorMotor:
     consumir o clique. NÃO carrega `aprovar` nem `abrir_cartao` — esses ficam com
     o painel local, que é quem recebe o clique do dono.
 
-    Enquanto o Motor não tem uma ação própria para SSH, o item vai como
-    `alterar_config` com alvo `ssh:<apelido>` e `versao` = hash do par. O hash
-    entra na impressão digital que o Motor confere ao consumir, e é conferido de
-    novo aqui (clique dado a outro comando não vale)."""
+    O item vai como a ação própria `executar_ssh` do Motor, com alvo
+    `ssh:<apelido>`, o comando e `versao` = hash do par. O Motor só aceita essa
+    ação com origem "ssh" (a Fachada do Claude nunca cria) e só a entrega a quem
+    se identifica como consumidor "ssh"; o hash é conferido de novo aqui (clique
+    dado a outro comando não vale)."""
 
     def __init__(self, motor):
         self._analisar = motor.analisar
@@ -366,12 +367,11 @@ class AprovadorMotor:
 
     def registrar(self, apelido: str, comando: str, hash_do_par_: str) -> dict:
         relatorio = self._analisar([{
-            "acao": "alterar_config", "alvo": f"ssh:{apelido}", "versao": hash_do_par_,
+            "acao": "executar_ssh", "alvo": f"ssh:{apelido}", "comando": comando,
+            "versao": hash_do_par_,
             "por_que_seguro": "Comando do terminal SSH do próprio DERVS; só roda com o seu clique, "
                               "uma única vez.",
-            "explicacao": f"Rodar no servidor '{apelido}' o comando: {comando}",
-            "o_que_muda": f"Roda o comando no servidor '{apelido}' e pode mudar o estado dele.",
-            "risco": "medio",
+            "risco": "alto",
         }], origem="ssh")
         if not relatorio["itens"]:
             motivo = relatorio["recusados"][0]["motivo"] if relatorio["recusados"] else "recusado"
@@ -390,12 +390,12 @@ class AprovadorMotor:
             # sem relatório ou de outro: recusa ANTES de consumir, para não queimar
             # o clique que pertence a outra ação
             return False, "esse clique não é deste comando (falta o relatório certo)"
-        r = self._consumir(registro_id, token_de_uso, ref["item_id"])
+        r = self._consumir(registro_id, token_de_uso, ref["item_id"], consumidor="ssh")
         if not r.get("ok"):
             return False, str(r.get("motivo", "aprovação recusada"))
         item, registro = r["item"], r["registro"]
         if (registro.get("relatorio_id") != ref["relatorio_id"]
-                or item.get("alvo") != f"ssh:{apelido}" or item.get("versao") != hash_do_par_):
+                or item.get("acao") != "executar_ssh" or item.get("alvo") != f"ssh:{apelido}" or item.get("versao") != hash_do_par_):
             return False, "esse clique foi dado para outro comando"
         return True, ""
 
