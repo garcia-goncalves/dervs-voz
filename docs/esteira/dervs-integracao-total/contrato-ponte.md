@@ -13,7 +13,7 @@ e recusa redirecionamento. Acesso `maquina` nas três rotas. Teto de 64 KB.
 | `GET /agente/voz/recados` | VOZ | resposta `{"recados":[{id,criado_em,tipo,alvo,texto,nivel,cerebro_pedido}]}` |
 | `POST /agente/voz/resultado` | VOZ | `id`, `cerebro`, `estado`, `resumo`(<=1000), `custo_usd`, `duracao_s`, `terminado_em` |
 
-Valores: `tipo` = analisar, status, propor. `nivel` = leitura, muda_estado.
+Valores: `tipo` = analisar, status, propor, avisar (novo em 30/09: o painel gera sozinho quando um computador fica 20 min sem medir ou surge alerta grave; `nivel` sempre `leitura`, `alvo` = `vigilia` ou nome de projeto; o VOZ só MOSTRA o texto ao dono e responde `feito`; `avisar` com `muda_estado` é recusado). `nivel` = leitura, muda_estado.
 `cerebro_pedido` = auto, claude_code, hermes. `estado` = feito, recusado, falhou,
 aguardando_clique. `texto` <= 500 caracteres e é sempre DADO. `alvo` é nome de projeto
 (uma palavra, sem barra). `id` é gerado pelo painel; repetido é ignorado.

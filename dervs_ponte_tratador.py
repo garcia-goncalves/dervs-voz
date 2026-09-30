@@ -37,11 +37,13 @@ def _usd(valor) -> str:
 
 
 class TratadorLocal:
-    def __init__(self, raizes=None, arquivo_propostas=None, estado_fn=None, git_fn=None):
+    def __init__(self, raizes=None, arquivo_propostas=None, estado_fn=None, git_fn=None,
+                 aviso_fn=None):
         self._raizes = raizes
         self._arquivo = arquivo_propostas or arquivo_padrao()
         self._estado_fn = estado_fn or (lambda: {})
         self._git = git_fn or repositorios.rodar_git
+        self._aviso_fn = aviso_fn      # mostra/fala o texto ao dono; nunca executa nada
         self._geral = (0.0, "")        # (quando, texto): a varredura cara roda no máximo a cada 30 s
 
     def _raizes_ou_padrao(self):
@@ -54,6 +56,11 @@ class TratadorLocal:
     # ------------------------------------------------------------ leitura
 
     def leitura(self, recado):
+        if recado.get("tipo") == "avisar":
+            if self._aviso_fn is None:
+                return ("falhou", "Não há tela para mostrar o aviso.", 0.0)
+            self._aviso_fn(str(recado.get("texto") or ""), recado.get("alvo") or "")
+            return ("feito", "Aviso mostrado ao dono.", 0.0)
         if recado.get("tipo") == "status":
             e = self._estado_fn() or {}
             return ("feito", "DERVS-VOZ de pé. Cérebro ativo: %s. Gasto de hoje: US$ %s." % (

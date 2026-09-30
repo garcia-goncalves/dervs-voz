@@ -493,3 +493,24 @@ def test_laco_calmo_espera_cinco_minutos(ponte, painel, monkeypatch):
     monkeypatch.setattr(ponte._parar, "wait", lambda s: esperas.append(s) or ponte._parar.set())
     ponte._laco()
     assert esperas == [pw.ESPERA_CALMA_S]
+
+
+def test_aviso_de_leitura_e_entregue_ao_dono_e_nada_executa(painel, arquivo_token, tmp_path):
+    import dervs_log_acoes as la
+    import dervs_ponte_tratador as pt
+    mostrados = []
+    tr = pt.TratadorLocal(arquivo_propostas=str(tmp_path / "p.jsonl"),
+                          aviso_fn=lambda texto, alvo: mostrados.append((texto, alvo)))
+    p = pw.PonteWeb(painel.url, tr, arquivo_token=arquivo_token(painel.url),
+                    log=la.LogAcoes(str(tmp_path / "l.jsonl")))
+    painel.recados = [_recado(tipo="avisar", alvo="vigilia", texto="PC sem medir há 20 min")]
+    p.ciclo()
+    assert mostrados == [("PC sem medir há 20 min", "vigilia")]
+    assert painel.resultados[0]["estado"] == "feito" and tr.pendentes() == []
+
+
+def test_aviso_que_tenta_mudar_estado_e_recusado(ponte, painel):
+    painel.recados = [_recado(tipo="avisar", nivel="muda_estado")]
+    ponte.ciclo()
+    assert ponte.tratador.lidos == [] and ponte.tratador.propostos == []
+    assert painel.resultados[0]["estado"] == "recusado"

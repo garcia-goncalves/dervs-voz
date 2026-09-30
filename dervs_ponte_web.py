@@ -49,10 +49,10 @@ ESPERA_CALMA_S = 300           # painel sem a ponte ainda: olha de novo a cada 5
 INTERVALO_PADRAO_S = 60
 TETO_DA_ESPERA_S = 900
 
-TIPOS = ("analisar", "status", "propor")
+TIPOS = ("analisar", "status", "propor", "avisar")
 NIVEIS = ("leitura", "muda_estado")
 CEREBROS_PEDIDOS = ("auto", "claude_code", "hermes")
-_AUTOMATICOS = ("analisar", "status")   # só estes, e só em nível leitura
+_AUTOMATICOS = ("analisar", "status", "avisar")   # só estes, e só em nível leitura
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 # Nome de projeto: uma palavra. Nada de barra, dois pontos ou `..`.
@@ -232,6 +232,8 @@ class PonteWeb:
             return "tipo de recado desconhecido"
         if recado.get("nivel") not in NIVEIS:
             return "nível de recado desconhecido"
+        if recado.get("tipo") == "avisar" and recado.get("nivel") != "leitura":
+            return "aviso só pode ser de leitura"
         alvo = recado.get("alvo")
         if alvo not in (None, "") and not (isinstance(alvo, str) and _PROJETO.fullmatch(alvo)):
             return "nome de projeto inválido"

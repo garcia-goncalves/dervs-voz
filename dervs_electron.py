@@ -41,6 +41,7 @@ import dervs_instancia as instancia
 import dervs_registro as registro
 import dervs_safety as seg
 import dervs_painel as painel
+import dervs_ponte_tratador as ponte_tratador
 import dervs_ponte_web as ponte_web
 import dervs_sistema as sistema
 from dervs_ponte_electron import PonteElectron
@@ -746,8 +747,13 @@ def main():
     # Ponte com o DERVS web (só saída, só com token pareado). Usa o MESMO registro
     # do Motor de aprovação: duas instâncias sobre o mesmo arquivo quebrariam a
     # corrente de hashes e acusariam adulteração falsa.
+    tratador_web = ponte_tratador.TratadorLocal(
+        estado_fn=ponte_web.estado_do_voz,
+        # o aviso do painel é DADO: só aparece na conversa (a tela usa textContent)
+        aviso_fn=lambda texto, alvo: ponte.enviar_fala(
+            "dervs", "Aviso do painel web (%s): %s" % (alvo or "geral", texto)))
     motor.ponte_web, motivo_ponte = ponte_web.iniciar_da_config(
-        conf, log=motor._motor_aprovacao().log)
+        conf, tratador=tratador_web, log=motor._motor_aprovacao().log)
     if motor.ponte_web is None:
         sys.stderr.write("dervs: ponte com o painel web desligada: %s" % motivo_ponte + chr(10))
         sys.stderr.flush()
