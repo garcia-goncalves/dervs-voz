@@ -55,3 +55,6 @@
 }
 .integ-saida[hidden] { display: none; }
 .integ-saida[data-ok="0"] { border-color: var(--erro); }
+
+/* o risco do cartão SSH é sempre alto: vermelho cheio, como o item de risco alto da Central */
+.integ-cartao .central-risco { background: var(--erro); border-color: var(--erro); color: #000; }

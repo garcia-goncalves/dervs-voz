@@ -296,6 +296,21 @@ escrito na carta de confirmação (regra §0 da casa). O módulo tem modo ativo
 **Contexto:** a saída do bbot é enorme; o módulo guarda o bruto num arquivo e a
 voz fala só o resumo (contagens + exemplos), para não estourar o contexto.
 
+## A tela Integração (cérebro, painel web, terminal SSH)
+
+No painel, o botão **INTEGRAÇÃO** abre a tela que liga o DERVS-VOZ ao resto.
+Configuração que ela usa (todas em `%APPDATA%\dervs`, criadas sozinhas):
+
+| Arquivo | Para quê |
+|---|---|
+| `ssh_hosts.json` | Servidores que o terminal SSH pode usar. Vazio por padrão. Para cadastrar, escreva `{"meu-servidor": {"host": "exemplo.com", "usuario": "deploy", "porta": 22}}` e clique em INTEGRAÇÃO de novo. Só os apelidos deste arquivo aparecem. |
+| `cerebro.json` | O cérebro escolhido (`claude_code` ou `hermes`). |
+| `propostas_web.jsonl` | Fila de pedidos vindos do painel web; "Dispensar" muda o estado para `dispensado`. |
+| `avisos_web.jsonl` | Últimos 100 avisos do painel web (textos redigidos). "Pedir conserto" só aparece nos que começam com `[alerta:<id>] `. |
+
+Comando de leitura (`uptime`, `df -h`...) roda na hora. Qualquer outro mostra um
+cartão e só roda depois de uma segunda confirmação por clique, dentro de 15 minutos.
+
 ## O que ficou para depois (de propósito)
 
 - **Clicar em app nativo** (fora do navegador — uma janela do KDE, um app de
