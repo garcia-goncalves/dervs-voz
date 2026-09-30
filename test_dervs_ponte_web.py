@@ -14,6 +14,16 @@ import dervs_ponte_web as pw
 CRACHA = "CRACHA-DE-TESTE-NAO-E-SEGREDO-123"
 
 
+@pytest.fixture(autouse=True)
+def _seletor_sem_wsl(monkeypatch, tmp_path):
+    """Nenhum teste da ponte pode acordar o WSL de verdade."""
+    import dervs_cerebros as c
+    seletor = c.Seletor({"claude_code": c.ClaudeCode(resolver=lambda: "claude.exe"),
+                         "hermes": c.Hermes(executar=lambda *a, **k: (1, "")),
+                         "jev": c.Jev(chave=None)}, arquivo=str(tmp_path / "cerebro.json"))
+    monkeypatch.setattr(pw, "_SELETOR", seletor)
+
+
 class FalsoPainel:
     """Guarda o que a ponte mandou e devolve os recados combinados."""
 

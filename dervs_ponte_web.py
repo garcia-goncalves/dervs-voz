@@ -375,26 +375,33 @@ class PonteWeb:
 
 # ---------------------------------------------------------------- ligação ao app
 
+_SELETOR = None
+
+
+def seletor_de_cerebros():
+    """Um só seletor por processo: o Hermes guarda a verificação do WSL em cache,
+    e sem isso cada ciclo da ponte acordaria o WSL."""
+    global _SELETOR
+    if _SELETOR is None:
+        import dervs_cerebros
+        _SELETOR = dervs_cerebros.criar_padrao()
+    return _SELETOR
+
+
 def estado_do_voz() -> dict:
     """O que o VOZ conta ao painel de si mesmo. Só o que o painel pode mostrar sem
-    risco: quais cérebros existem, e o gasto do dia. Sem chave, sem caminho."""
+    risco: quais cérebros existem e o gasto do dia. Sem chave, sem caminho. O servidor
+    aceita EXATAMENTE as chaves cerebro_ativo, cerebros e gasto_dia_usd (mais as
+    duas do envelope)."""
     gasto = 0.0
     try:
         import dervs_gasto
         gasto = float(dervs_gasto.total_do_dia().get("total", 0.0))
     except Exception:
         pass
-    return {
-        "cerebro_ativo": "claude_code",
-        "cerebros": {
-            "claude_code": {"disponivel": True, "motivo": ""},
-            "hermes": {"disponivel": False, "motivo": "ainda não instalado neste computador"},
-            "jev": {"disponivel": bool(os.environ.get("TYPESAFE_API_KEY")),
-                    "motivo": "" if os.environ.get("TYPESAFE_API_KEY")
-                    else "sem a chave TYPESAFE_API_KEY (acesso por lista de espera)"},
-        },
-        "gasto_dia_usd": round(gasto, 4),
-    }
+    estado = seletor_de_cerebros().estado()
+    estado["gasto_dia_usd"] = round(gasto, 4)
+    return estado
 
 
 def iniciar_da_config(conf: dict, *, tratador=None, log=None):
