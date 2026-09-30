@@ -247,7 +247,8 @@ def test_recado_que_o_porteiro_recusa_volta_recusado(ponte, painel):
 
 # ------------------------------------------------------------------ falhas
 
-@pytest.mark.parametrize("codigo,trecho", [(401, "token"), (403, "token"), (500, "fora do ar")])
+@pytest.mark.parametrize("codigo,trecho", [(401, "token"), (403, "token"), (500, "fora do ar"),
+                                           (404, "ainda não tem a ponte")])
 def test_painel_recusando_ou_caindo_nao_levanta(ponte, painel, codigo, trecho):
     painel.status = codigo
     r = ponte.ciclo()
@@ -461,3 +462,34 @@ def test_estado_tem_exatamente_as_chaves_do_contrato(painel, arquivo_token, tmp_
     p.ciclo()
     assert set(painel.estados[0]) == {"versao", "enviado_em", "cerebro_ativo", "cerebros",
                                       "gasto_dia_usd"}
+
+
+@pytest.mark.parametrize("cerebro", ["auto", "claude_code", "hermes"])
+@pytest.mark.parametrize("tipo", ["status", "analisar", "propor"])
+def test_muda_estado_nunca_executa_sem_clique_seja_qual_for_o_cerebro(ponte, painel, cerebro, tipo):
+    painel.recados = [_recado(tipo=tipo, nivel="muda_estado", cerebro_pedido=cerebro)]
+    ponte.ciclo()
+    assert ponte.tratador.lidos == []
+    assert len(ponte.tratador.propostos) == 1
+    assert painel.resultados[0]["estado"] == "aguardando_clique"
+
+
+@pytest.mark.parametrize("codigo", [401, 403, 404])
+def test_painel_sem_a_ponte_e_calmo_e_espera_cinco_minutos(ponte, painel, codigo):
+    painel.status = codigo
+    r = ponte.ciclo()
+    assert not r["ok"] and r["calma"] is True
+
+
+def test_erro_de_verdade_nao_e_calmo(ponte, painel):
+    painel.status = 500
+    assert ponte.ciclo().get("calma") is not True
+
+
+def test_laco_calmo_espera_cinco_minutos(ponte, painel, monkeypatch):
+    esperas = []
+    ponte.intervalo_s = 60
+    painel.status = 404
+    monkeypatch.setattr(ponte._parar, "wait", lambda s: esperas.append(s) or ponte._parar.set())
+    ponte._laco()
+    assert esperas == [pw.ESPERA_CALMA_S]

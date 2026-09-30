@@ -45,6 +45,7 @@ MAX_RECADOS_POR_CICLO = 10
 MAX_RECADOS_POR_HORA = 60      # teto de trabalho que o painel pode pedir (quem invade a conta não afoga o PC)
 PRAZO_DA_RESPOSTA_S = 30       # prazo TOTAL de uma chamada (o timeout do urllib vale por leitura)
 ESPERA_DA_REDE_S = 20
+ESPERA_CALMA_S = 300           # painel sem a ponte ainda: olha de novo a cada 5 minutos
 INTERVALO_PADRAO_S = 60
 TETO_DA_ESPERA_S = 900
 
@@ -59,7 +60,13 @@ _PROJETO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 
 class PonteIndisponivel(Exception):
-    """A ponte não pode falar agora. A mensagem já está em português para o dono."""
+    """A ponte não pode falar agora. A mensagem já está em português para o dono.
+    `calma` = situação esperada (o painel ainda não publicou a ponte): tenta de novo
+    devagar e sem alarme."""
+
+    def __init__(self, mensagem: str, calma: bool = False):
+        super().__init__(mensagem)
+        self.calma = calma
 
 
 def arquivo_do_token() -> Path:
@@ -164,9 +171,14 @@ class PonteWeb:
             with self._abridor.open(pedido, timeout=ESPERA_DA_REDE_S) as r:
                 bruto = self._ler_com_prazo(r)
         except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise PonteIndisponivel(
+                    "O painel ainda não tem a ponte com o DERVS-VOZ; tento de novo em alguns "
+                    "minutos.", calma=True)
             if e.code in (401, 403):
                 raise PonteIndisponivel(
-                    "O painel recusou o token deste computador. Pareie de novo pelo painel.")
+                    "O painel não reconheceu o token deste computador (ou ainda não tem a "
+                    "ponte). Se persistir, pareie de novo pelo painel.", calma=True)
             if 300 <= e.code < 400:
                 raise PonteIndisponivel(
                     "O painel mandou para outro endereço; não sigo (o token iria junto). "
@@ -327,7 +339,7 @@ class PonteWeb:
                     feitos += 1
         except PonteIndisponivel as e:
             self.motivo = str(e)
-            return {"ok": False, "motivo": self.motivo, "recados": feitos}
+            return {"ok": False, "motivo": self.motivo, "recados": feitos, "calma": e.calma}
         except Exception as e:
             self._rastro("alerta", {"falha": type(e).__name__})
             self.motivo = "Erro inesperado na ponte com o painel web."
@@ -338,9 +350,12 @@ class PonteWeb:
     def _laco(self):
         falhas = 0
         while not self._parar.is_set():
-            falhas = 0 if self.ciclo()["ok"] else falhas + 1
+            r = self.ciclo()
+            falhas = 0 if r["ok"] else falhas + 1
             espera = min(self.intervalo_s * (2 ** min(falhas, 6)), max(TETO_DA_ESPERA_S,
                                                                       self.intervalo_s))
+            if r.get("calma"):
+                espera = max(ESPERA_CALMA_S, self.intervalo_s)
             self._parar.wait(espera)
 
     def iniciar(self):
