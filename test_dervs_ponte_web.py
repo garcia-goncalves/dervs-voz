@@ -5,7 +5,7 @@ das três rotas `maquina` do painel web.
 """
 import json
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 import pytest
 
@@ -78,7 +78,7 @@ class FalsoPainel:
                     return self._responder(404, {})
                 self._responder(200, {"ok": True})
 
-        self.servidor = HTTPServer(("127.0.0.1", 0), H)
+        self.servidor = ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.url = "http://127.0.0.1:%d" % self.servidor.server_port
         threading.Thread(target=self.servidor.serve_forever, daemon=True).start()
 
