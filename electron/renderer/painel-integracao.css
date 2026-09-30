@@ -1,0 +1,57 @@
+/* Integração (cérebro, painel web, terminal SSH). Reaproveita o vocabulário da Central
+   (.central-*) e só os tokens do painel; sem cor nova. */
+
+.integ-mensagem { min-height: 1.4em; }
+.integ-mensagem[data-ok="0"] { color: var(--erro); }
+.integ-mensagem[data-ok="1"] { color: var(--acento); }
+
+.integ-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; border: 1px solid var(--acento-fraco); padding: 8px 10px; }
+.integ-item[data-ativo="1"] { border-color: var(--acento); background: rgba(0, 229, 255, .06); }
+.integ-item-corpo { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.integ-selo { font-family: var(--fonte-display); font-size: 11px; letter-spacing: .14em; padding: 1px 8px; border: 1px solid var(--acento); color: var(--acento); }
+
+#integ-web[data-estado="ligada"] { color: var(--acento); }
+#integ-web[data-estado="com_problema"], #integ-web[data-estado="desligada"] { color: var(--erro); }
+
+.integ-texto-hostil { margin: 0; font-size: 14px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.integ-resposta { margin: 0; font-size: 13px; color: var(--acento); overflow-wrap: anywhere; }
+
+.integ-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.integ-campo { display: flex; flex-direction: column; gap: 2px; }
+.integ-campo-largo { flex: 1 1 280px; }
+.integ-entrada {
+  min-height: 32px;
+  padding: 4px 8px;
+  background: var(--bg);
+  color: var(--texto-primario);
+  border: 1px solid var(--acento-fraco);
+  font-family: var(--fonte-tecnica);
+  font-size: 14px;
+}
+.integ-entrada:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px; }
+.integ-entrada:disabled { opacity: .5; cursor: not-allowed; }
+.integ-form .p-mini { min-height: 32px; }
+.integ-form .p-mini:disabled { opacity: .45; cursor: not-allowed; }
+
+.integ-cartao { border: 2px solid var(--erro); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.integ-cartao[hidden] { display: none; }
+.integ-cartao-titulo { color: var(--erro); }
+.integ-codigo { font-family: var(--fonte-tecnica); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--texto-primario); }
+.integ-cartao-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.integ-saida {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--acento-fraco);
+  background: var(--bg);
+  color: var(--texto-primario);
+  font-family: var(--fonte-tecnica);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.integ-saida[hidden] { display: none; }
+.integ-saida[data-ok="0"] { border-color: var(--erro); }

@@ -514,6 +514,17 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo central_resultado com campo faltando, ignorado");
       }
       break;
+    // Tela Integração (cérebro, painel web, terminal SSH): a tela só desenha; todo texto
+    // (inclusive a saída de um comando no servidor) entra por textContent.
+    case "integracao":
+      if (typeof mensagem.parte === "string" && PARTES_INTEGRACAO.has(mensagem.parte)) {
+        const { verbo: _i, ...parte } = mensagem;
+        difundir("dervs:integracao", parte);
+        if (mensagem.parte === "ssh_cartao") mostrarPainel();   // o cartão espera o dono: não pode ficar escondido
+      } else {
+        console.error("electron: verbo integracao com parte desconhecida, ignorado");
+      }
+      break;
     default:
       console.error(`electron: verbo desconhecido do Python, ignorado: ${String(verbo)}`);
   }
@@ -676,6 +687,68 @@ ipcMain.on("dervs:central-explicar", (_evento, codigo) => {
     return;
   }
   enviarAoPython({ verbo: "central_explicar", codigo });
+});
+
+// Tela Integração: a tela só PEDE; o Python valida de novo e decide. O clique da segunda
+// confirmação do SSH leva só o id da proposta: a senha do clique nunca passa por aqui.
+const PARTES_INTEGRACAO = new Set(["cerebros", "web", "fila", "avisos", "ssh", "ssh_cartao",
+  "ssh_resultado", "ssh_cancelado", "mensagem"]);
+const ID_PEDIDO_WEB = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const ID_LOCAL = /^[A-Za-z0-9]{1,40}$/;
+const APELIDO_SSH = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
+const LIMITE_COMANDO_SSH = 400;
+
+ipcMain.on("dervs:integracao-pedir", () => { enviarAoPython({ verbo: "integracao_pedir" }); });
+
+ipcMain.on("dervs:integracao-cerebro", (_evento, nome) => {
+  if (typeof nome !== "string" || !/^[a-z_]{1,20}$/.test(nome)) {
+    console.error("electron: escolha de cérebro inválida, ignorada");
+    return;
+  }
+  enviarAoPython({ verbo: "integracao_cerebro", nome });
+});
+
+ipcMain.on("dervs:integracao-dispensar", (_evento, id) => {
+  if (typeof id !== "string" || !ID_PEDIDO_WEB.test(id)) {
+    console.error("electron: dispensar pedido inválido, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "integracao_dispensar", id });
+});
+
+ipcMain.on("dervs:integracao-conserto", (_evento, avisoId) => {
+  if (typeof avisoId !== "string" || !ID_LOCAL.test(avisoId)) {
+    console.error("electron: pedido de conserto inválido, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "integracao_conserto", aviso_id: avisoId });
+});
+
+ipcMain.on("dervs:integracao-ssh-rodar", (_evento, dado) => {
+  const valido = dado && typeof dado === "object" && typeof dado.apelido === "string"
+    && APELIDO_SSH.test(dado.apelido) && typeof dado.comando === "string"
+    && dado.comando.trim() !== "" && dado.comando.length <= LIMITE_COMANDO_SSH;
+  if (!valido) {
+    console.error("electron: comando SSH inválido (apelido, vazio ou longo demais), ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "integracao_ssh_rodar", apelido: dado.apelido, comando: dado.comando });
+});
+
+ipcMain.on("dervs:integracao-ssh-confirmar", (_evento, propostaId) => {
+  if (typeof propostaId !== "string" || !ID_LOCAL.test(propostaId)) {
+    console.error("electron: confirmação SSH inválida, ignorada");
+    return;
+  }
+  enviarAoPython({ verbo: "integracao_ssh_confirmar", proposta_id: propostaId, segunda: true });
+});
+
+ipcMain.on("dervs:integracao-ssh-cancelar", (_evento, propostaId) => {
+  if (typeof propostaId !== "string" || !ID_LOCAL.test(propostaId)) {
+    console.error("electron: cancelamento SSH inválido, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "integracao_ssh_cancelar", proposta_id: propostaId });
 });
 
 // Painel grande: os botões da janela só PEDEM; quem mexe na janela é este processo.

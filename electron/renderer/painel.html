@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="estilo.css">
 <link rel="stylesheet" href="painel.css">
 <link rel="stylesheet" href="painel-central.css">
+<link rel="stylesheet" href="painel-integracao.css">
 </head>
 <body class="painel">
   <div class="cantos" aria-hidden="true">
@@ -70,6 +71,12 @@
       <span class="p-chip-ponto" aria-hidden="true"></span>
       <span class="p-chip-rotulo">CENTRAL DO PC</span>
       <span class="p-chip-valor" id="p-central-nota">--</span>
+    </button>
+    <!-- Integração: cérebro, painel web (fila e avisos) e terminal SSH. Só a tela PEDE. -->
+    <button type="button" class="p-chip" id="p-abrir-integracao" title="Abre a Integração: cérebro, painel web e terminal SSH">
+      <span class="p-chip-ponto" aria-hidden="true"></span>
+      <span class="p-chip-rotulo">INTEGRAÇÃO</span>
+      <span class="p-chip-valor" id="p-integracao-valor">--</span>
     </button>
     <!-- Só ABRE a URL no navegador (main.js, shell.openExternal). -->
     <button type="button" class="p-chip" id="p-abrir-app-dervs" title="Abre o DERVS App no navegador">
@@ -272,9 +279,68 @@
     </section>
   </dialog>
 
+  <!-- Integração: cérebro, painel web e terminal SSH. Todo texto que chega de fora (pedido do
+       painel web, aviso, saída do servidor) entra por textContent. Comando que muda o servidor
+       mostra o CARTÃO e só anda depois de UMA segunda confirmação por clique. -->
+  <dialog id="p-dialogo-integracao" class="p-dialogo p-dialogo-largo" aria-labelledby="integ-titulo">
+    <section class="cartao central integ">
+      <header class="central-topo">
+        <div>
+          <h2 class="p-titulo" id="integ-titulo" tabindex="-1">INTEGRAÇÃO</h2>
+          <p class="central-nota-pequena">Escolha o cérebro, veja o que o painel web pediu e fale com seus servidores.</p>
+        </div>
+        <button type="button" id="integ-fechar" class="p-mini">FECHAR</button>
+      </header>
+      <div class="central-corpo" id="integ-corpo">
+        <p class="central-detalhe integ-mensagem" id="integ-mensagem" role="status" aria-live="polite"></p>
+
+        <h3 class="central-sub">1 · CÉREBRO <span class="p-titulo-nota">quem conversa com você</span></h3>
+        <ul class="central-lista" id="integ-cerebros"></ul>
+
+        <h3 class="central-sub">2 · PAINEL WEB <span class="p-titulo-nota">a conversa com o DERVS no navegador</span></h3>
+        <p class="central-detalhe" id="integ-web" data-estado="">Carregando...</p>
+        <h4 class="central-sub central-sub-menor">Pedidos do painel web esperando você</h4>
+        <ul class="central-lista" id="integ-fila"></ul>
+        <p class="p-vazio central-vazio" id="integ-fila-vazio">Nenhum pedido esperando.</p>
+        <p class="central-nota-pequena">Dispensar só tira o pedido da lista: nada é executado por aqui.</p>
+        <h4 class="central-sub central-sub-menor">Avisos do painel web</h4>
+        <ul class="central-lista" id="integ-avisos"></ul>
+        <p class="p-vazio central-vazio" id="integ-avisos-vazio">Nenhum aviso ainda.</p>
+
+        <h3 class="central-sub">3 · TERMINAL SSH <span class="p-titulo-nota">comandos nos seus servidores</span></h3>
+        <p class="central-detalhe" id="integ-ssh-ajuda"></p>
+        <form class="integ-form" id="integ-ssh-form" autocomplete="off">
+          <label class="integ-campo" for="integ-ssh-apelido"><span class="central-nota-pequena">Servidor (apelido)</span>
+            <select id="integ-ssh-apelido" class="integ-entrada" disabled></select></label>
+          <label class="integ-campo integ-campo-largo" for="integ-ssh-comando"><span class="central-nota-pequena">Comando</span>
+            <input id="integ-ssh-comando" class="integ-entrada" type="text" maxlength="400" spellcheck="false" disabled></label>
+          <button type="submit" id="integ-ssh-rodar" class="p-mini p-mini-forte" disabled>EXECUTAR</button>
+        </form>
+        <p class="central-nota-pequena">Comando de leitura (como uptime ou df -h) roda na hora. Qualquer outro mostra um cartão e espera a sua confirmação.</p>
+        <div class="integ-cartao" id="integ-ssh-cartao" role="alertdialog" aria-labelledby="integ-cartao-titulo" hidden>
+          <h4 class="central-sub central-sub-menor integ-cartao-titulo" id="integ-cartao-titulo" tabindex="-1">ESTE COMANDO MUDA O SERVIDOR</h4>
+          <dl class="central-dl">
+            <dt>Servidor</dt><dd id="integ-cartao-servidor"></dd>
+            <dt>Comando exato</dt><dd><code class="integ-codigo" id="integ-cartao-comando"></code></dd>
+            <dt>Risco</dt><dd><span class="central-risco" id="integ-cartao-risco"></span></dd>
+            <dt>O que muda</dt><dd id="integ-cartao-muda"></dd>
+            <dt>Como desfazer</dt><dd id="integ-cartao-desfazer"></dd>
+            <dt>Validade</dt><dd id="integ-cartao-validade"></dd>
+          </dl>
+          <div class="integ-cartao-acoes">
+            <button type="button" id="integ-cartao-confirmar" class="p-mini p-mini-forte">CONFIRMO: RODAR NO SERVIDOR</button>
+            <button type="button" id="integ-cartao-cancelar" class="p-mini">CANCELAR</button>
+          </div>
+        </div>
+        <pre class="integ-saida" id="integ-ssh-saida" tabindex="0" aria-label="Saída do comando no servidor" hidden></pre>
+      </div>
+    </section>
+  </dialog>
+
   <script src="painel-formato.js"></script>
   <script src="painel-markdown.js"></script>
   <script src="painel.js"></script>
   <script src="painel-central.js"></script>
+  <script src="painel-integracao.js"></script>
 </body>
 </html>

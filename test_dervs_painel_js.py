@@ -48,6 +48,7 @@ def test_main_js_nao_usa_console_log():
 
 
 @pytest.mark.parametrize("arquivo", [("renderer", "painel.js"), ("renderer", "painel-markdown.js"),
+                                     ("renderer", "painel-integracao.js"),
                                      ("preload.js",), ("main.js",)])
 def test_nada_do_claude_entra_por_innerhtml(arquivo):
     js = _sem_comentarios(_fonte(*arquivo))
@@ -116,3 +117,53 @@ def test_fila_de_pedidos_cheia_nega_o_excedente_e_mostra_quantos_esperam():
     assert "pedido(s) aguardando" in js and "recusado(s) por excesso" in js
     html = _fonte("renderer", "painel.html")
     assert 'id="claude-pedido-fila"' in html
+
+
+# --- tela Integração: travas estáticas --------------------------------------------
+# A tela mostra texto de terceiro (pedido do painel web, saída de comando no servidor) e
+# tem um botão que confirma comando em servidor. O que tem de continuar verdade:
+
+def test_preload_da_integracao_expoe_so_a_lista_estreita():
+    js = _fonte("preload.js")
+    expostos = set(re.findall(r"^\s{2}((?:aoIntegracao|integracao)\w*)\s*:", js, re.MULTILINE))
+    assert expostos == {"aoIntegracao", "integracaoPedir", "integracaoEscolherCerebro",
+                        "integracaoDispensar", "integracaoPedirConserto", "integracaoSshRodar",
+                        "integracaoSshConfirmar", "integracaoSshCancelar"}
+
+
+def test_main_valida_os_pedidos_da_integracao_e_manda_segunda_true_so_no_confirmar():
+    js = _fonte("main.js")
+    for canal in ("pedir", "cerebro", "dispensar", "conserto", "ssh-rodar", "ssh-confirmar", "ssh-cancelar"):
+        assert f'ipcMain.on("dervs:integracao-{canal}"' in js
+    assert "LIMITE_COMANDO_SSH = 400" in js and "dado.comando.length <= LIMITE_COMANDO_SSH" in js
+    assert 'verbo: "integracao_ssh_confirmar", proposta_id: propostaId, segunda: true' in js
+    assert js.count("segunda: true") == 1      # nenhum outro caminho confirma
+
+
+def test_a_tela_so_confirma_pelo_botao_do_cartao_e_nunca_manda_cartao_nem_senha():
+    js = _sem_comentarios(_fonte("renderer", "painel-integracao.js"))
+    assert js.count("integracaoSshConfirmar(") == 1
+    assert not re.search(r"d\.integracao\w+\([^)]*(cartao|senha|token)", js)   # só o id da proposta sai
+    assert not re.search(r"\bsenha\b", js.lower())
+    assert "$(\"integ-cartao-confirmar\").disabled" in js      # o botão nasce apagado (atraso de 700 ms)
+    assert "integracaoPedirConserto(" in js and js.count("integracaoPedirConserto(") == 1
+
+
+def test_a_integracao_nao_tem_botao_de_executar_nos_pedidos_do_painel_web():
+    js = _sem_comentarios(_fonte("renderer", "painel-integracao.js"))
+    assert "DISPENSAR" in js and "EXECUTAR" in js       # o EXECUTAR é só o do terminal, no HTML/JS do formulário
+    trecho = js[js.index("function desenharFila"):js.index("function desenharAvisos")]
+    assert "integracaoSsh" not in trecho and "Executar" not in trecho and "EXECUTAR" not in trecho
+
+
+def test_html_da_integracao_carrega_o_script_e_nao_afrouxa_nada():
+    html = _fonte("renderer", "painel.html")
+    assert 'src="painel-integracao.js"' in html and 'href="painel-integracao.css"' in html
+    assert 'id="p-dialogo-integracao"' in html and 'id="p-abrir-integracao"' in html
+    assert "style=" not in html[html.index('id="p-dialogo-integracao"'):html.index('src="painel-formato.js"')]
+    assert "unsafe-inline" not in html
+
+
+def test_nenhum_js_fala_do_ssh_pelo_nome_do_modulo():
+    for arquivo in (("renderer", "painel-integracao.js"), ("main.js",), ("preload.js",)):
+        assert "dervs_ssh" not in _fonte(*arquivo)

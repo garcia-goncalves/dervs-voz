@@ -128,4 +128,32 @@ contextBridge.exposeInMainWorld("dervs", {
   centralExplicar: (codigo) => {
     if (typeof codigo === "string" && codigo) ipcRenderer.send("dervs:central-explicar", codigo);
   },
+
+  // ---- Integração (cérebro, painel web, terminal SSH) — lista ESTREITA ---------
+  // Python -> tela: um canal só; cada mensagem traz `parte`. Tudo texto de terceiro
+  // (pedido do painel web, saída do servidor): só textContent.
+  aoIntegracao: aoCanal("dervs:integracao"),
+  // Tela -> Python: só estes sete pedidos; formato conferido aqui, no main.js e no Python.
+  // `integracaoSshConfirmar` só é chamado pelo botão do cartão (a segunda confirmação).
+  integracaoPedir: () => { ipcRenderer.send("dervs:integracao-pedir"); },
+  integracaoEscolherCerebro: (nome) => {
+    if (typeof nome === "string" && nome) ipcRenderer.send("dervs:integracao-cerebro", nome);
+  },
+  integracaoDispensar: (id) => {
+    if (typeof id === "string" && id) ipcRenderer.send("dervs:integracao-dispensar", id);
+  },
+  integracaoPedirConserto: (avisoId) => {
+    if (typeof avisoId === "string" && avisoId) ipcRenderer.send("dervs:integracao-conserto", avisoId);
+  },
+  integracaoSshRodar: (apelido, comando) => {
+    if (typeof apelido === "string" && typeof comando === "string" && comando.trim() && comando.length <= 400) {
+      ipcRenderer.send("dervs:integracao-ssh-rodar", { apelido, comando });
+    }
+  },
+  integracaoSshConfirmar: (propostaId) => {
+    if (typeof propostaId === "string" && propostaId) ipcRenderer.send("dervs:integracao-ssh-confirmar", propostaId);
+  },
+  integracaoSshCancelar: (propostaId) => {
+    if (typeof propostaId === "string" && propostaId) ipcRenderer.send("dervs:integracao-ssh-cancelar", propostaId);
+  },
 });
