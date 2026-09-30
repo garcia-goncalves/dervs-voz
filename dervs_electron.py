@@ -42,6 +42,7 @@ import dervs_registro as registro
 import dervs_safety as seg
 import dervs_painel as painel
 import dervs_ponte_tratador as ponte_tratador
+import dervs_vigia_agente as vigia_agente
 import dervs_ponte_web as ponte_web
 import dervs_sistema as sistema
 from dervs_ponte_electron import PonteElectron
@@ -757,6 +758,18 @@ def main():
     if motor.ponte_web is None:
         sys.stderr.write("dervs: ponte com o painel web desligada: %s" % motivo_ponte + chr(10))
         sys.stderr.flush()
+
+    # Supervisão do medidor dos projetos (agente.enviar): confere que há exatamente um
+    # e religa a tarefa agendada que já existe, nunca cria outro nem mata processo.
+    _avisos_medidor = {
+        "religou": "O medidor dos projetos tinha parado; liguei a tarefa agendada de novo.",
+        "duplicado": "Há mais de um medidor dos projetos rodando; não mexi em nenhum.",
+        "sem_tarefa": "A tarefa agendada do medidor dos projetos não existe neste computador.",
+        "falhou": "Tentei religar o medidor dos projetos e o Windows recusou.",
+    }
+    vigia_agente.iniciar_loop(
+        parar_sistema,
+        lambda r: ponte.enviar_fala("dervs", _avisos_medidor.get(r["acao"], "")) if r["acao"] in _avisos_medidor else None)
 
     app.aboutToQuit.connect(lambda: _encerrar(motor, ponte, posse, parar_sistema))
     app.exec()
