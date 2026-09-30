@@ -7,6 +7,8 @@ dono, não por um programador.
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
+**Ponte com o DERVS web (30/09/2026, onda 1 da integração total): pronta do lado do VOZ, ainda sem prova contra o servidor real.** O VOZ avisa o painel do seu estado, busca recados e devolve o resultado, só com conexão de saída e com o token de computador pareado que o painel já emite. Só `status` e `analisar` em leitura rodam sozinhos; o que muda algo vira pedido na fila local (`%APPDATA%\dervs\propostas_web.jsonl`) e espera o clique do dono — **a fila ainda não aparece na tela**. Teto de 60 recados por hora. Contrato: `docs/esteira/dervs-integracao-total/contrato-ponte.md`. 1547 testes verdes. Falta: teste ponta a ponta com as rotas do DERVS web (a outra janela as está construindo).
+
 **Onda A da central do PC (29/09/2026): o widget deixou de existir.** O painel
 grande é agora a janela única do DERVS: abre sozinho, `Ctrl+Alt+D` é o único
 atalho (o `Ctrl+Alt+Shift+D` do widget saiu), a bandeja tem só "Abrir DERVS /

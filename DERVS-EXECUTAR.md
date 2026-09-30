@@ -117,6 +117,9 @@ primeiro boot (`dervs_config.py`):
 | `voz_kokoro` | pm_santa | voz do Kokoro: `pm_santa` (masculina grave), `pm_alex` (masculina) ou `pf_dora` (feminina) |
 | `voz` | jeff | voz do Piper (só se `motor` = piper): `jeff`, `cadu` ou `faber` |
 | `dervs_app_url` | http://localhost:4777 | URL do outro projeto do dono ("DERVS App") que o botão "Abrir DERVS App" do HUD abre no navegador — só abre, nenhuma outra integração ainda |
+| `ponte_web_ligada` | true | Liga a ponte com o DERVS web (`dervs_ponte_web.py`). Só liga se houver token de computador pareado em `~/.dervs/agente.json`; sem ele, o motivo vai para o console |
+| `ponte_web_alvo` | https://dervs.com.br | Endereço do painel web. https em qualquer lugar; http só para localhost |
+| `ponte_web_intervalo_s` | 60 | De quantos em quantos segundos a ponte fala com o painel (10 a 3600) |
 
 Config faltando ou torta **cai no padrão** em silêncio — nunca derruba a voz.
 Mudou o arquivo? Reinicie: `systemctl --user restart dervs`.
