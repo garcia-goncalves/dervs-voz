@@ -82,6 +82,21 @@ class TratadorLocal:
 
     # ------------------------------------------------------------ proposta
 
+    def _ids_conhecidos(self) -> set:
+        ids = set()
+        try:
+            with open(self._arquivo, "r", encoding="utf-8") as f:
+                for linha in f:
+                    try:
+                        item = json.loads(linha)
+                    except ValueError:
+                        continue
+                    if isinstance(item, dict):
+                        ids.add(item.get("id"))
+        except OSError:
+            pass
+        return ids
+
     def pendentes(self) -> list:
         saida = []
         try:
@@ -100,6 +115,8 @@ class TratadorLocal:
     def propor(self, recado) -> str:
         import dervs_log_acoes
         with _TRAVA:
+            if recado.get("id") in self._ids_conhecidos():
+                return "Este pedido do painel web já estava na fila; espera o seu clique."
             if len(self.pendentes()) >= MAX_PENDENTES:
                 return "A fila de pedidos do painel web está cheia; decida os pendentes antes."
             item = dervs_log_acoes.redigir({

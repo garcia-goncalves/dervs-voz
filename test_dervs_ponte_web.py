@@ -266,11 +266,13 @@ def test_redirecionamento_nao_leva_o_token(painel, arquivo_token):
         def log_message(self, *a):
             pass
 
-        def do_POST(self):
-            self.send_response(307)
-            self.send_header("Location", painel.url + "/agente/voz/estado")
+        def _volta(self):
+            self.send_response(302)
+            self.send_header("Location", painel.url + "/agente/voz/recados")
             self.send_header("Content-Length", "0")
             self.end_headers()
+
+        do_GET = do_POST = _volta
 
     srv = HTTPServer(("127.0.0.1", 0), Redir)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -286,7 +288,6 @@ def test_redirecionamento_nao_leva_o_token(painel, arquivo_token):
 
 
 def test_resposta_gigante_e_recusada(ponte, painel):
-    painel.recados = [_recado(texto="a") for _ in range(1)]
     painel.recados = [dict(_recado(id="g%d" % i), texto="b") for i in range(3000)]
     r = ponte.ciclo()
     assert not r["ok"] and "grande" in r["motivo"].lower()
@@ -376,7 +377,8 @@ def test_com_token_liga_e_para(monkeypatch, painel, arquivo_token, tmp_path):
             time.sleep(0.02)
         assert painel.estados
     finally:
-        p.parar()
+        if p is not None:
+            p.parar()
 
 
 def test_config_padrao_da_ponte_e_validada():
@@ -386,3 +388,27 @@ def test_config_padrao_da_ponte_e_validada():
     assert c["ponte_web_ligada"] is True
     assert c["ponte_web_alvo"].startswith("https://")
     assert c["ponte_web_intervalo_s"] == 60
+
+
+# ------------------------------------------------------------------ rede que cai no meio
+
+def test_resultado_que_nao_chegou_e_reenviado_sem_refazer(ponte, painel):
+    painel.recados = [_recado()]
+    original = ponte.devolver
+    ponte.devolver = lambda r: (_ for _ in ()).throw(pw.PonteIndisponivel("rede caiu"))
+    r1 = ponte.ciclo()
+    assert not r1["ok"] and len(ponte.tratador.lidos) == 1 and painel.resultados == []
+    ponte.devolver = original
+    r2 = ponte.ciclo()          # o painel reenvia o mesmo recado
+    assert r2["ok"] and len(ponte.tratador.lidos) == 1   # não refez
+    assert [x["id"] for x in painel.resultados] == ["r-1"]
+
+
+def test_falha_do_tratador_deixa_rastro_so_com_o_tipo(ponte, painel):
+    def quebra(recado):
+        raise PermissionError("C:\segredo\senha.txt")
+    ponte.tratador.leitura = quebra
+    painel.recados = [_recado()]
+    ponte.ciclo()
+    linhas = json.dumps(ponte.log.ler())
+    assert "PermissionError" in linhas and "segredo" not in linhas

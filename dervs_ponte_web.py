@@ -24,6 +24,7 @@ Toda falha aqui vira uma frase em português em `ciclo()["motivo"]`: a ponte cai
 nunca derruba a voz.
 """
 import datetime
+import http.client
 import json
 import os
 import re
@@ -119,6 +120,7 @@ class PonteWeb:
         self.intervalo_s = intervalo_s
         self.motivo = None
         self._vistos = OrderedDict()
+        self._prontos = OrderedDict()   # resultado pronto que o painel ainda não recebeu
         self._parar = threading.Event()
         self._thread = None
         if log is None:
@@ -164,7 +166,7 @@ class PonteWeb:
                     "O painel mandou para outro endereço; não sigo (o token iria junto). "
                     "Confira o endereço configurado.")
             raise PonteIndisponivel("O painel está fora do ar ou com erro (HTTP %d)." % e.code)
-        except (urllib.error.URLError, OSError, TimeoutError):
+        except (urllib.error.URLError, http.client.HTTPException, OSError, TimeoutError):
             raise PonteIndisponivel("Não alcancei o painel em %s. Sem internet ou fora do ar?"
                                     % self.alvo)
         if len(bruto) > TETO_DA_RESPOSTA:
@@ -212,12 +214,21 @@ class PonteWeb:
         dados.update(extra or {})
         self.log.registrar(evento, dados)
 
+    def _rastro(self, evento: str, dados: dict):
+        try:
+            self.log.registrar(evento, dict(dados, origem="painel_web"))
+        except Exception:
+            pass
+
     def processar(self, recado) -> dict | None:
         """Devolve o resultado a enviar, ou None se o recado deve ser ignorado."""
         if not isinstance(recado, dict):
             return None
         rid = recado.get("id")
-        if not isinstance(rid, str) or not _ID.match(rid) or rid in self._vistos:
+        if not isinstance(rid, str) or not _ID.match(rid):
+            self._rastro("recusou", {"motivo": "recado sem id válido"})
+            return None
+        if rid in self._vistos or rid in self._prontos:
             return None
         self._vistos[rid] = True
         while len(self._vistos) > 500:
@@ -237,9 +248,10 @@ class PonteWeb:
                 self._registrar("propos", recado)
                 resumo = self.tratador.propor(recado)
                 estado = "aguardando_clique"
-        except Exception:
-            # o motivo real pode ter caminho ou dado; o dono vê o genérico e o
-            # registro local guarda o rastro
+        except Exception as e:
+            # a mensagem real pode ter caminho ou dado: o dono vê o genérico e o
+            # registro local guarda só o TIPO do erro
+            self._rastro("alerta", {"id": rid, "falha": type(e).__name__})
             estado, resumo = "falhou", "Não consegui concluir este recado."
         if estado not in ("feito", "recusado", "falhou", "aguardando_clique"):
             estado = "falhou"
@@ -261,15 +273,23 @@ class PonteWeb:
         feitos = 0
         try:
             self.enviar_estado()
+            # o que já foi feito mas não chegou ao painel (rede caiu) vai primeiro,
+            # sem refazer o trabalho
+            for rid in list(self._prontos):
+                self.devolver(self._prontos[rid])
+                del self._prontos[rid]
             for recado in self.buscar_recados()[:MAX_RECADOS_POR_CICLO]:
                 resultado = self.processar(recado)
                 if resultado is not None:
+                    self._prontos[resultado["id"]] = resultado
                     self.devolver(resultado)
+                    del self._prontos[resultado["id"]]
                     feitos += 1
         except PonteIndisponivel as e:
             self.motivo = str(e)
             return {"ok": False, "motivo": self.motivo, "recados": feitos}
-        except Exception:
+        except Exception as e:
+            self._rastro("alerta", {"falha": type(e).__name__})
             self.motivo = "Erro inesperado na ponte com o painel web."
             return {"ok": False, "motivo": self.motivo, "recados": feitos}
         self.motivo = None

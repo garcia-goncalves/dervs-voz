@@ -77,3 +77,10 @@ def test_arquivo_estragado_nao_derruba(repos, tmp_path):
     (tmp_path / "p.jsonl").write_text(
         "{lixo\n" + json.dumps({"id": "a", "estado": "pendente"}) + "\n", encoding="utf-8")
     assert [p["id"] for p in _tr(repos, tmp_path).pendentes()] == ["a"]
+
+
+def test_proposta_repetida_nao_entra_duas_vezes(repos, tmp_path):
+    tr = _tr(repos, tmp_path)
+    tr.propor({"id": "r-1", "tipo": "propor", "texto": "x"})
+    msg = tr.propor({"id": "r-1", "tipo": "propor", "texto": "x"})
+    assert len(tr.pendentes()) == 1 and "já estava" in msg
