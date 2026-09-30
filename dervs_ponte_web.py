@@ -151,7 +151,8 @@ class PonteWeb:
 
     # ------------------------------------------------------------ rede
 
-    def _falar(self, metodo: str, caminho: str, corpo=None):
+    def _falar(self, metodo: str, caminho: str, corpo=None, erros=None):
+        """`erros`: {código HTTP: frase} que vale só para esta rota (ex.: 404 = alerta inexistente)."""
         token = token_de(self.alvo, self._arquivo_token)
         if not token:
             raise PonteIndisponivel(
@@ -171,6 +172,8 @@ class PonteWeb:
             with self._abridor.open(pedido, timeout=ESPERA_DA_REDE_S) as r:
                 bruto = self._ler_com_prazo(r)
         except urllib.error.HTTPError as e:
+            if erros and e.code in erros:
+                raise PonteIndisponivel(erros[e.code])
             if e.code == 404:
                 raise PonteIndisponivel(
                     "O painel ainda não tem a ponte com o DERVS-VOZ; tento de novo em alguns "
@@ -220,6 +223,32 @@ class PonteWeb:
     def buscar_recados(self) -> list:
         lista = self._falar("GET", "/agente/voz/recados").get("recados")
         return lista if isinstance(lista, list) else []
+
+    def pedir_conserto(self, alerta_id, resumo: str = "") -> dict:
+        """Pede ao painel que ENFILEIRE um conserto para o alerta. A tarefa nasce pendente do
+        "Pode fazer" do dono no painel e nunca roda sozinha. Devolve
+        {"ok", "tarefa_id", "novo", "aviso"} ou {"ok": False, "motivo"}."""
+        if not isinstance(alerta_id, str) or not alerta_id or len(alerta_id) > 200                 or any(unicodedata.category(c) in ("Cc", "Cf") for c in alerta_id):
+            return {"ok": False, "motivo": "Identificador de alerta inválido."}
+        import dervs_cerebros
+        corpo = {"tipo": "enfileirar_conserto", "alerta_id": alerta_id,
+                 "resumo": dervs_cerebros.sanitizar(resumo, 300)}
+        try:
+            r = self._falar("POST", "/agente/voz/pedido", corpo, erros={
+                404: "O painel não conhece esse alerta (ou ele é de outra conta).",
+                403: "Esse alerta é de um tipo que a IA não conserta (segurança ou dependência) "
+                     "ou o projeto está bloqueado.",
+                429: "Muitos pedidos de conserto seguidos; espere alguns minutos.",
+                400: "O painel recusou o pedido por formato."})
+        except PonteIndisponivel as e:
+            return {"ok": False, "motivo": str(e)}
+        except Exception:
+            return {"ok": False, "motivo": "Erro inesperado ao pedir o conserto."}
+        tarefa = r.get("tarefa_id")
+        if r.get("ok") is not True or not isinstance(tarefa, str):
+            return {"ok": False, "motivo": "O painel respondeu algo que não entendi."}
+        return {"ok": True, "tarefa_id": tarefa[:200], "novo": bool(r.get("pedido")),
+                "aviso": str(r.get("aviso") or "")[:300]}
 
     def devolver(self, resultado: dict):
         self._falar("POST", "/agente/voz/resultado", resultado)

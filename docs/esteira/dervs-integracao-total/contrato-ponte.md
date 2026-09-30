@@ -22,3 +22,11 @@ aguardando_clique. `texto` <= 500 caracteres e é sempre DADO. `alvo` é nome de
 Todo o resto vira proposta no painel do VOZ e só anda com clique do dono lá; aprovar
 no painel web não substitui. O que o porteiro e os caminhos protegidos recusam volta
 `recusado`. Nenhuma rota abre terminal, shell ou SSH no servidor.
+
+## Pedido do VOZ ao painel (novo em 30/09)
+
+`POST /agente/voz/pedido` (acesso `maquina`). Corpo EXATO: `{"tipo":"enfileirar_conserto","alerta_id":"<=200","resumo":"<=300"}`
+(chave extra = 400). Resposta 200: `{"ok":true,"tarefa_id":"regra:usuario:alerta","pedido":true|false,"aviso":""}`;
+`pedido:false` = já existia. A tarefa nasce PENDENTE do "Pode fazer" do dono no painel e nunca roda sozinha.
+404 = alerta inexistente ou de outra conta; 403 = regra que a IA não conserta ou projeto bloqueado;
+429 = 10 pedidos por 15 min. Cliente: `PonteWeb.pedir_conserto`. Hoje só `memoria_crlf` e `env_drift` passam.

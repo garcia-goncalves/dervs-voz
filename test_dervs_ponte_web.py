@@ -32,6 +32,9 @@ class FalsoPainel:
         self.estados = []
         self.resultados = []
         self.tokens_vistos = []
+        self.pedidos = []
+        self.resposta_pedido = {"ok": True, "tarefa_id": "memoria_crlf:1:memoria_crlf:dervs",
+                                "pedido": True, "aviso": ""}
         self.status = 200
         painel = self
 
@@ -64,6 +67,9 @@ class FalsoPainel:
                 if painel.status != 200:
                     return self._responder(painel.status, {"erro": "x"})
                 corpo = self._corpo()
+                if self.path == "/agente/voz/pedido":
+                    painel.pedidos.append(corpo)
+                    return self._responder(200, painel.resposta_pedido)
                 if self.path == "/agente/voz/estado":
                     painel.estados.append(corpo)
                 elif self.path == "/agente/voz/resultado":
@@ -524,3 +530,37 @@ def test_aviso_que_tenta_mudar_estado_e_recusado(ponte, painel):
     ponte.ciclo()
     assert ponte.tratador.lidos == [] and ponte.tratador.propostos == []
     assert painel.resultados[0]["estado"] == "recusado"
+
+
+# ------------------------------------------------------------------ pedir conserto ao painel
+
+def test_pedir_conserto_manda_so_as_tres_chaves_do_contrato(ponte, painel):
+    r = ponte.pedir_conserto("memoria_crlf:dervs", r"CRLF em 3 arquivos C:\Users\Dono\x.py")
+    assert r == {"ok": True, "tarefa_id": "memoria_crlf:1:memoria_crlf:dervs", "novo": True, "aviso": ""}
+    corpo = painel.pedidos[0]
+    assert set(corpo) == {"tipo", "alerta_id", "resumo"} and corpo["tipo"] == "enfileirar_conserto"
+    assert "C:\\" not in corpo["resumo"]          # caminho do dono não sai
+
+
+def test_pedido_repetido_diz_que_ja_existia(ponte, painel):
+    painel.resposta_pedido = {"ok": True, "tarefa_id": "a:1:a:b", "pedido": False, "aviso": "já estava na fila"}
+    r = ponte.pedir_conserto("a:b")
+    assert r["ok"] and r["novo"] is False and r["aviso"] == "já estava na fila"
+
+
+@pytest.mark.parametrize("codigo,trecho", [(404, "não conhece"), (403, "não conserta"),
+                                           (429, "espere"), (400, "formato")])
+def test_erros_do_pedido_tem_frase_propria(ponte, painel, codigo, trecho):
+    painel.status = codigo
+    r = ponte.pedir_conserto("a:b")
+    assert not r["ok"] and trecho in r["motivo"]
+
+
+@pytest.mark.parametrize("ruim", ["", "x" * 201, "a‮b", None, 7])
+def test_alerta_id_invalido_nem_sai_do_computador(ponte, painel, ruim):
+    assert not ponte.pedir_conserto(ruim)["ok"] and painel.pedidos == []
+
+
+def test_resposta_estranha_do_pedido_nao_levanta(ponte, painel):
+    painel.resposta_pedido = {"ok": True, "tarefa_id": 5}
+    assert not ponte.pedir_conserto("a:b")["ok"]
