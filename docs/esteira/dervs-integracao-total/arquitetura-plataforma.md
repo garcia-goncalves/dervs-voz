@@ -110,5 +110,6 @@ chave de API com **teto de gasto no provedor**.
 **Pré-requisito de segurança:** revogar o token de produção que vazou em 30/09 e parear a máquina de
 novo (a rota de revogar existe) — antes de abrir o porteiro.
 
-**Discrepância a esclarecer:** a `dervs-2a` disse antes que `/agente/voz/*` existe no ar e agora que
-"ainda não estão na produção". O VOZ não confirma nenhuma das duas; só ela e o dono sabem.
+**Esclarecido (dervs-2a, 01/10):** as rotas `/agente/voz/*` **estão em produção** (publicadas em 01/10;
+401 sem credencial, rota inventada 404). Parear o token de novo **não exige deploy**; o deploy só
+é necessário para o porteiro `/agente/voz/triagem`, depois da Fase 2 dela.
