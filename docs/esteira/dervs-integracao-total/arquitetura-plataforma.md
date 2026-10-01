@@ -1,7 +1,6 @@
 # Arquitetura da plataforma DERVS — proposta para revisão
 
-Estado: **rascunho de 01/10/2026**, escrito pela janela do DERVS VOZ, para revisão da janela do
-DERVS web (`dervs-2a`) e aprovação do dono. Nada aqui foi implementado nem instalado.
+Estado: **rascunho de 01/10/2026, já revisado pela `dervs-2a` (ver seção 6)**, falta a aprovação do dono. Nada aqui foi implementado nem instalado.
 Contrato de mensagens entre as duas pontas: `contrato-ponte.md` (este documento não o substitui).
 
 ## 1. Três lugares
@@ -44,7 +43,7 @@ O VOZ **não** pode ser só web (microfone, atalho global, widget, Claude Code l
 - **JEV.** Só triagem (mede urgência); regra fixa decide o que age sozinho. Chave na VPS; o VOZ
   chama o porteiro, não a TypeSafe direto. Provado em 01/10 com a chave do dono: urgência 0,76
   ("disco em 95%") e 0,07 ("tudo ok").
-- **Hermes.** Pede Linux e fica ligado: encaixa na VPS (Ubuntu/Debian), em contêiner, sem
+- **Hermes.** (o web não tem permissão por conta para ele: seria funcionalidade nova, ver seção 6.) Pede Linux e fica ligado: encaixa na VPS (Ubuntu/Debian), em contêiner, sem
   acesso a produção. No PC do dono só há o Linux interno do Docker, sem terminal; instalar
   distro WSL foi barrado pelo classificador do Claude Code (não contornado). Só vira cérebro do
   VOZ depois de contrato (comando não interativo, pasta, permissões, saída como dado) e revisão
@@ -72,3 +71,44 @@ O VOZ **não** pode ser só web (microfone, atalho global, widget, Claude Code l
 
 Instalar nada na VPS, conectar nela, alterar rota ou esquema do painel, ou usar o token de
 produção (vazou em 30/09; precisa ser removido e pareado de novo pelo dono).
+
+## 6. Revisão da `dervs-2a` (DERVS web, 01/10) — correções e decisões
+
+**Correções ao texto acima**
+- O web **não tem** conceito de estúdio nem permissão por conta para Hermes: "a conta decide o que o
+  VOZ enxerga" é funcionalidade **nova**, não algo que já existe.
+- Deploy é pela tarefa "Deploy para a VPS" do VS Code (sem GitHub Actions desde 25/09). Existe um
+  **Claude Code dentro da VPS**, não mencionado acima.
+- Rotas de máquina do VOZ: **4** (estado, recados, resultado, pedido); do dono: **2** (`GET /api/voz`,
+  `POST /api/voz/recado`).
+- A medição da VPS é de **26/08** (8 vCPU, 24 GB RAM, 193 GB disco, 26 contêineres de 8 sistemas,
+  disco a 67%). **Não há medição de hoje**: não dá para afirmar que aguenta Hermes e estúdio.
+
+**Porteiro do JEV — `POST /agente/voz/triagem` (cabe como rota nova)**
+- Pedido: `{"versao":1,"pergunta":"urgente","texto":"<=500 caracteres","tipo":"score"}`; `pergunta`
+  em lista fechada; campo extra = 400.
+- Resposta 200: `{"ok":true,"versao":1,"urgencia":0.76,"rotulo":"alta"}`. Erros: 400, 401, 429,
+  503 `{"erro":"triagem indisponivel"}`. Falha fechada: se a TypeSafe falhar, "indisponível", nunca "ok";
+  nunca repete erro cru da TypeSafe.
+- Segurança: token de máquina pareada; balcão próprio (não empresta o teto de outra rota); URL da
+  TypeSafe fixa no código; a chave só no servidor, com nome `DERVS_TYPESAFE_KEY` (a guarda
+  `test_publicar` só enxerga `DERVS_*`), linha no compose e no `.env` do servidor, gravado à mão
+  pelo administrador.
+- Limite: o balcão é por janela de 15 min e **em memória** (zera ao reiniciar); **não é cota de
+  gasto**. Cota diária por conta exige tabela nova: **decisão do dono**.
+- Dependência: o porteiro só funciona **depois de um deploy que leve a ponte junto**.
+
+**Ordem e atrito.** A ordem proposta não conflita. A Fase 2 da `dervs-2a` está só local, em ramo; os
+dois mexem em `servir.py` e no `Dockerfile`, então o porteiro vem **depois do merge da Fase 2** (ou
+em ramo próprio).
+
+**Estúdio e Hermes na VPS (condições)**: antes, o dono mede RAM/CPU/disco hoje
+(`docker stats`, `free -m`, `df -h`); `mem_limit` e `pids_limit` nos dois, como no compose do DERVS;
+rede própria; **sem `docker.sock`** (o usuário do dono na VPS tem grupo docker, na prática root);
+chave de API com **teto de gasto no provedor**.
+
+**Pré-requisito de segurança:** revogar o token de produção que vazou em 30/09 e parear a máquina de
+novo (a rota de revogar existe) — antes de abrir o porteiro.
+
+**Discrepância a esclarecer:** a `dervs-2a` disse antes que `/agente/voz/*` existe no ar e agora que
+"ainda não estão na produção". O VOZ não confirma nenhuma das duas; só ela e o dono sabem.
