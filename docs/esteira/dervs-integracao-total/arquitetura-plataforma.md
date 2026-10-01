@@ -113,3 +113,32 @@ novo (a rota de revogar existe) — antes de abrir o porteiro.
 **Esclarecido (dervs-2a, 01/10):** as rotas `/agente/voz/*` **estão em produção** (publicadas em 01/10;
 401 sem credencial, rota inventada 404). Parear o token de novo **não exige deploy**; o deploy só
 é necessário para o porteiro `/agente/voz/triagem`, depois da Fase 2 dela.
+
+## 7. Medição da VPS (01/10, Claude Code da VPS, só leitura) e decisões do dono
+
+**Medido:** 8 núcleos (load 0,3), 23,5 GB de RAM (3,4 GB em uso, ~20 GB disponíveis), swap 8 GB quase
+vazio, `/mnt/data` (Docker) com 100 GB livres, 24 contêineres rodando. Nenhum monta `docker.sock` nem é
+privileged. Só o `dervs` tem `pids_limit`. Limites de memória somam ~28,7 GB (mais que a máquina).
+Ollama só em contêiner (`dents-ollama`, modelo qwen2.5:3b, limite 8 GB). O painel **não** roda `claude`
+na VPS; sessões `claude` por máquina são no PC (cada uma ~356 MB e ~21% de um núcleo).
+
+**Conclusão:** **cabem** Hermes (2–4 GB) e Bolt.diy (1–2 GB) com ~6 GB de folga no pior caso, com
+`mem_limit`, `cpus` (2 cada) e `pids_limit` desde o início, rede própria, sem `docker.sock`, e usuário
+sem sudo e fora do grupo docker.
+
+**Já corrigido pelo dono em 01/10:** os 3 `.env` (hragro, medcrm, medcrm.bak) de 644/664 para 600; usuário
+`grimoire` fora do grupo `docker` (grupo agora: andre, devlab, tiba).
+
+**Pendências do dono/administrador (não do VOZ):** trocar a `SENHA_INICIAL` do grimoire se ainda estiver em
+uso (apareceu em conversa e está em texto aberto em `/var/log/auth.log` desde 31/08); baixar o limite do
+Ollama de 8 para 4 GB (recria o contêiner, fazer junto de um deploy); `pids_limit` nos demais contêineres;
+Claude Code da VPS roda como `tiba` com sudo sem senha; Postgres no host (127.0.0.1:5432) de função
+desconhecida; `deploy.sh` do hragro aponta para `.env` que não existe (só `.env.ovh`) — avisar o André.
+
+**Usuários:** o André usa os mesmos serviços. VPS: `tiba` e `andre`. DERVS: duas contas por e-mail, uma
+máquina pareada em cada. Não existe cota por conta (só teto compartilhado: US$ 3,00 por sessão e
+R$ 50,00 por dia); cota por conta exige tabela nova e é decisão do dono.
+
+**Próximos passos, em ordem:** (a) Fase 2 da `dervs-2a` e deploy; (b) porteiro `/agente/voz/triagem`
+(web) e, no VOZ, cliente que o chama no lugar da TypeSafe direta; (c) estúdio e Hermes na VPS, só depois
+de o dono criar chave de API com teto de gasto; (d) instalador do VOZ.
