@@ -735,7 +735,12 @@ ipcMain.on("dervs:integracao-ssh-rodar", (_evento, dado) => {
   enviarAoPython({ verbo: "integracao_ssh_rodar", apelido: dado.apelido, comando: dado.comando });
 });
 
-ipcMain.on("dervs:integracao-ssh-confirmar", (_evento, propostaId) => {
+ipcMain.on("dervs:integracao-ssh-confirmar", (evento, propostaId) => {
+  // só a janela do painel pode confirmar (nenhuma outra página/frame)
+  if (!painel || evento.sender !== painel.webContents) {
+    console.error("electron: confirmação SSH de origem estranha, ignorada");
+    return;
+  }
   if (typeof propostaId !== "string" || !ID_LOCAL.test(propostaId)) {
     console.error("electron: confirmação SSH inválida, ignorada");
     return;

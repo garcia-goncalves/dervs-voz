@@ -167,3 +167,14 @@ def test_html_da_integracao_carrega_o_script_e_nao_afrouxa_nada():
 def test_nenhum_js_fala_do_ssh_pelo_nome_do_modulo():
     for arquivo in (("renderer", "painel-integracao.js"), ("main.js",), ("preload.js",)):
         assert "dervs_ssh" not in _fonte(*arquivo)
+
+
+def test_confirmacao_ssh_exige_gesto_real_e_a_janela_do_painel():
+    """Trava estática: a segunda confirmação do SSH só sai do preload com ativação
+    de usuário verdadeira, e o main só a aceita vinda da janela do painel."""
+    preload = open(os.path.join("electron", "preload.js"), encoding="utf-8").read()
+    main = open(os.path.join("electron", "main.js"), encoding="utf-8").read()
+    corpo = preload.split("integracaoSshConfirmar:")[1].split("integracaoSshCancelar:")[0]
+    assert "navigator.userActivation.isActive" in corpo
+    handler = main.split('"dervs:integracao-ssh-confirmar"')[1].split("ipcMain.on(")[0]
+    assert "evento.sender !== painel.webContents" in handler

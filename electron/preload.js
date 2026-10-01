@@ -151,6 +151,9 @@ contextBridge.exposeInMainWorld("dervs", {
     }
   },
   integracaoSshConfirmar: (propostaId) => {
+    // Só vale com um gesto REAL do usuário (clique/tecla). Script no renderer não fabrica
+    // ativação: `element.click()` e eventos sintéticos não contam.
+    if (!(navigator.userActivation && navigator.userActivation.isActive)) return;
     if (typeof propostaId === "string" && propostaId) ipcRenderer.send("dervs:integracao-ssh-confirmar", propostaId);
   },
   integracaoSshCancelar: (propostaId) => {
