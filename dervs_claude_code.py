@@ -433,7 +433,7 @@ def motivo_de_bloqueio(nome: str, entrada: dict, protegido=esta_protegido,
 
 
 def decisao_do_gancho(nome, entrada, protegido=esta_protegido, leitura=leitura_proibida,
-                      niveis=None):
+                      niveis=None, raizes=None):
     """`("deny", motivo)`, `("ask", motivo)` ou `(None, None)`.
 
     `ask` faz o pedido cair SEMPRE no `can_use_tool` (o diálogo do painel), mesmo
@@ -447,7 +447,7 @@ def decisao_do_gancho(nome, entrada, protegido=esta_protegido, leitura=leitura_p
         # Política do dono (painel "O que o DERVS pode fazer"): roda DEPOIS dos
         # bloqueios acima, então só reduz poder. `permitir` devolve (None, None) e o
         # `_can_use_tool` aprova sem cartão; destrutivo/servidor nunca chegam a isso.
-        d = perm.decidir(nome, entrada, classificar(nome, entrada), niveis)
+        d = perm.decidir(nome, entrada, classificar(nome, entrada), niveis, raizes or ())
         if d["acao"] == "negar":
             return "deny", d["motivo"]
         if d["acao"] == "permitir":
@@ -460,14 +460,16 @@ def decisao_do_gancho(nome, entrada, protegido=esta_protegido, leitura=leitura_p
     return "ask", "O DERVS pede a confirmação do dono no painel."
 
 
-def criar_gancho(protegido=esta_protegido, leitura=leitura_proibida, niveis_fn=None):
+def criar_gancho(protegido=esta_protegido, leitura=leitura_proibida, niveis_fn=None,
+                 raizes_fn=None):
     """O callback `PreToolUse` do SDK, registrado SEM filtro de ferramenta.
     Falha FECHADA: se o próprio gancho quebrar, nega."""
     async def gancho(entrada, tool_use_id, contexto):
         try:
             acao, motivo = decisao_do_gancho(entrada.get("tool_name", ""),
                                              entrada.get("tool_input") or {}, protegido, leitura,
-                                             niveis_fn() if niveis_fn else None)
+                                             niveis_fn() if niveis_fn else None,
+                                             raizes_fn() if raizes_fn else None)
         except Exception as e:
             acao = "deny"
             motivo = f"O DERVS não conseguiu avaliar a ferramenta ({type(e).__name__}); negada."
@@ -784,10 +786,12 @@ class SessaoClaudeCode:
                  perfil=PERFIL_PADRAO, fabrica_cliente=None, arquivo_sessao="padrao",
                  fachada_fabrica=None, cwd=None, protegido=esta_protegido,
                  timeout_pedido=TIMEOUT_PEDIDO_S, espera_interrupt=ESPERA_INTERRUPT_S,
-                 encerrar_arvore=dervs_processos.encerrar_arvore, niveis_fn=None):
+                 encerrar_arvore=dervs_processos.encerrar_arvore, niveis_fn=None,
+                 raizes_fn=None):
         # `niveis_fn()` devolve a matriz de permissões do dono, lida na hora (o painel
         # vale sem reiniciar). Sem ela, tudo vai ao cartão como antes.
         self._niveis_fn = niveis_fn
+        self._raizes_fn = raizes_fn      # pastas de projeto onde escrever sozinho vale
         self._ao_evento = ao_evento
         self._ao_texto_final = ao_texto_final
         self._ao_aviso = ao_aviso
@@ -963,7 +967,8 @@ class SessaoClaudeCode:
         servidor = criar_servidor_dervs(self)[0]
         opcoes = montar_opcoes(
             self.perfil, can_use_tool=self._can_use_tool,
-            gancho=criar_gancho(self._protegido, niveis_fn=self._niveis_fn), servidor_mcp=servidor,
+            gancho=criar_gancho(self._protegido, niveis_fn=self._niveis_fn,
+                                raizes_fn=self._raizes_fn), servidor_mcp=servidor,
             resume=self._session_id, cwd=self._cwd)
         cliente = self._fabrica(opcoes)
         antes = _pids_filhos()
@@ -1170,7 +1175,8 @@ class SessaoClaudeCode:
         nivel = risco["nivel"]
         if self._niveis_fn is not None and nivel != "destrutivo":
             try:
-                d = perm.decidir(nome, entrada, risco, self._niveis_fn())
+                d = perm.decidir(nome, entrada, risco, self._niveis_fn(),
+                                self._raizes_fn() if self._raizes_fn else ())
                 livre = (d["acao"] == "permitir"
                          and not motivo_de_bloqueio(nome, entrada, self._protegido,
                                                     leitura_proibida))

@@ -229,6 +229,10 @@ PADRAO = {
     # Teto de gasto por dia (US$) em API paga: voz, transcrição e cérebro OpenAI.
     # O Claude da assinatura não conta. Ao atingir, o DERVS volta para o Claude.
     "teto_gasto_dia_usd": 3.0,
+    # Pastas de projeto onde o DERVS pode criar/alterar arquivos SEM perguntar, quando
+    # "Criar e alterar arquivos" está em "Faz sozinho". Caminhos completos. Não vale raiz
+    # de disco, o perfil, AppData nem pasta que os contenha; fora delas ele sempre pergunta.
+    "pastas_de_projeto": [],
 }
 
 
@@ -319,6 +323,10 @@ def _validar(conf: dict) -> dict:
     if conf.get("claude_perfil") not in ("dono", "equipe"):
         conf["claude_perfil"] = PADRAO["claude_perfil"]
     conf["permissoes"] = dervs_permissoes.normalizar(conf.get("permissoes"))
+    pastas = conf.get("pastas_de_projeto")
+    if not isinstance(pastas, list):
+        pastas = []
+    conf["pastas_de_projeto"] = [x for x in pastas[:20] if dervs_permissoes.raiz_valida(x)]
     teto = conf.get("teto_gasto_dia_usd")
     if isinstance(teto, bool) or not isinstance(teto, (int, float)) or not 0.01 <= teto <= 1000:
         conf["teto_gasto_dia_usd"] = PADRAO["teto_gasto_dia_usd"]

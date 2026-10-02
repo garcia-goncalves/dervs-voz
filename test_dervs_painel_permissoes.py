@@ -40,6 +40,14 @@ class GastoFalso:
         return {"total": 1.5}
 
 
+@pytest.fixture(autouse=True)
+def _config_isolada(tmp_path, monkeypatch):
+    """Cada teste grava numa config só dele: sem isto, o que um teste salva (ex.:
+    abrir=sozinho) vazava para os outros testes da sessão."""
+    monkeypatch.setattr(config, "CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "CONFIG_PATH", str(tmp_path / "config.json"))
+
+
 @pytest.fixture
 def tela():
     ponte = PonteFalsa()
@@ -241,6 +249,13 @@ def test_html_das_permissoes_tem_os_ids_e_nao_afrouxa_a_csp():
     assert "Estas travas valem sempre e não aparecem aqui" in html
     assert "lixeira segura" in html and "nunca mexe em servidor sem o seu sim" in html
     assert "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'" in html
+
+
+def test_verbos_que_mudam_permissao_conferem_a_origem_no_main_js():
+    js = open(os.path.join("electron", "main.js"), encoding="utf-8").read()
+    for canal in ("dervs:permissoes-definir", "dervs:permissoes-teto"):
+        trecho = js[js.index(canal):js.index(canal) + 200]
+        assert "veioDoPainel(evento)" in trecho, canal
 
 
 def test_a_tela_nao_duplica_rotulos_de_categoria():

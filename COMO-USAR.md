@@ -424,6 +424,39 @@ quanto já foi gasto hoje. As escolhas são salvas na hora e valem na próxima a
 Estas travas valem sempre e não aparecem na tela: nada em servidor sem o seu sim,
 apagar só vai para a quarentena, nunca ignorar permissões.
 
+### O que "Faz sozinho" libera de verdade
+
+"Faz sozinho" não é um cheque em branco: só passa sem cartão o que o DERVS reconhece
+por inteiro. Todo o resto continua pedindo o seu sim, mesmo com a opção ligada.
+
+| Categoria | O que passa sem cartão |
+|---|---|
+| Ler | Ler arquivos e comandos que só olham |
+| Criar e alterar arquivos | Escrever arquivo **dentro das suas pastas de projeto** (nunca `.git`, `.ssh`, arquivos que começam com ponto, perfil do PowerShell, pasta Inicializar) |
+| Abrir programas | Só os conhecidos: bloco de notas, calculadora, Chrome, Edge, Word, Excel... (nunca `cmd`, `powershell`, scripts) |
+| Instalar | `pip`, `npm` ou `winget` com nome de pacote simples (nada de endereço, `-r` ou comando encadeado). Atenção: instalar roda o instalador do pacote |
+| Internet | Só **pesquisar**. Abrir uma página qualquer sempre pergunta (uma página pode carregar dado seu na URL) |
+
+As **pastas de projeto** ficam no `config.json` (em `%APPDATA%\dervs`), na chave
+`pastas_de_projeto`, com caminho completo. Não vale raiz de disco (`C:\`), a sua pasta
+de usuário nem `AppData`. Sem pasta listada, escrever sempre pergunta.
+
+### Pedir para o DERVS desenvolver
+
+Se você falar um pedido claro de construir software ("cria um site para a clínica",
+"conserta o bug do login", "implementa a tela de cadastro"), o DERVS manda direto para o
+Claude Code, sem você dizer "pede pro Claude". Pedidos rápidos (hora, abrir app, lembrete)
+continuam no caminho rápido de sempre. Cada escolha fica em
+`%LOCALAPPDATA%\dervs\roteamento.jsonl`, com o motivo (só a frase de quem foi para o
+Claude é guardada, cortada em 80 letras).
+
+### Teto de gasto
+
+O teto diário (padrão US$ 3,00) vale para **toda** chamada paga: cérebro, voz na nuvem,
+transcrição e navegador autônomo. Ao atingir, o DERVS volta para o Claude e para a voz e a
+transcrição locais. "Só analisa" em "Gastar com serviços pagos de IA" desliga as APIs
+pagas por completo. O Claude da assinatura não conta no teto.
+
 ---
 
 ## Se o DERVS cair: o piloto automático

@@ -180,7 +180,8 @@ class Motor(dervs.PopUp):
             ao_aviso=self._claude_aviso,
             fachada_fabrica=self._fachada_aprovacao,
             perfil=config.carregar()["claude_perfil"],
-            niveis_fn=lambda: config.carregar()["permissoes"])
+            niveis_fn=lambda: config.carregar()["permissoes"],
+            raizes_fn=lambda: config.carregar()["pastas_de_projeto"])
         # A Central do PC (onda D): analisa, propõe limpeza e devolve o clique ao motor.
         self.central_pc = central_painel.CentralDoPc(
             self.ponte, self._motor_aprovacao, falar=lambda t: self._claude_fala.emit(t),

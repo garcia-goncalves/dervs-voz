@@ -82,8 +82,9 @@ def _arquivo_log() -> str:
 
 
 def registrar(decisao: dict, fala: str) -> None:
-    """Uma linha por decisão; a fala é cortada em 80 caracteres (pode haver dado
-    falado em voz alta). Nunca levanta."""
+    """Uma linha por decisão. A fala só é guardada (80 caracteres) quando vai ao
+    Claude Code; o que vai ao planejador rápido não deixa a frase no disco, porque
+    pode ser dado falado em voz alta. Nunca levanta."""
     try:
         caminho = _arquivo_log()
         if not caminho:
@@ -94,7 +95,9 @@ def registrar(decisao: dict, fala: str) -> None:
                                 "executor": decisao.get("executor"),
                                 "intencao": decisao.get("intencao"),
                                 "motivo": decisao.get("motivo"),
-                                "fala": (fala or "")[:80]}, ensure_ascii=False) + "\n")
+                                "fala": ((fala or "")[:80]
+                                         if decisao.get("executor") == "claude_code" else "")},
+                               ensure_ascii=False) + "\n")
     except Exception:
         pass
 

@@ -81,6 +81,13 @@ def test_registra_o_motivo_e_lista_os_recentes(tmp_path, monkeypatch):
     assert [x["executor"] for x in rec] == ["planejador", "claude_code"]   # mais novo primeiro
 
 
+def test_fala_do_planejador_nao_fica_no_disco(tmp_path, monkeypatch):
+    monkeypatch.setenv("DERVS_ROTEAMENTO_LOG", str(tmp_path / "r.jsonl"))
+    r.registrar(r.rotear("a senha do banco e 1234"), "a senha do banco e 1234")
+    texto = (tmp_path / "r.jsonl").read_text(encoding="utf-8")
+    assert "1234" not in texto and "planejador" in texto
+
+
 def test_log_nao_guarda_o_texto_inteiro_nem_derruba(tmp_path, monkeypatch):
     monkeypatch.setenv("DERVS_ROTEAMENTO_LOG", str(tmp_path / "x" / "y.jsonl"))
     r.registrar(r.rotear("cria um site " + "a" * 5000), "cria um site " + "a" * 5000)

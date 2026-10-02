@@ -102,3 +102,19 @@ def test_cerebro_openai_e_pulado_quando_o_teto_estoura(monkeypatch):
     monkeypatch.setattr(gb, "_sessao", Sessao())
     gb.pensar([{"role": "user", "content": "oi"}])
     assert chamou == []                                   # nem tentou a OpenAI
+
+
+def test_pastas_de_projeto_so_aceita_caminho_absoluto(tmp_path, monkeypatch):
+    arq = tmp_path / "config.json"
+    perfil = tmp_path / "perfil"                       # o tmp_path real mora dentro de AppData
+    perfil.mkdir()
+    for var in ("USERPROFILE", "HOME"):
+        monkeypatch.setenv(var, str(perfil))
+    monkeypatch.setenv("APPDATA", str(perfil / "AppData" / "Roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(perfil / "AppData" / "Local"))
+    pasta = str(tmp_path / "loja")
+    arq.write_text(json.dumps({"pastas_de_projeto": [pasta, "relativo/x", 5, None]}), encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(arq))
+    assert cfg.carregar()["pastas_de_projeto"] == [pasta]
+    arq.write_text(json.dumps({"pastas_de_projeto": "C:/x"}), encoding="utf-8")
+    assert cfg.carregar()["pastas_de_projeto"] == []

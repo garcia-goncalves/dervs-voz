@@ -716,7 +716,16 @@ const NIVEIS_PERMISSAO = new Set(["analisa", "pergunta", "sozinho"]);
 
 ipcMain.on("dervs:permissoes-pedir", () => { enviarAoPython({ verbo: "permissoes_pedir" }); });
 
-ipcMain.on("dervs:permissoes-definir", (_evento, dado) => {
+// Os verbos que MUDAM permissão só valem vindos da janela do painel (nenhuma outra página/frame).
+function veioDoPainel(evento) {
+  return Boolean(painel) && evento.sender === painel.webContents;
+}
+
+ipcMain.on("dervs:permissoes-definir", (evento, dado) => {
+  if (!veioDoPainel(evento)) {
+    console.error("electron: permissoes-definir de origem estranha, ignorado");
+    return;
+  }
   if (!dado || typeof dado.categoria !== "string" || !CATEGORIAS_PERMISSAO.has(dado.categoria)
       || typeof dado.nivel !== "string" || !NIVEIS_PERMISSAO.has(dado.nivel)) {
     console.error("electron: permissoes-definir inválido, ignorado");
@@ -725,7 +734,11 @@ ipcMain.on("dervs:permissoes-definir", (_evento, dado) => {
   enviarAoPython({ verbo: "permissoes_definir", categoria: dado.categoria, nivel: dado.nivel });
 });
 
-ipcMain.on("dervs:permissoes-teto", (_evento, valor) => {
+ipcMain.on("dervs:permissoes-teto", (evento, valor) => {
+  if (!veioDoPainel(evento)) {
+    console.error("electron: permissoes-teto de origem estranha, ignorado");
+    return;
+  }
   if (typeof valor !== "number" || !Number.isFinite(valor) || valor < 0.01 || valor > 1000) {
     console.error("electron: permissoes-teto inválido, ignorado");
     return;
