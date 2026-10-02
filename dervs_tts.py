@@ -28,10 +28,13 @@ import tempfile
 import threading
 import time
 import wave
+import io
 import json
 import queue
 import re
 import urllib.request
+
+import numpy as np
 
 import dervs_config
 import dervs_gasto
@@ -124,11 +127,17 @@ OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
 OPENAI_TTS_TIMEOUT_S = 20
 OPENAI_DESCANSO_S = 60      # depois de uma falha, não insiste na nuvem por 1 min
 INSTRUCOES_VOZ_BR = (
-    "Fale em português do Brasil, sotaque paulistano natural, como uma pessoa "
-    "real conversando com um amigo. Energia média-alta, ritmo firme e ágil, sem "
-    "arrastar as sílabas nem terminar as frases caindo. Dicção clara e "
-    "articulada, voz presente e confiante, com entonação viva e expressiva. "
-    "Nunca mole, nunca robótico, nunca com sotaque estrangeiro."
+    "Voz: de uma pessoa real brasileira, adulta, confiante e calorosa. Não é locutor de "
+    "rádio nem atendente de call center.\n"
+    "Sotaque: português do Brasil, natural, com leve toque paulistano. Pronuncie como "
+    "brasileiro de verdade: 'r' e 'rr' do jeito daqui, 'ão', 'lh', vogais finais "
+    "reduzidas ('pode', 'leite', 'tá').\n"
+    "Ritmo: ágil e fluido, como conversa entre amigos. Ligue as palavras, sem pausas "
+    "longas, sem arrastar vogais nem sílabas finais. Rápido sem atropelar.\n"
+    "Entonação: firme e decidida. Final de frase seguro, nunca caindo mole nem "
+    "arrastando; pergunta sobe de forma natural. Dê ênfase às palavras importantes.\n"
+    "Emoção: presença e energia média-alta, um leve sorriso na voz. Naturalidade acima "
+    "de tudo. Nunca monótono, nunca robótico, nunca sotaque estrangeiro."
 )
 _FIM_FRASE = re.compile(r"(?<=[.!?;:])\s+")
 _FIM_DA_FILA = object()
@@ -157,9 +166,68 @@ def consertar_cabecalho_wav(dados: bytes) -> bytes:
             + real.to_bytes(4, "little") + dados[i + 8:])
 
 
-def sintetizar_openai(texto: str, voz: str, modelo: str, instrucoes: str, chave: str):
+def acelerar_wav(dados: bytes, fator: float) -> bytes:
+    """Acelera um wav mono de 16 bits SEM mudar o tom (WSOLA, só numpy): a voz fica
+    mais ágil sem ficar fina. Entrada que não dá para tratar (não é wav, estéreo,
+    curta demais) volta intacta — acelerar nunca pode derrubar a fala."""
+    try:
+        if not fator or fator <= 1.0:
+            return dados
+        with wave.open(io.BytesIO(dados), "rb") as w:
+            canais, largura, taxa = w.getnchannels(), w.getsampwidth(), w.getframerate()
+            bruto = w.readframes(w.getnframes())
+        if canais != 1 or largura != 2:
+            return dados
+        x = np.frombuffer(bruto, dtype="<i2").astype(np.float32) / 32768.0
+        n = int(taxa * 0.032) // 2 * 2                      # janela de ~32 ms, par
+        if len(x) < n * 6:
+            return dados
+        y = _wsola(x, float(fator), n, int(taxa * 0.010))
+        pcm = (np.clip(y, -1.0, 1.0) * 32767.0).astype("<i2")
+        saida = io.BytesIO()
+        with wave.open(saida, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(taxa)
+            w.writeframes(pcm.tobytes())
+        return saida.getvalue()
+    except Exception:
+        return dados
+
+
+def _wsola(x, fator: float, n: int, folga: int):
+    """Sobrepõe janelas de Hann escolhendo, perto do ponto nominal, o trecho que
+    melhor continua o anterior (maior correlação): é isso que evita o "chiado" de
+    uma colagem ingênua."""
+    hs = n // 2                                             # passo de síntese
+    ha = hs * fator                                         # passo de análise (maior)
+    janela = (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(n) / n)).astype(np.float32)
+    x = np.concatenate([x, np.zeros(n * 3 + folga * 2, dtype=np.float32)])
+    quadros = int((len(x) - n * 3 - folga * 2) / ha)
+    saida = np.zeros(quadros * hs + n, dtype=np.float32)
+    peso = np.zeros_like(saida)
+    saida[:n] += x[:n] * janela
+    peso[:n] += janela
+    anterior = 0
+    for k in range(1, quadros):
+        alvo = int(round(k * ha))
+        ref = x[anterior + hs:anterior + hs + n]            # continuação natural
+        lo = max(0, alvo - folga)
+        hi = alvo + folga
+        candidatos = np.lib.stride_tricks.sliding_window_view(x[lo:hi + n], n)
+        melhor = lo + int(np.argmax(candidatos @ ref))
+        ini = k * hs
+        saida[ini:ini + n] += x[melhor:melhor + n] * janela
+        peso[ini:ini + n] += janela
+        anterior = melhor
+    return saida / np.maximum(peso, 1e-3)
+
+
+def sintetizar_openai(texto: str, voz: str, modelo: str, instrucoes: str, chave: str,
+                      tempo: float = 1.0):
     """Gera UMA frase na nuvem e devolve o caminho de um wav temporário, ou None
-    se algo falhou. Nunca escreve a chave (nem o erro cru, que pode citá-la)."""
+    se algo falhou. `tempo` > 1 acelera o áudio sem mudar o tom. Nunca escreve a
+    chave (nem o erro cru, que pode citá-la)."""
     try:
         req = urllib.request.Request(
             OPENAI_TTS_URL,
@@ -173,7 +241,8 @@ def sintetizar_openai(texto: str, voz: str, modelo: str, instrucoes: str, chave:
             return None
         dados = consertar_cabecalho_wav(dados)
         dervs_gasto.registrar_voz(dados, modelo)    # mede DEPOIS de consertar o tamanho
-        tmp = tempfile.NamedTemporaryFile(prefix="dervs_openai_", suffix=".wav", delete=False)
+        dados = acelerar_wav(dados, tempo)          # o custo é do áudio gerado, não do tocado
+        tmp =tempfile.NamedTemporaryFile(prefix="dervs_openai_", suffix=".wav", delete=False)
         try:
             tmp.write(dados)
         finally:
@@ -310,6 +379,7 @@ class Voz:
                                 else _conf["voz_velocidade"])
         self.voz_openai = _conf["voz_openai"]
         self.modelo_openai = _conf["voz_openai_modelo"]
+        self.tempo_openai = _conf["voz_openai_tempo"]     # aceleração sem mudar o tom
         self._openai_descansa_ate = 0.0    # monotonic: até quando a nuvem descansa
         self._synth = None                 # processo de síntese "de reserva" (sem daemon)
         self._play = None                  # processo do player
@@ -491,7 +561,7 @@ class Voz:
                     if evento.is_set():
                         break
                     wav = sintetizar_openai(frase, self.voz_openai, self.modelo_openai,
-                                            INSTRUCOES_VOZ_BR, chave)
+                                            INSTRUCOES_VOZ_BR, chave, self.tempo_openai)
                     fila.put(wav)
                     if wav is None:
                         break

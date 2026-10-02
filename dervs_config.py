@@ -163,8 +163,12 @@ PADRAO = {
 
     # Voz da nuvem (quando motor="openai"): ash, onyx, echo, sage, verse, ballad
     # (masculinas/neutras) ou coral, nova, shimmer (femininas).
-    "voz_openai": "echo",
+    # "marin" e "cedar" são as de maior qualidade, recomendadas pela própria OpenAI.
+    "voz_openai": "marin",
     "voz_openai_modelo": "gpt-4o-mini-tts",
+    # Aceleração da voz da nuvem SEM mudar o tom (a OpenAI não tem parâmetro de
+    # velocidade). 1.0 = como a API entrega; 1.25 = bem mais ágil; vai de 1.0 a 1.6.
+    "voz_openai_tempo": 1.25,
 
     # Voz do Kokoro (quando motor="kokoro"): "pm_santa" (masculina grave,
     # feiticeiro), "pm_alex" (masculina) ou "pf_dora" (feminina).
@@ -274,10 +278,13 @@ def _validar(conf: dict) -> dict:
     if conf.get("motor") not in ("openai", "kokoro", "piper", "xtts"):
         conf["motor"] = PADRAO["motor"]
     if conf.get("voz_openai") not in ("alloy", "ash", "ballad", "coral", "echo", "fable",
-                                      "nova", "onyx", "sage", "shimmer", "verse"):
+                                      "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar"):
         conf["voz_openai"] = PADRAO["voz_openai"]
     if not isinstance(conf.get("voz_openai_modelo"), str) or not conf["voz_openai_modelo"]:
         conf["voz_openai_modelo"] = PADRAO["voz_openai_modelo"]
+    tempo = conf.get("voz_openai_tempo")
+    if isinstance(tempo, bool) or not isinstance(tempo, (int, float)) or not 1.0 <= tempo <= 1.6:
+        conf["voz_openai_tempo"] = PADRAO["voz_openai_tempo"]
     if conf.get("voz_kokoro") not in ("pm_santa", "pm_alex", "pf_dora"):
         conf["voz_kokoro"] = PADRAO["voz_kokoro"]
     try:
