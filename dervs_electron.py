@@ -36,6 +36,7 @@ import dervs_aprovacao as aprovacao
 import dervs_central_painel as central_painel
 import dervs_claude_code as claude_code
 import dervs_config as config
+import dervs_roteador as roteador
 import dervs_diario as diario
 import dervs_instancia as instancia
 import dervs_integracao_painel as integracao_painel
@@ -212,7 +213,9 @@ class Motor(dervs.PopUp):
                 self.entrada.clear()
                 self.claude.parar()
                 return
-            pedido = claude_code.frase_de_trabalho(texto)
+            rota = roteador.rotear(texto)
+            roteador.registrar(rota, texto)
+            pedido = rota["pedido"] if rota["executor"] == "claude_code" else None
             if pedido:
                 self._diz("dono", texto)
                 self.entrada.clear()

@@ -643,6 +643,17 @@ def test_frase_que_pede_trabalho_vai_para_o_claude_code_e_nao_para_o_planejador(
     assert motor.claude.chamadas == [("perguntar", "analisar o disco", "voz")]
 
 
+def test_pedido_de_desenvolvimento_vai_sozinho_para_o_claude_code(motor, monkeypatch, tmp_path):
+    """Roteador (esteira dervs-autonomia): sem dizer "pede pro Claude", um pedido
+    claro de construir software cai no Claude Code, e o motivo fica registrado."""
+    monkeypatch.setenv("DERVS_ROTEAMENTO_LOG", str(tmp_path / "r.jsonl"))
+    motor.claude = SessaoClaudeFalsa()
+    monkeypatch.setattr(motor, "_pensar", lambda: pytest.fail("foi para o planejador"))
+    _fala(motor, "cria um site para a minha clínica")
+    assert motor.claude.chamadas == [("perguntar", "cria um site para a minha clínica", "voz")]
+    assert "desenvolver" in (tmp_path / "r.jsonl").read_text(encoding="utf-8")
+
+
 def test_frase_comum_segue_para_o_planejador(motor, monkeypatch):
     motor.claude = SessaoClaudeFalsa()
     motor._atalhos_ligados = False
