@@ -145,9 +145,18 @@ def _transcrever_openai(caminho: str) -> str:
     return texto
 
 
+def _pode_gastar() -> bool:
+    """Teto diário e permissão "gastar com API" do dono. Na dúvida, usa o local."""
+    try:
+        import dervs_gasto
+        return dervs_gasto.pode_gastar()[0]
+    except Exception:
+        return False
+
+
 def _transcrever(caminho: str) -> str:
     """OpenAI primeiro (se configurado e com chave); local de reserva."""
-    if STT == "openai" and OPENAI_KEY:
+    if STT == "openai" and OPENAI_KEY and _pode_gastar():
         try:
             return _transcrever_openai(caminho)
         except Exception as erro:

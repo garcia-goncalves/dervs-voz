@@ -21,14 +21,25 @@ import unicodedata
 
 import dervs_claude_code
 
-_VOCATIVO = re.compile(r"^\W*(?:(?:ei|oi|ola)\W+)?dervs\W+", re.IGNORECASE)
-_VERBO = (r"(?:cri(?:a|e|ar)|desenvolv(?:e|er)|implement(?:a|e|ar)|constr(?:oi|ua|uir)|"
-          r"program(?:a|e|ar)|refator(?:a|e|ar)|consert(?:a|e|ar)|corrig(?:e|ir)|"
-          r"escrev(?:e|er)|faz(?:er)?|mont(?:a|e|ar))")
-_ALVO = (r"(?:site|app|aplicativo|sistema|pagina|tela|funcao|codigo|script|bug|teste|testes|"
-         r"api|rotina|programa|projeto|componente|automacao|banco de dados|backend|frontend|"
-         r"landing page|endpoint|classe|modulo)")
-_DESENVOLVER = re.compile(rf"^{_VERBO}\b[^.?!]{{0,60}}?\b{_ALVO}\b")
+# Tudo é comparado JÁ normalizado (sem acento, minúsculo): "Olá", "faça" e "corrija"
+# chegam como "ola", "faca" e "corrija".
+_VOCATIVO = re.compile(r"^\W*(?:(?:ei|oi|ola)\W+)?dervs\W+")
+_PEDIDO_EDUCADO = re.compile(r"^(?:(?:por favor|pode|poderia|vamos|bora)\s+)+"
+                             r"|^(?:eu )?(?:quero|preciso|gostaria) que (?:voce|vc|o dervs) ")
+# Verbo de construir × coisa claramente de software.
+_VERBO_GERAL = (r"(?:cri(?:a|e|ar)|desenvolv(?:a|e|er)|implement(?:a|e|ar)|constr(?:oi|ua|uir)|"
+                r"program(?:a|e|ar)|escrev(?:a|e|er)|fa(?:z|ca|zer)|mont(?:a|e|ar))")
+# Verbo técnico: aceita também coisas mais soltas (tela, teste), porque quem
+# "corrige o teste" ou "refatora a rotina" só pode estar falando de código.
+_VERBO_TECNICO = (r"(?:consert(?:a|e|ar)|corrij(?:a|o)|corrig(?:e|ir)|refator(?:a|e|ar)|"
+                  r"implement(?:a|e|ar)|desenvolv(?:a|e|er))")
+_ALVO_FORTE = (r"(?:site|app|aplicativo|sistema|funcao|codigo|script|bug|api|"
+               r"programa de computador|backend|frontend|landing page|endpoint|"
+               r"componente|banco de dados|automacao)")
+_ALVO_SOLTO = r"(?:tela|teste|testes|pagina|rotina|projeto|classe|modulo|programa)"
+_DESENVOLVER = re.compile(
+    rf"^(?:{_VERBO_GERAL}\b[^.?!]{{0,60}}?\b{_ALVO_FORTE}\b"
+    rf"|{_VERBO_TECNICO}\b[^.?!]{{0,60}}?\b(?:{_ALVO_FORTE}|{_ALVO_SOLTO})\b)")
 
 
 def _norm(texto: str) -> str:
@@ -48,8 +59,9 @@ def rotear(texto: str) -> dict:
     if trabalho:
         return {"executor": "claude_code", "intencao": "trabalho",
                 "motivo": "pedido explícito de trabalho/análise", "pedido": trabalho}
-    sem_voc = _VOCATIVO.sub("", original, count=1).strip()
-    if _DESENVOLVER.match(_norm(sem_voc)):
+    t = _VOCATIVO.sub("", _norm(original), count=1)
+    t = _PEDIDO_EDUCADO.sub("", t, count=1).strip()
+    if _DESENVOLVER.match(t):
         return {"executor": "claude_code", "intencao": "desenvolver",
                 "motivo": "pedido de desenvolvimento (verbo de construir + coisa de software)",
                 "pedido": original}
@@ -70,7 +82,8 @@ def _arquivo_log() -> str:
 
 
 def registrar(decisao: dict, fala: str) -> None:
-    """Uma linha por decisão; a fala é cortada em 120 caracteres. Nunca levanta."""
+    """Uma linha por decisão; a fala é cortada em 80 caracteres (pode haver dado
+    falado em voz alta). Nunca levanta."""
     try:
         caminho = _arquivo_log()
         if not caminho:
@@ -81,7 +94,7 @@ def registrar(decisao: dict, fala: str) -> None:
                                 "executor": decisao.get("executor"),
                                 "intencao": decisao.get("intencao"),
                                 "motivo": decisao.get("motivo"),
-                                "fala": (fala or "")[:120]}, ensure_ascii=False) + "\n")
+                                "fala": (fala or "")[:80]}, ensure_ascii=False) + "\n")
     except Exception:
         pass
 

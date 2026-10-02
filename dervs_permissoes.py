@@ -44,10 +44,10 @@ ROTULOS = {
     "abrir": "Abrir programas e janelas",
     "instalar": "Instalar programas e pacotes",
     "alterar_projeto": "Criar e alterar arquivos de projetos",
-    "apagar": "Apagar (sempre vai para a quarentena)",
+    "apagar": "Apagar (vai para uma lixeira segura)",
     "internet": "Usar a internet",
-    "servidor": "Mexer em servidor (ssh)",
-    "gastar_api": "Gastar com API paga (até o teto diário)",
+    "servidor": "Mexer em servidor (acesso remoto)",
+    "gastar_api": "Gastar com serviços pagos de IA (até o teto diário)",
 }
 
 _COMANDOS = ("Bash", "PowerShell")

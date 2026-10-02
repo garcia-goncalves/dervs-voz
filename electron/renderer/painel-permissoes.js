@@ -17,6 +17,9 @@
 
   const TETO_MIN = 0.01;
   const TETO_MAX = 1000;
+  // Se o Python não responder neste tempo, a tela avisa e oferece "Tentar de novo"
+  // em vez de ficar presa em "Carregando..." para sempre.
+  const TEMPO_RESPOSTA_MS = 6000;
 
   const NIVEIS = {
     analisa: { rotulo: "Só analisa", dica: "O DERVS olha e explica, mas não age." },
@@ -73,12 +76,37 @@
     if (!dialogo) return;
     const d = janela.dervs;
     let ultimo = null;
+    let relogio = null;
+    const tentar = doc.createElement("button");
+    tentar.type = "button";
+    tentar.className = "p-mini";
+    tentar.id = "perm-tentar";
+    tentar.textContent = "TENTAR DE NOVO";
+    tentar.hidden = true;
+    $("perm-mensagem").after(tentar);
 
     function el(tag, classe, texto) {
       const e = doc.createElement(tag);
       if (classe) e.className = classe;
       if (texto !== undefined) e.textContent = texto;
       return e;
+    }
+
+    // Espera a resposta do Python; sem ela em 6 s, avisa e mostra o botão de repetir.
+    function esperarResposta(texto, repetir) {
+      mensagem(texto);
+      tentar.hidden = true;
+      clearTimeout(relogio);
+      relogio = setTimeout(() => {
+        mensagem("O DERVS não respondeu. Tente de novo.", false);
+        tentar.onclick = repetir;
+        tentar.hidden = false;
+      }, TEMPO_RESPOSTA_MS);
+    }
+
+    function respondeu() {
+      clearTimeout(relogio);
+      tentar.hidden = true;
     }
 
     function mensagem(texto, ok) {
@@ -99,12 +127,14 @@
       for (const nivel of niveisDaCategoria(e.permitidos, cat)) {
         const b = el("button", "p-mini perm-nivel", rotuloDoNivel(nivel));
         b.type = "button";
+        b.dataset.cat = cat;
+        b.dataset.nivel = nivel;
         b.title = dicaDoNivel(nivel);
         const atual = e.niveis && e.niveis[cat] === nivel;
         b.setAttribute("aria-pressed", atual ? "true" : "false");
         b.addEventListener("click", () => {
           if (e.niveis && e.niveis[cat] === nivel) return;
-          mensagem("Salvando...");
+          esperarResposta("Salvando...", () => d.permissoesDefinir(cat, nivel));
           d.permissoesDefinir(cat, nivel);
         });
         grupo.appendChild(b);
@@ -115,8 +145,16 @@
 
     function desenhar(e) {
       ultimo = e;
+      // Recriar os botões tira o foco de quem usa o teclado: guarda e devolve.
+      const foco = doc.activeElement && doc.activeElement.dataset && doc.activeElement.dataset.cat
+        ? { cat: doc.activeElement.dataset.cat, nivel: doc.activeElement.dataset.nivel } : null;
       const cats = Array.isArray(e.categorias) ? e.categorias : [];
       $("perm-lista").replaceChildren(...cats.map((c) => desenharCategoria(c, e)));
+      if (foco) {
+        const volta = Array.from($("perm-lista").querySelectorAll("button")).find(
+          (x) => x.dataset.cat === foco.cat && x.dataset.nivel === foco.nivel);
+        if (volta) volta.focus();
+      }
       $("perm-gasto").textContent = frasePorGasto(e.gasto_hoje, e.teto);
       const campo = $("perm-teto");
       if (doc.activeElement !== campo) campo.value = textoDoTeto(e.teto);
@@ -136,7 +174,7 @@
     function abrir() {
       if (!dialogo.open) dialogo.showModal();
       $("perm-titulo").focus();
-      mensagem("Carregando...");
+      esperarResposta("Carregando...", abrir);
       d.permissoesPedir();
     }
 
@@ -149,12 +187,13 @@
         mensagem("O teto diário precisa ficar entre US$ 0,01 e US$ 1000. Nada foi mudado.", false);
         return;
       }
-      mensagem("Salvando...");
+      esperarResposta("Salvando...", () => d.permissoesTeto(valor));
       d.permissoesTeto(valor);
     });
 
     d.aoPermissoes((m) => {
       if (!m || typeof m.parte !== "string") return;
+      respondeu();
       if (m.parte === "estado" && m.niveis && typeof m.niveis === "object") {
         desenhar(m);
         if ($("perm-mensagem").textContent === "Carregando...") mensagem("");
@@ -166,5 +205,5 @@
   }
 
   return { rotuloDoNivel, dicaDoNivel, niveisDaCategoria, lerTeto, formatarUsd, textoDoTeto,
-    frasePorGasto, linhaRecente, iniciarTela };
+    frasePorGasto, linhaRecente, iniciarTela, TEMPO_RESPOSTA_MS };
 });

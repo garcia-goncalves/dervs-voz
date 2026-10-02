@@ -238,8 +238,8 @@ def test_html_das_permissoes_tem_os_ids_e_nao_afrouxa_a_csp():
         assert f'id="{ident}"' in html
     assert "style=" not in html and "unsafe-inline" not in html
     assert "O que o DERVS pode fazer".lower() in html.lower()
-    assert "Estas travas valem sempre e não aparecem aqui: nada em servidor sem o seu sim, " \
-           "apagar só vai para a quarentena, nunca ignorar permissões." in html
+    assert "Estas travas valem sempre e não aparecem aqui" in html
+    assert "lixeira segura" in html and "nunca mexe em servidor sem o seu sim" in html
     assert "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'" in html
 
 

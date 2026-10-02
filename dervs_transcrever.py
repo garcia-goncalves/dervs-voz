@@ -256,6 +256,9 @@ def transcrever(caminho: str, avisar=print) -> str:
         raise RuntimeError(
             "a chave da OpenAI não está nesta máquina. Ela mora em "
             f"{dervs_config.caminhos_do_segredo()[0]}, na linha OPENAI_API_KEY=")
+    pode, motivo = dervs_gasto.pode_gastar()
+    if not pode:
+        raise RuntimeError(motivo)
     conf = dervs_config.carregar()
     modelo = conf.get("stt_openai_modelo") or "gpt-transcribe"
     dica = conf.get("stt_dica_vocabulario") or ""

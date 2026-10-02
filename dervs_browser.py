@@ -335,6 +335,10 @@ def rodar_tarefa(objetivo: str, url_inicial: str | None = None,
         return {"codigo": 1, "tipo": "erro",
                 "saida": "o navegador autônomo precisa da chave da OpenAI para "
                          "pensar os cliques, e ela não está instalada."}
+    import dervs_gasto
+    pode, motivo = dervs_gasto.pode_gastar()
+    if not pode:
+        return {"codigo": 1, "tipo": "erro", "saida": motivo}
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:

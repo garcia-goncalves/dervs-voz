@@ -360,7 +360,8 @@ class Voz:
     def _openai_disponivel(self):
         return (self.motor == "openai" and _reproducao_disponivel()
                 and time.monotonic() >= self._openai_descansa_ate
-                and bool(self._chave_openai()))
+                and bool(self._chave_openai())
+                and dervs_gasto.pode_gastar()[0])      # teto diário e "só analisa"
 
     def _kokoro_disponivel(self):
         return self._kokoro_instalado() and not self._kokoro_morto

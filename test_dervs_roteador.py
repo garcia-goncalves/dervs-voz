@@ -19,6 +19,13 @@ import dervs_roteador as r
     "escreve um script para renomear as fotos",
     "corrige o teste que está falhando",
     "faz uma API de pacientes",
+    "Olá dervs, cria um site",
+    "faça um site para mim",
+    "corrija o bug do login",
+    "desenvolva um sistema de agenda",
+    "quero que você crie um aplicativo",
+    "pode criar um site pra mim",
+    "preciso que você conserte o bug",
 ])
 def test_pedido_de_desenvolvimento_vai_para_o_claude_code(fala):
     d = r.rotear(fala)
@@ -48,6 +55,10 @@ def test_pedido_explicito_de_trabalho_continua_indo_ao_claude_code(fala):
     "",
     "   ",
     "o site está lento hoje",
+    "Dervs, faz um teste do microfone",
+    "cria um lembrete na tela",
+    "faz um programa de televisão",
+    "quero um café",
 ])
 def test_o_resto_fica_no_planejador_rapido(fala):
     d = r.rotear(fala)
@@ -73,6 +84,6 @@ def test_registra_o_motivo_e_lista_os_recentes(tmp_path, monkeypatch):
 def test_log_nao_guarda_o_texto_inteiro_nem_derruba(tmp_path, monkeypatch):
     monkeypatch.setenv("DERVS_ROTEAMENTO_LOG", str(tmp_path / "x" / "y.jsonl"))
     r.registrar(r.rotear("cria um site " + "a" * 5000), "cria um site " + "a" * 5000)
-    assert len(r.recentes(1)[0]["fala"]) <= 120
+    assert len(r.recentes(1)[0]["fala"]) <= 80
     monkeypatch.setenv("DERVS_ROTEAMENTO_LOG", str(tmp_path))      # é uma pasta: não pode levantar
     r.registrar(r.rotear("cria um site"), "cria um site")

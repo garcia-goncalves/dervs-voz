@@ -42,3 +42,8 @@ test("linhaRecente usa o rótulo vindo do Python", () => {
   assert.equal(l.titulo, "2026-10-02 10:00:00 · Ler arquivos");
   assert.equal(l.detalhe, "Read a.txt");
 });
+
+test("o tempo de resposta da tela é curto o bastante para não prender o dono", () => {
+  const { TEMPO_RESPOSTA_MS } = require("./painel-permissoes.js");
+  assert.ok(TEMPO_RESPOSTA_MS >= 1000 && TEMPO_RESPOSTA_MS <= 10000);
+});
