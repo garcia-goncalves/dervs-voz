@@ -13,6 +13,8 @@ import os
 import sys
 import json
 
+import dervs_permissoes
+
 
 def _resolver_config_dir() -> str:
     """No Windows a config mora em %APPDATA%\\dervs (padrão do sistema para
@@ -218,6 +220,15 @@ PADRAO = {
     # o harness do projeto, para as regras valerem iguais em qualquer PC. Independe
     # de "cerebro": o painel usa o Claude Code por texto de qualquer jeito.
     "claude_perfil": "dono",
+    # --- autonomia (esteira dervs-autonomia, 02/10/2026) ---
+    # O que o DERVS pode fazer sozinho, categoria por categoria: "analisa" (só
+    # olha), "pergunta" (cartão no painel) ou "sozinho". Só REDUZ poder: o teto do
+    # dervs_safety vale sempre, e "apagar" e "servidor" nunca chegam a "sozinho".
+    # Edite pelo painel "O que o DERVS pode fazer"; valor torto volta ao padrão.
+    "permissoes": dervs_permissoes.normalizar(None),
+    # Teto de gasto por dia (US$) em API paga: voz, transcrição e cérebro OpenAI.
+    # O Claude da assinatura não conta. Ao atingir, o DERVS volta para o Claude.
+    "teto_gasto_dia_usd": 3.0,
 }
 
 
@@ -307,6 +318,10 @@ def _validar(conf: dict) -> dict:
         conf["ponte_web_intervalo_s"] = PADRAO["ponte_web_intervalo_s"]
     if conf.get("claude_perfil") not in ("dono", "equipe"):
         conf["claude_perfil"] = PADRAO["claude_perfil"]
+    conf["permissoes"] = dervs_permissoes.normalizar(conf.get("permissoes"))
+    teto = conf.get("teto_gasto_dia_usd")
+    if isinstance(teto, bool) or not isinstance(teto, (int, float)) or not 0.01 <= teto <= 1000:
+        conf["teto_gasto_dia_usd"] = PADRAO["teto_gasto_dia_usd"]
     return conf
 
 

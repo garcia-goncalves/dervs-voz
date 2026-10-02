@@ -185,3 +185,44 @@ def registrar_cerebro(modelo: str, usage) -> None:
                                          usage.get("completion_tokens", 0)), modelo)
     except Exception:
         pass
+
+
+# --- teto diário --------------------------------------------------------------
+
+def _ler_total(caminho, hoje=None) -> float:
+    """Total de API paga de hoje. Levanta se o arquivo existe e não abre: é o que
+    deixa o teto falhar FECHADO (o `total_do_dia` engole erro de propósito)."""
+    with open(caminho, "rb"):
+        pass
+    return total_do_dia(caminho, hoje)["total"]
+
+
+def estourou(limite, caminho=None, hoje=None) -> bool:
+    """True se o gasto de API paga de hoje (voz, transcrição, cérebro; nunca o
+    Claude da assinatura) já chegou no teto. Sem arquivo = nada gasto. Medidor
+    quebrado = estourou: erro de medição não pode liberar gasto ilimitado."""
+    caminho = caminho or caminho_padrao()
+    if not caminho or not os.path.exists(caminho):
+        return False
+    try:
+        return _ler_total(caminho, hoje) >= float(limite)
+    except Exception:
+        return True
+
+
+def pode_gastar(conf=None):
+    """`(True, "")` ou `(False, motivo em português)`: a permissão "gastar com API"
+    e o teto diário do dono. Lê a config na hora, então o painel vale sem reiniciar."""
+    try:
+        if conf is None:
+            import dervs_config
+            conf = dervs_config.carregar()
+        nivel = (conf.get("permissoes") or {}).get("gastar_api", "sozinho")
+        if nivel == "analisa":
+            return False, "Você deixou o gasto com API só em análise: o DERVS não chama API paga."
+        teto = conf.get("teto_gasto_dia_usd", 3.0)
+        if estourou(teto):
+            return False, f"O teto de gasto do dia (US$ {teto:.2f}) foi atingido; voltei para o Claude."
+    except Exception:
+        return False, "Não consegui conferir o teto de gasto; por segurança não chamei a API paga."
+    return True, ""

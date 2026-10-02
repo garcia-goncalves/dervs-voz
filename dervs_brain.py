@@ -737,7 +737,7 @@ def pensar(conversa: list, timeout: int = 120) -> dict:
     Ordem: OpenAI (se configurado e com chave) → Claude em sessão persistente →
     Claude oneshot. Cada camada cai na próxima se falhar, para NUNCA deixar o
     DERVS mudo."""
-    if CEREBRO == "openai" and OPENAI_KEY:
+    if CEREBRO == "openai" and OPENAI_KEY and dervs_gasto.pode_gastar()[0]:
         try:
             return _pensar_openai(conversa, timeout)
         except Exception:
