@@ -35,6 +35,22 @@ esse é caso de pedir ajuda, não de insistir.
 
 ---
 
+## Se o DERVS sumiu da bandeja, travou ou ficou estranho
+
+Na Área de Trabalho e no menu Iniciar existem três botões ao lado do `DERVS`
+(dois cliques, sem terminal):
+
+| Botão | O que faz |
+|---|---|
+| `DERVS - Reiniciar` | Fecha tudo (voz, HUD) e abre de novo. **Comece por este.** |
+| `DERVS - Parar` | Fecha por completo e não reabre. |
+| `DERVS - Resetar` | Fecha, **guarda uma cópia** de `config.json` ao lado (`config.json.bak-DATA`), volta a configuração ao padrão e reabre. Não apaga modelos de voz nem histórico de gasto. |
+
+Os botões ficam prontos rodando uma vez `dervs-venv\Scripts\python.exe scripts\instalar_atalho.py`.
+Também funcionam pelo terminal: `dervs-venv\Scripts\python.exe scripts\dervs_controle.py status|ligar|parar|reiniciar|resetar`.
+Para desfazer um reset, copie o `config.json.bak-...` de volta para `%APPDATA%\dervs\config.json`.
+O ícone da bandeja pode estar escondido na seta `^` ao lado do relógio; o `Ctrl+Alt+D` também abre o painel.
+
 ## Como FECHAR o DERVS
 
 Clique com o **botão direito** no ícone do DERVS na bandeja (o cantinho ao lado

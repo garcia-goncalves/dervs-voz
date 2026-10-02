@@ -81,7 +81,7 @@ _PS = r'''
 $ws = New-Object -ComObject WScript.Shell
 $l = $ws.CreateShortcut("{destino}")
 $l.TargetPath       = "{alvo}"
-$l.Arguments        = '"{script}"'
+$l.Arguments        = '"{script}" {extra}'
 $l.WorkingDirectory = "{raiz}"
 $l.IconLocation     = "{icone},0"
 $l.Description      = "{descricao}"
@@ -89,9 +89,10 @@ $l.Save()
 '''
 
 
-def criar_atalho(destino: str, alvo: str, script: str, descricao: str) -> None:
+def criar_atalho(destino: str, alvo: str, script: str, descricao: str,
+                 extra: str = "") -> None:
     os.makedirs(os.path.dirname(destino), exist_ok=True)
-    ps = _PS.format(destino=destino, alvo=alvo, script=script, raiz=RAIZ,
+    ps = _PS.format(destino=destino, alvo=alvo, script=script, extra=extra, raiz=RAIZ,
                     icone=ICONE, descricao=descricao)
     r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
                        capture_output=True, text=True)
@@ -108,6 +109,13 @@ ATALHOS = [
      "DERVS - seu parceiro de voz"),
     ("DERVS - Transcrever audio", "dervs_transcrever.py", "python.exe",
      "Escolha um audio e receba o texto"),
+    # Botões de socorro: o app já sumiu da bandeja e o dono não usa terminal.
+    ("DERVS - Reiniciar", "scripts/dervs_controle.py", "pythonw.exe",
+     "Fecha e abre o DERVS de novo (use se sumiu da bandeja)", "reiniciar"),
+    ("DERVS - Parar", "scripts/dervs_controle.py", "pythonw.exe",
+     "Fecha o DERVS por completo", "parar"),
+    ("DERVS - Resetar", "scripts/dervs_controle.py", "pythonw.exe",
+     "Volta a configuracao ao padrao e reabre (guarda copia)", "resetar"),
 ]
 
 
@@ -137,13 +145,14 @@ def main() -> None:
         # não existe naquele lugar, é porque a de verdade está no outro.
         if "Start Menu" not in pasta and not os.path.isdir(pasta):
             continue
-        for nome, script, exe, descricao in ATALHOS:
+        for nome, script, exe, descricao, *extra in ATALHOS:
             alvo = os.path.join(RAIZ, "dervs-venv", "Scripts", exe)
             if not os.path.exists(alvo):
                 raise SystemExit(f"não achei {alvo} — o ambiente do projeto não "
                                  "está criado")
             destino = os.path.join(pasta, nome + ".lnk")
-            criar_atalho(destino, alvo, os.path.join(RAIZ, script), descricao)
+            criar_atalho(destino, alvo, os.path.join(RAIZ, script), descricao,
+                         *extra)
             print("atalho:", destino)
             feitos += 1
     if not feitos:

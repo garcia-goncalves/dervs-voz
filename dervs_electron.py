@@ -644,6 +644,14 @@ def _confirmar_do_electron(motor: Motor, autorizado: bool):
         motor.ponte.enviar_plano([], "reversivel", "")
 
 
+def _avisar(texto: str) -> None:
+    """Aviso para quem lançou o app. Sem console (`pythonw`, o atalho) o
+    `sys.stderr` é None — escrever nele derrubava o app na abertura."""
+    if sys.stderr is not None:
+        sys.stderr.write("dervs: %s" % texto + chr(10))
+        sys.stderr.flush()
+
+
 def _encerrar(motor: Motor, ponte: PonteElectron, posse, parar_sistema: threading.Event):
     """O que o fechamento do app faz: desliga tudo o que a `PopUp` deixou de
     pé (`dervs.encerrar_tudo`, a mesma função de sempre — nada reescrito),
@@ -775,8 +783,7 @@ def main():
         conf, tratador=tratador_web, log=motor._motor_aprovacao().log)
     motor.ponte_web_motivo = motivo_ponte
     if motor.ponte_web is None:
-        sys.stderr.write("dervs: ponte com o painel web desligada: %s" % motivo_ponte + chr(10))
-        sys.stderr.flush()
+        _avisar("ponte com o painel web desligada: %s" % motivo_ponte)
 
     # Supervisão do medidor dos projetos (agente.enviar): confere que há exatamente um
     # e religa a tarefa agendada que já existe, nunca cria outro nem mata processo.

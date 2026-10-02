@@ -786,3 +786,12 @@ def test_cancelar_plano_de_outra_thread_age_na_thread_da_tela(motor, monkeypatch
     t.join()
     _app.processEvents()
     assert registro == [threading.main_thread()]
+
+
+def test_aviso_no_stderr_nao_derruba_o_app_sem_console(monkeypatch):
+    """Pelo atalho o app roda em `pythonw`, onde `sys.stderr` é None. Em
+    02/10/2026 o aviso "ponte desligada" fez `None.write` e matou o app logo
+    na abertura (visto ao resetar a config)."""
+    import sys
+    monkeypatch.setattr(sys, "stderr", None)
+    dervs_electron._avisar("ponte desligada")        # não pode levantar
