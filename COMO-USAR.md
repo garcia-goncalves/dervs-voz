@@ -426,6 +426,20 @@ apagar só vai para a quarentena, nunca ignorar permissões.
 
 ---
 
+## Se o DERVS cair: o piloto automático
+
+Quando o DERVS fecha sozinho, ele anota o motivo. Na abertura seguinte ele lê esse registro, explica em português o que aconteceu (arquivo, linha e tipo do erro, sem segredos) e guarda uma cópia em `quedas\` na pasta de configuração (as 20 mais recentes).
+
+O que ele faz depende da permissão **Alterar projeto**:
+
+| Permissão | O que o piloto faz |
+|---|---|
+| analisa | só conta o que houve |
+| pergunta | conta e oferece: diga "conserta" |
+| sozinho | conta e avisa que vai preparar o conserto |
+
+O conserto nunca mexe no projeto principal: é preparado numa cópia isolada (branch `piloto/...`), com teste novo. Nada é mesclado nem enviado ao GitHub sem você decidir. Nesta versão o piloto só **explica**; preparar o conserto de verdade ainda não está ligado.
+
 ## Quanto custa por mês
 
 O porteiro é **de graça** — roda na sua máquina, offline. Desde 28/09/2026 a voz

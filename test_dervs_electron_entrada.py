@@ -806,3 +806,23 @@ def test_aviso_no_stderr_nao_derruba_o_app_sem_console(monkeypatch):
     import sys
     monkeypatch.setattr(sys, "stderr", None)
     dervs_electron._avisar("ponte desligada")        # não pode levantar
+
+
+# --- piloto automático: só anuncia, nunca conserta sozinho ----------------
+
+def test_queda_anterior_e_anunciada_ao_dono(monkeypatch):
+    import dervs_piloto
+    ponte = PonteFalsa()
+    monkeypatch.setattr(dervs_piloto, "aplicar_conserto",
+                        lambda *a, **k: pytest.fail("não pode consertar sozinho"))
+    texto = ("quando: x\norigem: tela\n\nTraceback (most recent call last):\n"
+             '  File "dervs.py", line 3, in f\n    x\nKeyError: \'a\'\n')
+    dervs_electron._anunciar_queda_anterior(ponte, texto, {"alterar_projeto": "pergunta"})
+    falas = ponte.de_tipo("fala")
+    assert len(falas) == 1 and "dervs.py" in falas[0][2] and "conserta" in falas[0][2]
+
+
+def test_sem_queda_nao_fala_nada():
+    ponte = PonteFalsa()
+    dervs_electron._anunciar_queda_anterior(ponte, None, {})
+    assert ponte.chamadas == []

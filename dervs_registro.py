@@ -90,7 +90,31 @@ def ler_e_limpar(caminho: str = CAMINHO):
 QUEDA_ANTERIOR = None      # o que sobrou da execução passada, para a tela contar
 
 
-def colher_anterior(caminho: str = CAMINHO):
+PASTA_QUEDAS = os.path.join(cfg.CONFIG_DIR, "quedas")
+MAX_QUEDAS = 20
+
+
+def guardar_copia(texto: str, pasta: str = PASTA_QUEDAS):
+    """Guarda uma cópia da queda em `queda-AAAAmmdd-HHMMSS.txt` (máx. 20).
+
+    `ultimo_erro.txt` é apagado na abertura; sem a cópia o rastro se perderia
+    antes de o piloto automático poder estudá-lo. Nunca levanta.
+    """
+    try:
+        os.makedirs(pasta, exist_ok=True)
+        nome = "queda-%s.txt" % time.strftime("%Y%m%d-%H%M%S")
+        with io.open(os.path.join(pasta, nome), "w", encoding="utf-8") as f:
+            f.write(texto)
+        antigas = sorted(n for n in os.listdir(pasta)
+                         if n.startswith("queda-") and n.endswith(".txt"))
+        for n in antigas[:-MAX_QUEDAS]:
+            os.remove(os.path.join(pasta, n))
+    except OSError:
+        pass
+    return None
+
+
+def colher_anterior(caminho: str = CAMINHO, pasta_quedas: str = PASTA_QUEDAS):
     """Lê o que sobrou da execução ANTERIOR e guarda em QUEDA_ANTERIOR.
 
     Chamar ANTES de `instalar()`: instalar zera o arquivo do faulthandler para
@@ -98,6 +122,8 @@ def colher_anterior(caminho: str = CAMINHO):
     """
     global QUEDA_ANTERIOR
     QUEDA_ANTERIOR = ler_e_limpar(caminho) or queda_dura(caminho)
+    if QUEDA_ANTERIOR:
+        guardar_copia(QUEDA_ANTERIOR, pasta_quedas)
     return QUEDA_ANTERIOR
 
 
