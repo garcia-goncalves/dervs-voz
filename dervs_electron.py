@@ -40,6 +40,7 @@ import dervs_roteador as roteador
 import dervs_diario as diario
 import dervs_instancia as instancia
 import dervs_integracao_painel as integracao_painel
+import dervs_painel_permissoes as permissoes_painel
 import dervs_registro as registro
 import dervs_safety as seg
 import dervs_painel as painel
@@ -709,6 +710,7 @@ def main():
     ao_claude_alvo = []
     ao_central_alvo = []
     ao_integracao_alvo = []
+    ao_permissoes_alvo = []
 
     def _ao_central_inicial(verbo, dados):
         if ao_central_alvo:
@@ -717,6 +719,10 @@ def main():
     def _ao_integracao_inicial(verbo, dados):
         if ao_integracao_alvo:
             ao_integracao_alvo[0](verbo, dados)
+
+    def _ao_permissoes_inicial(verbo, dados):
+        if ao_permissoes_alvo:
+            ao_permissoes_alvo[0](verbo, dados)
 
     def _ao_microfone_inicial(ligar):
         if ao_microfone_alvo:
@@ -733,7 +739,8 @@ def main():
     ponte = PonteElectron(ao_sair=_ao_sair, ao_plano=_ao_plano_inicial,
                           ao_pronto=lambda: None, ao_microfone=_ao_microfone_inicial,
                           ao_reuniao=_ao_reuniao_inicial, ao_claude=_ao_claude_inicial,
-                          ao_central=_ao_central_inicial, ao_integracao=_ao_integracao_inicial)
+                          ao_central=_ao_central_inicial, ao_integracao=_ao_integracao_inicial,
+                          ao_permissoes=_ao_permissoes_inicial)
     motor = Motor(ponte)
     ao_claude_alvo.append(_construir_ao_claude(motor))
     ao_central_alvo.append(motor.central_pc.tratar)
@@ -773,6 +780,7 @@ def main():
         ponte, motor_fabrica=motor._motor_aprovacao, seletor_fn=ponte_web.seletor_de_cerebros,
         ponte_web_fn=lambda: (getattr(motor, "ponte_web", None), getattr(motor, "ponte_web_motivo", "")))
     ao_integracao_alvo.append(integracao.tratar)
+    ao_permissoes_alvo.append(permissoes_painel.PermissoesLocal(ponte).tratar)
 
     def _aviso_do_painel(texto, alvo):
         # o aviso do painel é DADO: vai para a conversa (a tela usa textContent) E para a

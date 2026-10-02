@@ -404,6 +404,28 @@ Clique nele para abrir a Central.
 - **"1 leitura só funciona como administrador":** o detalhe de saúde do disco (SMART)
   precisa de administrador. O resto da nota funciona sem.
 
+## O que o DERVS pode fazer (permissões)
+
+No topo do painel, o botão **O QUE O DERVS PODE FAZER** abre a lista de permissões.
+Para cada coisa (ler arquivos, abrir programas, instalar, alterar projetos, apagar,
+usar a internet, mexer em servidor, gastar com API paga) você escolhe:
+
+- **Só analisa:** o DERVS olha e explica, mas não age.
+- **Pergunta antes:** aparece um cartão e ele espera o seu sim.
+- **Faz sozinho:** ele faz sem perguntar e registra na lista "O que fez sozinho"
+  (as últimas 10 ações).
+
+Cada item mostra só as opções que fazem sentido para ele. Apagar e mexer em servidor
+nunca têm "Faz sozinho". Se uma opção não aparece, é uma trava de segurança.
+
+Ali também fica o **teto de gasto por dia** com API paga (de US$ 0,01 a US$ 1000) e
+quanto já foi gasto hoje. As escolhas são salvas na hora e valem na próxima ação.
+
+Estas travas valem sempre e não aparecem na tela: nada em servidor sem o seu sim,
+apagar só vai para a quarentena, nunca ignorar permissões.
+
+---
+
 ## Quanto custa por mês
 
 O porteiro é **de graça** — roda na sua máquina, offline. Desde 28/09/2026 a voz
