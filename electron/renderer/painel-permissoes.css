@@ -1,0 +1,20 @@
+/* "O que o DERVS pode fazer". Reaproveita o vocabulário da Central e da Integração
+   (.central-*, .integ-*) e só os tokens do painel; sem cor nova. */
+
+.perm-mensagem { min-height: 1.4em; }
+.perm-mensagem[data-ok="0"] { color: var(--erro); }
+.perm-mensagem[data-ok="1"] { color: var(--acento); }
+
+.perm-item { justify-content: space-between; }
+.perm-niveis { display: flex; flex-wrap: wrap; gap: 6px; }
+.perm-nivel { min-height: 36px; padding: 6px 12px; float: none; }
+.perm-nivel[aria-pressed="true"] { border-color: var(--acento); background: rgba(0, 229, 255, .12); color: var(--acento); }
+
+.perm-texto { overflow-wrap: anywhere; white-space: pre-wrap; }
+.perm-rodape { margin-top: 10px; }
+
+/* 360 px: o item vira coluna e cada botão ocupa a largura toda */
+@media (max-width: 480px) {
+  .perm-item { flex-direction: column; align-items: stretch; }
+  .perm-nivel { flex: 1 1 100%; }
+}

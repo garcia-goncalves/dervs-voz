@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="painel.css">
 <link rel="stylesheet" href="painel-central.css">
 <link rel="stylesheet" href="painel-integracao.css">
+<link rel="stylesheet" href="painel-permissoes.css">
 </head>
 <body class="painel">
   <div class="cantos" aria-hidden="true">
@@ -77,6 +78,11 @@
       <span class="p-chip-ponto" aria-hidden="true"></span>
       <span class="p-chip-rotulo">INTEGRAÇÃO</span>
       <span class="p-chip-valor" id="p-integracao-valor">--</span>
+    </button>
+    <!-- Permissões: o dono liga e desliga o que o DERVS pode fazer sozinho. -->
+    <button type="button" class="p-chip" id="p-abrir-permissoes" title="Abre &quot;O que o DERVS pode fazer&quot;: permissões e teto de gasto">
+      <span class="p-chip-ponto" aria-hidden="true"></span>
+      <span class="p-chip-rotulo">O QUE O DERVS PODE FAZER</span>
     </button>
     <!-- Só ABRE a URL no navegador (main.js, shell.openExternal). -->
     <button type="button" class="p-chip" id="p-abrir-app-dervs" title="Abre o DERVS App no navegador">
@@ -337,10 +343,42 @@
     </section>
   </dialog>
 
+  <!-- Permissões: rótulos e níveis permitidos vêm do Python. Todo texto entra por textContent. -->
+  <dialog id="p-dialogo-permissoes" class="p-dialogo p-dialogo-largo" aria-labelledby="perm-titulo">
+    <section class="cartao central perm">
+      <header class="central-topo">
+        <div>
+          <h2 class="p-titulo" id="perm-titulo" tabindex="-1">O QUE O DERVS PODE FAZER</h2>
+          <p class="central-nota-pequena">Para cada coisa, escolha se o DERVS só analisa, pergunta antes ou faz sozinho.</p>
+        </div>
+        <button type="button" id="perm-fechar" class="p-mini">FECHAR</button>
+      </header>
+      <div class="central-corpo" id="perm-corpo">
+        <p class="central-detalhe perm-mensagem" id="perm-mensagem" role="status" aria-live="polite">Carregando...</p>
+        <ul class="central-lista" id="perm-lista" aria-label="Permissões"></ul>
+
+        <h3 class="central-sub">TETO DE GASTO POR DIA <span class="p-titulo-nota">com API paga</span></h3>
+        <p class="central-detalhe" id="perm-gasto">Gasto de hoje: --</p>
+        <form class="integ-form" id="perm-teto-form" autocomplete="off">
+          <label class="integ-campo" for="perm-teto"><span class="central-nota-pequena">Teto diário (US$, de 0,01 a 1000)</span>
+            <input id="perm-teto" class="integ-entrada" type="text" inputmode="decimal" maxlength="8" spellcheck="false"></label>
+          <button type="submit" id="perm-teto-salvar" class="p-mini p-mini-forte">SALVAR TETO</button>
+        </form>
+
+        <h3 class="central-sub">O QUE FEZ SOZINHO <span class="p-titulo-nota">as últimas 10 ações</span></h3>
+        <ul class="central-lista" id="perm-recentes"></ul>
+        <p class="p-vazio central-vazio" id="perm-recentes-vazio">Nada feito sozinho ainda.</p>
+
+        <p class="central-nota-pequena perm-rodape">Estas travas valem sempre e não aparecem aqui: nada em servidor sem o seu sim, apagar só vai para a quarentena, nunca ignorar permissões.</p>
+      </div>
+    </section>
+  </dialog>
+
   <script src="painel-formato.js"></script>
   <script src="painel-markdown.js"></script>
   <script src="painel.js"></script>
   <script src="painel-central.js"></script>
   <script src="painel-integracao.js"></script>
+  <script src="painel-permissoes.js"></script>
 </body>
 </html>

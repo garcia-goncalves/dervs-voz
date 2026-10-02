@@ -525,6 +525,15 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo integracao com parte desconhecida, ignorado");
       }
       break;
+    // Tela "O que o DERVS pode fazer": a tela só desenha; texto só por textContent.
+    case "permissoes":
+      if (typeof mensagem.parte === "string" && PARTES_PERMISSOES.has(mensagem.parte)) {
+        const { verbo: _pm, ...parte } = mensagem;
+        difundir("dervs:permissoes", parte);
+      } else {
+        console.error("electron: verbo permissoes com parte desconhecida, ignorado");
+      }
+      break;
     default:
       console.error(`electron: verbo desconhecido do Python, ignorado: ${String(verbo)}`);
   }
@@ -697,6 +706,32 @@ const ID_PEDIDO_WEB = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const ID_LOCAL = /^[A-Za-z0-9]{1,40}$/;
 const APELIDO_SSH = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 const LIMITE_COMANDO_SSH = 400;
+
+// Tela de permissões: categoria e nível só das listas fixas, teto só número na faixa.
+// O Python valida de novo (dervs_ponte_electron.py e dervs_painel_permissoes.py).
+const PARTES_PERMISSOES = new Set(["estado", "mensagem"]);
+const CATEGORIAS_PERMISSAO = new Set(["ler", "abrir", "instalar", "alterar_projeto", "apagar",
+  "internet", "servidor", "gastar_api"]);
+const NIVEIS_PERMISSAO = new Set(["analisa", "pergunta", "sozinho"]);
+
+ipcMain.on("dervs:permissoes-pedir", () => { enviarAoPython({ verbo: "permissoes_pedir" }); });
+
+ipcMain.on("dervs:permissoes-definir", (_evento, dado) => {
+  if (!dado || typeof dado.categoria !== "string" || !CATEGORIAS_PERMISSAO.has(dado.categoria)
+      || typeof dado.nivel !== "string" || !NIVEIS_PERMISSAO.has(dado.nivel)) {
+    console.error("electron: permissoes-definir inválido, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "permissoes_definir", categoria: dado.categoria, nivel: dado.nivel });
+});
+
+ipcMain.on("dervs:permissoes-teto", (_evento, valor) => {
+  if (typeof valor !== "number" || !Number.isFinite(valor) || valor < 0.01 || valor > 1000) {
+    console.error("electron: permissoes-teto inválido, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "permissoes_teto", valor });
+});
 
 ipcMain.on("dervs:integracao-pedir", () => { enviarAoPython({ verbo: "integracao_pedir" }); });
 

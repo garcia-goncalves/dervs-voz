@@ -159,4 +159,18 @@ contextBridge.exposeInMainWorld("dervs", {
   integracaoSshCancelar: (propostaId) => {
     if (typeof propostaId === "string" && propostaId) ipcRenderer.send("dervs:integracao-ssh-cancelar", propostaId);
   },
+
+  // ---- Permissões ("O que o DERVS pode fazer") — lista ESTREITA ----------------
+  // Python -> tela: `parte` = estado | mensagem. Tela -> Python: só estes três pedidos;
+  // categoria/nível/teto são conferidos de novo no main.js e no Python.
+  aoPermissoes: aoCanal("dervs:permissoes"),
+  permissoesPedir: () => { ipcRenderer.send("dervs:permissoes-pedir"); },
+  permissoesDefinir: (categoria, nivel) => {
+    if (typeof categoria === "string" && typeof nivel === "string") {
+      ipcRenderer.send("dervs:permissoes-definir", { categoria, nivel });
+    }
+  },
+  permissoesTeto: (valor) => {
+    if (typeof valor === "number" && Number.isFinite(valor)) ipcRenderer.send("dervs:permissoes-teto", valor);
+  },
 });
