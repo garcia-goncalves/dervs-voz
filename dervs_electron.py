@@ -39,6 +39,7 @@ import dervs_config as config
 import dervs_diario as diario
 import dervs_instancia as instancia
 import dervs_integracao_painel as integracao_painel
+import dervs_piloto as piloto
 import dervs_registro as registro
 import dervs_safety as seg
 import dervs_painel as painel
@@ -670,6 +671,22 @@ def _encerrar(motor: Motor, ponte: PonteElectron, posse, parar_sistema: threadin
     posse.soltar()
 
 
+def _anunciar_queda_anterior(ponte, queda, permissoes):
+    """Conta ao dono, pela conversa, por que o DERVS caiu da última vez.
+
+    Só anuncia: preparar o conserto (`piloto.aplicar_conserto`) NÃO roda daqui.
+    Nunca levanta — é o arranque do app.
+    """
+    if not queda:
+        return
+    try:
+        nivel = (permissoes or {}).get("alterar_projeto")
+        diag = piloto.diagnosticar(queda)
+        ponte.enviar_fala("dervs", piloto.anunciar(diag, piloto.decidir_acao(nivel)))
+    except Exception as e:
+        _avisar("piloto automático falhou ao anunciar a queda: %s" % e)
+
+
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -748,6 +765,8 @@ def main():
         dervs.encerrar_tudo(motor)
         posse.soltar()
         sys.exit(1)
+
+    _anunciar_queda_anterior(ponte, registro.QUEDA_ANTERIOR, conf.get("permissoes"))
 
     # Painel de sistema (CPU/RAM/disco reais, fase 1 da esteira
     # dervs-painel-completo): thread própria, à parte da `Escuta`/`Voz`, que

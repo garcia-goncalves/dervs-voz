@@ -119,3 +119,33 @@ def test_colher_anterior_le_antes_de_instalar_zerar_tudo(caminho):
     reg.instalar(caminho=caminho)
     assert "morri ontem" in reg.QUEDA_ANTERIOR
     assert reg.ler_e_limpar(caminho) is None
+
+
+# --- cópia da queda para o piloto automático ------------------------------
+
+def test_colher_anterior_guarda_copia_em_quedas(tmp_path):
+    caminho = str(tmp_path / "ultimo_erro.txt")
+    pasta = str(tmp_path / "quedas")
+    reg.anotar("ValueError: x", caminho=caminho)
+    texto = reg.colher_anterior(caminho, pasta_quedas=pasta)
+    copias = os.listdir(pasta)
+    assert len(copias) == 1 and copias[0].startswith("queda-")
+    with io.open(os.path.join(pasta, copias[0]), encoding="utf-8") as f:
+        assert f.read() == texto
+
+
+def test_quedas_guardadas_tem_teto_de_vinte(tmp_path):
+    pasta = tmp_path / "quedas"
+    pasta.mkdir()
+    for i in range(25):
+        (pasta / ("queda-20200101-0000%02d.txt" % i)).write_text("x")
+    reg.guardar_copia("novo", str(pasta))
+    nomes = sorted(os.listdir(pasta))
+    assert len(nomes) == 20
+    assert "queda-20200101-000000.txt" not in nomes
+
+
+def test_guardar_copia_nunca_levanta(tmp_path):
+    arquivo = tmp_path / "e_arquivo"
+    arquivo.write_text("x")
+    assert reg.guardar_copia("t", str(arquivo / "dentro")) is None
