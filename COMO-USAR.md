@@ -127,6 +127,24 @@ minuto). Uma reunião de duas horas sai por menos de US$ 0,60.
 
 ## Ligar e desligar a escuta
 
+**Três modos de escuta (04/10/2026).** No painel, ao lado do chip MICROFONE, há
+um seletor com três botões:
+
+| Modo | O que o microfone faz |
+|---|---|
+| **Desligado** (padrão ao abrir) | Fechado. Nada é ouvido. |
+| **Atalho** | Fechado; abre só **enquanto você segura `Ctrl+Alt+Espaço`** (os Ctrl e Alt da **esquerda**; o AltGr não vale). Ao soltar, fecha em ~1,6 s (o tempo de terminar a frase; se ainda estiver transcrevendo, espera, até 20 s). Como você apertou de propósito, o pedido vai direto, sem precisar dizer "DERVS". |
+| **Chamar por voz** | Aberto, acorda quando ouvir "DERVS" no começo da fala. **Fecha sozinho depois de 10 minutos sem uso** (chave `escuta_auto_desligar_min`, de 1 a 240). |
+
+O chip diz o estado real: `DESLIGADO`, `FECHADO · ATALHO`, `ABERTO (ATALHO)` ou
+`OUVINDO · FECHA EM 7 MIN`. Para fechar por voz: **"DERVS, pare de ouvir"** (ou "desliga
+o microfone"). Na reunião de 1 hora o atalho não abre o microfone. A última escolha fica
+na chave `modo_escuta` do `config.json` (`desligado`, `atalho` ou `voz`); valor torto cai
+em `desligado`. **Ao abrir o app o microfone nasce sempre fechado:** o modo Atalho volta
+como estava, mas quem estava em "Chamar por voz" abre em Desligado e liga de novo com
+um clique (regra do briefing: nunca ativar do nada). **Se o DERVS "não acorda", confira o modo antes de tudo:** em
+Desligado ou Atalho ele não está ouvindo, de propósito.
+
 **O botão voltou (23/09/2026).** Logo abaixo do nome **DERVS** na tela há um
 botão que diz **MICROFONE LIGADO** (ponto cheio, ciano) ou **MICROFONE
 DESLIGADO** (ponto vazio, apagado). Um clique liga ou desliga a escuta. O
@@ -138,8 +156,9 @@ Outras formas, se precisar:
 
 1. **Sair do DERVS** (botão direito no ícone da bandeja → "Sair do DERVS").
    Fechando o app, o microfone fecha junto.
-2. **Editar a configuração** — a chave `escuta_ao_abrir` em
-   `%APPDATA%\dervs\config.json` (`true` = abre escutando, o padrão).
+2. **Editar a configuração** — a chave `modo_escuta` em
+   `%APPDATA%\dervs\config.json` (`desligado`, o padrão, `atalho` ou `voz`).
+   A antiga `escuta_ao_abrir` ainda é gravada, mas **não decide mais** ao abrir.
 
 Enquanto ele não ouvir o seu nome, o que você fala **não sai do seu
 computador** de qualquer forma (ver o funil mais abaixo).

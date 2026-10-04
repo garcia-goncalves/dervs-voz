@@ -29,7 +29,7 @@ MIN_AUTO_DESLIGAR = 1
 MAX_AUTO_DESLIGAR = 240
 PADRAO_AUTO_DESLIGAR = 10
 
-NOME_DO_ATALHO = "Ctrl+Alt+Espaço"
+NOME_DO_ATALHO = "Ctrl+Alt+Espaço"   # os da esquerda do teclado
 
 
 def normalizar_modo(valor) -> str:
@@ -58,12 +58,11 @@ def _norm(texto: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-_VERBOS = r"(pare|parar|para|chega|cala|desliga|desligue|fecha|feche)"
+_FIM = r"( agora| por favor)?( dervs)?$"
 _PEDIDO_PARE = re.compile(
-    r"^(por favor )?" + _VERBOS + r" (de )?(me )?(ouvir|escutar)( agora| por favor)?$"
-    r"|^(por favor )?" + _VERBOS + r" (o )?(microfone|mic)( agora| por favor)?$"
-    r"|^(por favor )?(fecha|feche|desliga|desligue) a escuta( agora| por favor)?$"
-    r"|^chega de (ouvir|escutar)$")
+    r"^(por favor )?(pare|parar|para|chega) de (me )?(ouvir|escutar)" + _FIM
+    + r"|^(por favor )?(pare|parar|para|desliga|desligue|fecha|feche) (o )?(microfone|mic)" + _FIM
+    + r"|^(por favor )?(fecha|feche|desliga|desligue) a escuta" + _FIM)
 
 
 def eh_pare_de_ouvir(texto: str) -> bool:
@@ -120,8 +119,10 @@ class AutoDesligamento:
 
 
 # Códigos de tecla virtual do Windows (GetAsyncKeyState).
-VK_CONTROL, VK_MENU, VK_SPACE = 0x11, 0x12, 0x20
-COMBINACAO_PADRAO = (VK_CONTROL, VK_MENU, VK_SPACE)
+# Ctrl e Alt da ESQUERDA de propósito: no teclado ABNT2 o AltGr chega ao Windows
+# como Ctrl esquerdo + Alt direito, e AltGr+Espaço abriria o microfone sem querer.
+VK_LCONTROL, VK_LMENU, VK_SPACE = 0xA2, 0xA4, 0x20
+COMBINACAO_PADRAO = (VK_LCONTROL, VK_LMENU, VK_SPACE)
 
 
 def _estado_real_das_teclas(teclas):

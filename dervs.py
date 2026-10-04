@@ -676,16 +676,17 @@ class PopUp(QtWidgets.QWidget):
         # fechou o app, abre desligado. Sem isso o botao nao e um liga/desliga,
         # e um lembrete que se apaga sozinho toda vez que o app reabre.
         # Desde a Onda A (04/10/2026) quem manda ao abrir é o MODO DE ESCUTA
-        # (`modo_escuta`), não mais `escuta_ao_abrir`: o padrão é DESLIGADO — o
-        # microfone nunca abre sozinho numa instalação nova — e o que o dono
-        # escolheu por último (atalho ou voz) volta, com o indicador na tela e o
-        # desligamento automático correndo.
+        # (`modo_escuta`), não mais `escuta_ao_abrir`. O briefing manda o
+        # microfone nascer FECHADO ("não pode ativar do nada"): só o modo
+        # Atalho volta como estava (ele também começa fechado); quem estava em
+        # "voz" abre em Desligado e liga de novo com um clique — o painel e a
+        # barra de status dizem isso na cara, para não parecer defeito.
         self._iniciar_modos_de_escuta()
         modo_inicial = modos.normalizar_modo(self._conf.get("modo_escuta"))
-        if modo_inicial == modos.DESLIGADO:
-            QtCore.QTimer.singleShot(800, self._mostrar_escuta_desligada)
+        if modo_inicial == modos.ATALHO:
+            QtCore.QTimer.singleShot(800, lambda: self.definir_modo_escuta(modos.ATALHO))
         else:
-            QtCore.QTimer.singleShot(800, lambda: self.definir_modo_escuta(modo_inicial))
+            QtCore.QTimer.singleShot(800, self._mostrar_escuta_desligada)
 
     def _checar_lembretes(self):
         """Um toque do relógio: se há lembrete vencido e o DERVS não está
@@ -801,6 +802,9 @@ class PopUp(QtWidgets.QWidget):
     # entrega a frase depois de ~1,1 s de silêncio; fechar antes cortaria o fim
     # do pedido.
     GRACA_ATALHO_S = 1.6
+    # Teto da espera pela transcrição em voo: fechar o microfone zera o
+    # "desperto", e uma resposta que chega depois cairia no porteiro e sumiria.
+    ESPERA_MAX_TRANSCRICAO_S = 20.0
 
     def _iniciar_modos_de_escuta(self):
         self._modo = modos.DESLIGADO
@@ -880,7 +884,7 @@ class PopUp(QtWidgets.QWidget):
             self._tecla.passo()            # reunião manda: microfone fechado, ponto
             return
         evento = self._tecla.passo()
-        agora = time.time()
+        agora = time.monotonic()
         if evento == "apertou":
             self._atalho_soltou_em = None
             self.voz.calar()               # barge-in: se está falando, cala para te ouvir
@@ -891,6 +895,9 @@ class PopUp(QtWidgets.QWidget):
             self._atalho_soltou_em = agora
         if (self._atalho_soltou_em is not None and not self._tecla.apertada
                 and agora - self._atalho_soltou_em >= self.GRACA_ATALHO_S):
+            em_voo = bool(self._transcrevendo or self._fila_fala)
+            if em_voo and agora - self._atalho_soltou_em < self.ESPERA_MAX_TRANSCRICAO_S:
+                return              # ainda transcrevendo o que você falou: espera
             self._atalho_soltou_em = None
             self._microfone_do_atalho(False)
             self._pintar_modo_atalho()
@@ -910,8 +917,14 @@ class PopUp(QtWidgets.QWidget):
             print(f"[escuta] falha ao desligar por inatividade: {e}", file=sys.stderr)
 
     def _pare_de_ouvir(self):
-        """Comando de voz: fecha o microfone."""
-        self.b_conversa.setChecked(False)
+        """Comando de voz: fecha o microfone. No modo Atalho só fecha o que o
+        atalho abriu — o modo (e a tecla) continuam valendo."""
+        if self._modo == modos.ATALHO:
+            self._atalho_soltou_em = None
+            self._microfone_do_atalho(False)
+            self._pintar_modo_atalho()
+        else:
+            self.b_conversa.setChecked(False)
         frase = ("Parei de ouvir. Para eu voltar, ligue o microfone no botão ou "
                  "segure %s." % modos.NOME_DO_ATALHO)
         self._diz("dervs", frase)

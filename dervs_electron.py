@@ -40,6 +40,7 @@ import dervs_roteador as roteador
 import dervs_diario as diario
 import dervs_instancia as instancia
 import dervs_integracao_painel as integracao_painel
+import dervs_modos_escuta as modos
 import dervs_painel_permissoes as permissoes_painel
 import dervs_piloto as piloto
 import dervs_registro as registro
@@ -142,6 +143,7 @@ class Motor(dervs.PopUp):
     # `QTimer` criado fora da thread do Qt nunca dispara (ver `dervs.Ponte`).
     _pedido_microfone = QtCore.pyqtSignal(bool)
     _pedido_reuniao = QtCore.pyqtSignal(bool)     # idem, para o modo reunião
+    _pedido_modo = QtCore.pyqtSignal(str)         # idem, para o seletor de modos de escuta
     # A sessão do Claude Code responde de OUTRA thread (a do laço asyncio); o
     # chat e a voz são da thread da tela — o sinal enfileirado faz a travessia.
     _claude_fala = QtCore.pyqtSignal(str)
@@ -153,6 +155,7 @@ class Motor(dervs.PopUp):
         self.ponte = ponte
         self._ultimo_estado_enviado = None
         self._ultimo_microfone_enviado = None
+        self._ultimo_modo_enviado = None
         # Modo reunião: `_reuniao_fim` é o instante (do `_relogio`) em que o
         # microfone reabre, ou None sem reunião. `_relogio` é injetável para
         # os testes andarem uma hora sem dormir. Tudo aqui só é tocado pela
@@ -192,6 +195,7 @@ class Motor(dervs.PopUp):
         self.voz.ao_nivel = ponte.enviar_volume
         self._pedido_microfone.connect(self._microfone_na_tela)
         self._pedido_reuniao.connect(self._reuniao_na_tela)
+        self._pedido_modo.connect(self.definir_modo_escuta)
         self._claude_fala.connect(self._claude_falar_na_tela)
         self._resposta_plano.connect(self._plano_na_tela)
 
@@ -270,6 +274,19 @@ class Motor(dervs.PopUp):
         # que grava `escuta_ao_abrir` e abre/fecha a `Escuta`.
         self.b_conversa.setChecked(ligar)
 
+    def pedir_modo_escuta(self, modo: str):
+        """Seguro de chamar de qualquer thread: atravessa por sinal para a
+        thread da tela, onde `definir_modo_escuta` mexe no botão e na `Escuta`."""
+        self._pedido_modo.emit(str(modo))
+
+    def _modo_para_a_ponte(self):
+        """(modo, minutos até fechar). Os minutos só existem com o microfone
+        aberto sob desligamento automático (modo voz)."""
+        fecha = None
+        if self.escuta is not None and self._auto.armado:
+            fecha = int(math.ceil(self._auto.restante_s() / 60.0))
+        return (self.modo_escuta(), fecha)
+
     # ---- modo reunião: o microfone fecha por 1 hora e reabre sozinho -----
     def pedir_reuniao(self, ligar: bool):
         """Seguro de chamar de qualquer thread (mesmo motivo do microfone)."""
@@ -279,7 +296,10 @@ class Motor(dervs.PopUp):
         if ligar:
             if self._reuniao_fim is not None:
                 return                      # já em reunião: o botão manda `false`
-            self._reuniao_reabrir = bool(self.b_conversa.isChecked())
+            # só reabre quem estava em modo VOZ: no atalho o microfone é do
+            # atalho (não existe "reabrir"), e no desligado nunca devia abrir.
+            self._reuniao_reabrir = (bool(self.b_conversa.isChecked())
+                                     and self.modo_escuta() == modos.VOZ)
             self._reuniao_fim = self._relogio() + DURACAO_REUNIAO_S
             self._mexer_no_microfone_sem_gravar(False)
             self._reuniao_avisar()
@@ -304,10 +324,12 @@ class Motor(dervs.PopUp):
 
     def _reuniao_encerrar(self):
         """Fim da hora, ou clique de cancelar: reabre (se estava aberto)."""
-        reabrir = self._reuniao_reabrir
+        # o modo pode ter mudado no meio da reunião (painel): só VOZ reabre.
+        reabrir = self._reuniao_reabrir and self.modo_escuta() == modos.VOZ
         self._cancelar_reuniao_estado()
         if reabrir:
             self._mexer_no_microfone_sem_gravar(True)
+            self._auto.armar()      # prazo novo: o de antes da reunião já venceu
 
     def _cancelar_reuniao_estado(self):
         """Zera a reunião SEM mexer no microfone (o dono já mexeu, ou vamos
@@ -485,6 +507,10 @@ class Motor(dervs.PopUp):
         if aberto != self._ultimo_microfone_enviado:
             self.ponte.enviar_microfone(aberto)
             self._ultimo_microfone_enviado = aberto
+        modo = self._modo_para_a_ponte()
+        if modo != self._ultimo_modo_enviado:
+            self.ponte.enviar_modo_escuta(*modo)
+            self._ultimo_modo_enviado = modo
         estado = self._estado_atual()
         if estado == self._ultimo_estado_enviado:
             return
@@ -727,6 +753,7 @@ def main():
 
     ao_microfone_alvo = []
     ao_reuniao_alvo = []
+    ao_modo_escuta_alvo = []
     ao_claude_alvo = []
     ao_central_alvo = []
     ao_integracao_alvo = []
@@ -752,6 +779,10 @@ def main():
         if ao_reuniao_alvo:
             ao_reuniao_alvo[0](ligar)
 
+    def _ao_modo_escuta_inicial(modo):
+        if ao_modo_escuta_alvo:
+            ao_modo_escuta_alvo[0](modo)
+
     def _ao_claude_inicial(verbo, dados):
         if ao_claude_alvo:
             ao_claude_alvo[0](verbo, dados)
@@ -760,13 +791,15 @@ def main():
                           ao_pronto=lambda: None, ao_microfone=_ao_microfone_inicial,
                           ao_reuniao=_ao_reuniao_inicial, ao_claude=_ao_claude_inicial,
                           ao_central=_ao_central_inicial, ao_integracao=_ao_integracao_inicial,
-                          ao_permissoes=_ao_permissoes_inicial)
+                          ao_permissoes=_ao_permissoes_inicial,
+                          ao_modo_escuta=_ao_modo_escuta_inicial)
     motor = Motor(ponte)
     motor.voz.preparar_acuses()          # áudios de "Certo." etc., uma vez, em segundo plano
     ao_claude_alvo.append(_construir_ao_claude(motor))
     ao_central_alvo.append(motor.central_pc.tratar)
     ao_microfone_alvo.append(motor.pedir_microfone)
     ao_reuniao_alvo.append(motor.pedir_reuniao)
+    ao_modo_escuta_alvo.append(motor.pedir_modo_escuta)
     ao_plano_alvo.append(_construir_ao_plano(motor))
     ponte_alvo.append(_construir_me_chamaram(ponte))
 

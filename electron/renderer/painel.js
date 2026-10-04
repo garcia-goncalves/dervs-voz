@@ -37,6 +37,8 @@
     velocidade: [0.15, -0.1, 0.08, -0.05],
     cpu: [], ram: [], rede: [],
     microfoneLigado: null,
+    modoEscuta: "desligado",
+    fechaEmMin: null,
     reuniaoAtiva: false,
     acoes: [],           // { quandoMs, papel, texto }
   };
@@ -146,11 +148,28 @@
     $(textoId).textContent = texto;
   }
 
+  // Chip do microfone = "aberto?" + regra do modo; o seletor mostra o modo.
+  function pintarMicrofone() {
+    if (painel.microfoneLigado === null) return;
+    const r = F.rotuloMicrofone(painel.modoEscuta, painel.microfoneLigado, painel.fechaEmMin);
+    $("p-chip-microfone").setAttribute("aria-pressed", String(painel.microfoneLigado));
+    marcarChip("p-chip-microfone", r.estado, "p-microfone", r.valor);
+    document.querySelectorAll("#p-modos .p-modo").forEach((b) => {
+      b.setAttribute("aria-pressed", String(b.dataset.modo === painel.modoEscuta));
+    });
+  }
+
   function aoMicrofone({ ligado } = {}) {
     if (typeof ligado !== "boolean") return;
     painel.microfoneLigado = ligado;
-    $("p-chip-microfone").setAttribute("aria-pressed", String(ligado));
-    marcarChip("p-chip-microfone", ligado ? "ok" : "alerta", "p-microfone", ligado ? "LIGADO" : "DESLIGADO");
+    pintarMicrofone();
+  }
+
+  function aoModoEscuta({ modo, fechaEmMin } = {}) {
+    if (modo !== "desligado" && modo !== "atalho" && modo !== "voz") return;
+    painel.modoEscuta = modo;
+    painel.fechaEmMin = Number.isInteger(fechaEmMin) && fechaEmMin >= 0 ? fechaEmMin : null;
+    pintarMicrofone();
   }
 
   function aoVoz({ motor } = {}) {
@@ -772,6 +791,9 @@
   $("p-botao-ampliar").addEventListener("click", () => window.dervs.painelAmpliar());
   $("p-chip-reuniao").addEventListener("click", () => window.dervs.alternarReuniao(!painel.reuniaoAtiva));
   $("p-abrir-app-dervs").addEventListener("click", () => window.dervs.abrirAppDervs());
+  document.querySelectorAll("#p-modos .p-modo").forEach((b) => {
+    b.addEventListener("click", () => window.dervs.definirModoEscuta(b.dataset.modo));
+  });
   $("p-chip-microfone").addEventListener("click", () => {
     if (painel.microfoneLigado === null) return;
     window.dervs.alternarMicrofone(!painel.microfoneLigado);
@@ -794,6 +816,7 @@
   window.dervs.aoPlano(aoPlano);
   window.dervs.aoSistema(aoSistema);
   window.dervs.aoMicrofone(aoMicrofone);
+  window.dervs.aoModoEscuta(aoModoEscuta);
   window.dervs.aoReuniao(aoReuniao);
   window.dervs.aoDiario(aoDiario);
   window.dervs.aoAgenda(aoAgenda);

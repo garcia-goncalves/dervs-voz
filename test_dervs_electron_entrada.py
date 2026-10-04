@@ -59,6 +59,9 @@ class PonteFalsa:
     def enviar_reuniao(self, restante_s):
         self.chamadas.append(("reuniao", restante_s))
 
+    def enviar_modo_escuta(self, modo, fecha_em_min=None):
+        self.chamadas.append(("modo_escuta", modo, fecha_em_min))
+
     def enviar_claude(self, verbo, dados):
         self.chamadas.append((verbo, dados))
 
@@ -490,6 +493,7 @@ def reuniao(motor, monkeypatch):
         dervs.PopUp, "alternar_conversa",
         lambda self, ligar: dervs.cfg.gravar("escuta_ao_abrir", bool(ligar)))
     motor.b_conversa = _BotaoFalso(motor, True)
+    motor._modo = "voz"        # microfone aberto = modo voz (só ele reabre depois da reunião)
     agora = [1000.0]
     motor._relogio = lambda: agora[0]
     motor.ponte.chamadas.clear()

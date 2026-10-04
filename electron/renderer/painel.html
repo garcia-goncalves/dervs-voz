@@ -45,6 +45,12 @@
       <span class="p-chip-rotulo">MICROFONE</span>
       <span class="p-chip-valor" id="p-microfone">--</span>
     </button>
+    <!-- Modos de escuta: o painel só PEDE; o Python decide e responde. -->
+    <div class="p-modos" id="p-modos" role="group" aria-label="Como o DERVS escuta">
+      <button type="button" class="p-modo" data-modo="desligado" aria-pressed="false" title="Microfone fechado. Nada é ouvido.">Desligado</button>
+      <button type="button" class="p-modo" data-modo="atalho" aria-pressed="false" title="Microfone fechado; abre só enquanto você segura Ctrl+Alt+Espaço.">Atalho</button>
+      <button type="button" class="p-modo" data-modo="voz" aria-pressed="false" title="Microfone aberto: acorda quando ouvir &ldquo;DERVS&rdquo; no começo da fala. Fecha sozinho depois de alguns minutos sem uso.">Chamar por voz</button>
+    </div>
     <div class="p-chip" id="p-chip-voz">
       <span class="p-chip-ponto" aria-hidden="true"></span>
       <span class="p-chip-rotulo">VOZ</span>

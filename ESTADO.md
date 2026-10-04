@@ -3,11 +3,13 @@
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 04/10/2026. **2313 testes verdes** no ambiente do
+Última verificação: 04/10/2026. **2405 testes verdes** no ambiente do
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
 
 **CI (04/10/2026): no ar.** `.github/workflows/ci.yml` roda a suíte inteira (`python -m pytest`) em Windows a cada `push` e a cada PR, em um job só (Windows conta em dobro na cota de Actions). Primeira execução verde: ~3 min. Dois defeitos de teste achados e corrigidos no caminho: `node --test` com pasta (quebra no Node 22) e servidor falso da ponte que recusava sem ler o corpo (queda de conexão no Windows).
+
+**Modos de escuta (04/10/2026, Onda A): prontos, testados e provados na tela.** Seletor `Desligado | Atalho | Chamar por voz` no painel; o microfone **nasce sempre fechado** (só o Atalho volta como estava; "voz" abre em Desligado); no Atalho abre só enquanto `Ctrl+Alt+Espaço` está apertado; na voz fecha sozinho após 10 min sem uso; "DERVS, pare de ouvir" fecha. O chip mostra o estado real (`OUVINDO · FECHA EM 7 MIN`). Provado: testes com `Escuta` falsa (em Desligado nenhuma abertura de microfone), tela no navegador com ponte falsa (todos os estados e cliques). **Ainda não provado:** o atalho com o teclado de verdade e o Electron real (só testes e navegador). Falta da esteira `dervs-jarvis`: ondas B (SSH/PuTTY e Claude da VPS), C (projetos/VS Code/GitHub), D (autoconfiguração por voz).
 
 **Chamada estrita (04/10/2026): pronta.** O DERVS só acorda se o nome vier no começo da fala ("DERVS...", "Ei DERVS", "OK DERVS"); falar sobre ele não o liga. Padrão ligado (`chamada_estrita` no `config.json`); corrige também o "OK" que sobrava colado no pedido. Antes, o nome valia em qualquer posição e "vou mostrar o dervs pra ele" acordava o agente. **Ainda falta** da esteira `dervs-jarvis`: modos de escuta (Desligado/Atalho/Voz) com indicador, desligamento automático e "pare de ouvir". Arquitetura 24 h/multiusuário: `docs/esteira/dervs-jarvis/arquitetura-24h.md`.
 

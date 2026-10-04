@@ -197,7 +197,8 @@ caminho: `python -c "import dervs_config as c; print(c.CONFIG_PATH)"`.
 
 Chaves: `stt`, `stt_openai_modelo`, `porteiro`, `porteiro_modelo`, `cerebro`,
 `cerebro_openai_modelo`, `motor`, `voz_kokoro`, `voz`, `voz_velocidade`,
-`janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir`, `porteiro_registrar_texto`
+`janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir` (legado: só espelha o
+botão), `modo_escuta`, `escuta_auto_desligar_min`, `porteiro_registrar_texto`
 (guardar o TEXTO que o porteiro ouviu no diário — padrão `false`), `dervs_app_url`
 (URL que o botão "Abrir DERVS App" do HUD abre — padrão `http://localhost:4777`),
 `voz_openai` (`cedar` padrão), `voz_openai_tempo`, `confirmar_plano`, `permissoes`,
@@ -206,6 +207,18 @@ Chaves: `stt`, `stt_openai_modelo`, `porteiro`, `porteiro_modelo`, `cerebro`,
 só o harness do projeto — padrão `dono`; não mexe em `cerebro`),
 e as do navegador. Valor inválido cai no padrão em vez de derrubar o app
 (`_validar`). Mudou → reinicie.
+
+**Modos de escuta (Onda A, 04/10/2026).** `dervs_modos_escuta.py` (peças puras:
+`normalizar_modo`, `eh_pare_de_ouvir`, `AutoDesligamento`, `TeclaSegurada`) + os
+métodos `definir_modo_escuta`, `_passo_tecla`, `_checar_auto_desligamento` e
+`_pare_de_ouvir` em `dervs.py`. Três modos — `desligado` (padrão), `atalho` (lê
+`GetAsyncKeyState` de `Ctrl`+`Alt` da esquerda + `Espaço` a cada 30 ms; sem gancho global, não captura
+o que se digita; fecha 1,6 s depois de soltar) e `voz` — guardados em `modo_escuta`.
+`escuta_auto_desligar_min` (1–240, padrão 10) fecha o microfone sem uso; `_acordar`
+renova o prazo. Verbo novo da ponte nos dois sentidos: `modo_escuta` (Electron pede
+`{modo}`; Python informa `{modo, fecha_em_min}`). Abrir/fechar pelo atalho e a reunião
+não viram escolha do dono (`_sem_gravar_modo`). Testes: `test_dervs_modos_escuta.py`,
+`test_dervs_modos_janela.py`.
 
 **O HUD tem o botão de liga/desliga do microfone** (voltou em 23/09/2026): um
 clique pede ao Python para abrir ou fechar a escuta, e o botão só muda de cara

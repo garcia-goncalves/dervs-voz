@@ -452,6 +452,66 @@ def test_pedido_de_microfone_sem_callback_nao_derruba_a_ponte():
     time.sleep(0.1)   # a thread de leitura não pode ter explodido
 
 
+# ---- modos de escuta (Onda A) --------------------------------------------
+
+def test_enviar_modo_escuta_manda_modo_e_minutos():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_modo_escuta("voz", 7)
+    p.enviar_modo_escuta("atalho")
+    dados = [json.loads(l) for l in _linhas_escritas(processo)]
+    assert dados == [{"verbo": "modo_escuta", "modo": "voz", "fecha_em_min": 7},
+                     {"verbo": "modo_escuta", "modo": "atalho", "fecha_em_min": None}]
+
+
+@pytest.mark.parametrize("minutos", [-1, True, "7", 2.5])
+def test_enviar_modo_escuta_ignora_minutos_tortos(minutos):
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_modo_escuta("voz", minutos)
+    assert json.loads(_linhas_escritas(processo)[0])["fecha_em_min"] is None
+
+
+def test_enviar_modo_escuta_invalido_nao_escreve():
+    p, processo = _nova_ponte()
+    p._despachar_guardado()
+    p.enviar_modo_escuta("sempre")
+    assert _linhas_escritas(processo) == []
+
+
+def test_enviar_modo_escuta_antes_de_pronto_guarda_o_ultimo():
+    p, processo = _nova_ponte()
+    p.enviar_modo_escuta("voz", 3)
+    p.enviar_modo_escuta("desligado")
+    assert _linhas_escritas(processo) == []
+    p._despachar_guardado()
+    dados = [json.loads(l) for l in _linhas_escritas(processo)]
+    assert dados == [{"verbo": "modo_escuta", "modo": "desligado", "fecha_em_min": None}]
+
+
+def test_pedido_de_modo_de_escuta_chama_o_callback_com_o_texto():
+    pedidos = []
+    linha = (b'{"verbo": "modo_escuta", "modo": "atalho"}\n'
+             b'{"verbo": "modo_escuta", "modo": "voz"}\n')
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a, **k: None,
+                                ao_pronto=lambda: None, ao_modo_escuta=pedidos.append)
+    p._iniciar(ProcessoFalso(linha))
+    assert _esperar(lambda: len(pedidos) == 2)
+    assert pedidos == ["atalho", "voz"]
+
+
+@pytest.mark.parametrize("valor", ['"sempre"', '1', 'null', 'true', '[]', '"VOZ"'])
+def test_pedido_de_modo_de_escuta_invalido_e_ignorado(valor, capsys):
+    pedidos = []
+    linha = ('{"verbo": "modo_escuta", "modo": %s}\n' % valor).encode()
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a, **k: None,
+                                ao_pronto=lambda: None, ao_modo_escuta=pedidos.append)
+    p._iniciar(ProcessoFalso(linha))
+    time.sleep(0.2)
+    assert pedidos == []
+    assert "modo de escuta" in capsys.readouterr().err
+
+
 # ---- diário do porteiro e modo reunião (quarta rodada) ----------------------
 
 def test_enviar_diario_manda_ouvidas_e_acordou():

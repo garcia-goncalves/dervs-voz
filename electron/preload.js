@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld("dervs", {
   alternarMicrofone: (ligar) => {
     ipcRenderer.send("dervs:alternar-microfone", Boolean(ligar));
   },
+  // Modos de escuta: `definirModoEscuta("desligado"|"atalho"|"voz")` só pede ao
+  // Python; `aoModoEscuta` recebe `{ modo, fechaEmMin }` (minutos ou null).
+  aoModoEscuta: aoCanal("dervs:modo-escuta"),
+  definirModoEscuta: (modo) => {
+    ipcRenderer.send("dervs:definir-modo-escuta", String(modo));
+  },
   // Modo reunião: `alternarReuniao(ligar)` só pede ao Python (booleano
   // estrito); `aoReuniao` recebe `{ restanteS }` — inteiro ou null.
   aoReuniao: (callback) => {

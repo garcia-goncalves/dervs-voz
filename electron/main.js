@@ -54,9 +54,10 @@ let arrastoAlca = null;  // { x, y, largura, altura } no começo do arrasto
 // demanda) nascer já com tudo preenchido, sem esperar a próxima leitura.
 const ultimosPorCanal = new Map();   // canal -> último dado (só canais "de estado")
 const CANAIS_DE_ESTADO = new Set([
-  "dervs:estado", "dervs:microfone", "dervs:sistema", "dervs:diario", "dervs:reuniao",
+  "dervs:estado", "dervs:microfone", "dervs:modo-escuta", "dervs:sistema", "dervs:diario", "dervs:reuniao",
   "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz",
   "dervs:plano"]);   // reload do painel com cartão pendente repõe o cartão
+const MODOS_DE_ESCUTA = new Set(["desligado", "atalho", "voz"]);
 const historicoFalas = [];           // últimas falas da conversa
 const historicoAcoes = [];           // últimas ações
 const MAX_HISTORICO = 30;
@@ -369,6 +370,19 @@ function tratarLinhaDoPython(linha) {
       }
       difundir("dervs:microfone", { ligado: mensagem.ligado });
       break;
+    case "modo_escuta":
+      // Modo de escuta atual (Python é o dono): só um dos três textos e, se há
+      // desligamento automático correndo, os minutos que faltam (inteiro >= 0).
+      if (!MODOS_DE_ESCUTA.has(mensagem.modo)) {
+        console.error("electron: verbo modo_escuta com modo invalido, ignorado");
+        return;
+      }
+      difundir("dervs:modo-escuta", {
+        modo: mensagem.modo,
+        fechaEmMin: Number.isInteger(mensagem.fecha_em_min) && mensagem.fecha_em_min >= 0
+          ? mensagem.fecha_em_min : null,
+      });
+      break;
     case "diario":
       // Cartão do diário do porteiro: só dois inteiros, nunca texto.
       if (Number.isInteger(mensagem.ouvidas) && Number.isInteger(mensagem.acordou)) {
@@ -604,6 +618,16 @@ ipcMain.on("dervs:alternar-microfone", (_evento, ligar) => {
     return;
   }
   enviarAoPython({ verbo: "microfone", ligar });
+});
+
+// Seletor de modos de escuta (Desligado / Atalho / Voz): só PEDE — o Python
+// decide e responde com o verbo `modo_escuta`. Só os três textos valem.
+ipcMain.on("dervs:definir-modo-escuta", (_evento, modo) => {
+  if (!MODOS_DE_ESCUTA.has(modo)) {
+    console.error(`electron: pedido de modo de escuta inválido, ignorado: ${String(modo)}`);
+    return;
+  }
+  enviarAoPython({ verbo: "modo_escuta", modo });
 });
 
 // Botão "Reunião 1h": só PEDE — o temporizador e o microfone são do Python.

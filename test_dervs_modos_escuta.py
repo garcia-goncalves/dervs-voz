@@ -22,7 +22,7 @@ def test_minutos_ficam_entre_1_e_240(v, esperado):
 @pytest.mark.parametrize("frase", [
     "pare de ouvir", "Para de ouvir.", "pare de me ouvir", "desliga o microfone",
     "fecha o microfone agora", "chega de ouvir", "por favor, pare de escutar",
-    "feche a escuta",
+    "feche a escuta", "pare de ouvir, DERVS", "pare de ouvir dervs",
 ])
 def test_pare_de_ouvir_casa(frase):
     assert m.eh_pare_de_ouvir(frase)
@@ -31,6 +31,7 @@ def test_pare_de_ouvir_casa(frase):
 @pytest.mark.parametrize("frase", [
     "", "não pare de ouvir", "para de ouvir música e toca outra",
     "que horas são", "liga o microfone", "abre o chrome", "x" * 200,
+    "para escutar música", "para ouvir isso", "chega ouvir", "fecha ouvir",
 ])
 def test_pare_de_ouvir_nao_casa_com_conversa(frase):
     assert not m.eh_pare_de_ouvir(frase)
@@ -90,3 +91,7 @@ def test_tecla_segurada_falha_de_leitura_conta_como_solta():
         raise OSError("sem teclado")
     t = m.TeclaSegurada(leitor=quebra)
     assert t.passo() is None and not t.apertada
+
+
+def test_atalho_usa_so_ctrl_e_alt_da_esquerda_para_nao_casar_com_altgr():
+    assert m.COMBINACAO_PADRAO == (0xA2, 0xA4, 0x20)    # LCtrl, LAlt, Espaço

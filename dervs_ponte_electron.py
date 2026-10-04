@@ -112,6 +112,9 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
   microfone {"ligar": bool}           — botão liga/desliga do HUD. Só o
             booleano de verdade vale (mesma checagem estrita de `autorizado`):
             string, número ou null viram linha ignorada no stderr.
+  modo_escuta {"modo": "desligado"|"atalho"|"voz"} — seletor de modos do
+            painel (Onda A). Só um dos três textos vale; qualquer outro valor
+            vira linha ignorada no stderr.
   reuniao {"ligar": bool}             — botão "Reunião 1h": `true` fecha o
             microfone por 1 hora e reabre sozinho; `false` cancela e reabre
             na hora. Booleano estrito, como `microfone`.
@@ -175,6 +178,8 @@ import sys
 import threading
 import time
 
+from dervs_modos_escuta import MODOS as MODOS_DE_ESCUTA
+
 WINDOWS = sys.platform == "win32"
 
 _LIMITE_LINHA = 64 * 1024      # 64 KiB — linha maior que isso é descartada
@@ -229,8 +234,11 @@ class PonteElectron:
 
     def __init__(self, ao_sair, ao_plano, ao_pronto, ao_microfone=None,
                  ao_reuniao=None, ao_claude=None, ao_central=None, ao_integracao=None,
-                 ao_permissoes=None):
-        """`ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`.
+                 ao_permissoes=None, ao_modo_escuta=None):
+        """`ao_modo_escuta(modo: str)` recebe um dos três modos já validados,
+        na thread de leitura (mesma regra do `ao_microfone`).
+
+        `ao_plano` é chamado como `ao_plano(resposta, autorizado, cartao_id)`.
         `ao_microfone(ligar: bool)` roda na thread de leitura da ponte — quem
         o fornece precisa atravessar para a thread da tela antes de mexer em
         widget ou thread do Qt (ver `Motor` em `dervs_electron.py`); vale o
@@ -246,7 +254,9 @@ class PonteElectron:
         self._ao_permissoes = ao_permissoes   # verbos `permissoes_*` já validados
         self._ao_microfone = ao_microfone
         self._ao_reuniao = ao_reuniao
+        self._ao_modo_escuta = ao_modo_escuta
         self._ultimo_microfone_guardado = None
+        self._ultimo_modo_guardado = None
         self._ao_sair = ao_sair
         self._ao_plano = ao_plano
         self._ao_pronto = ao_pronto
@@ -464,6 +474,13 @@ class PonteElectron:
                 return
             if self._ao_microfone is not None:
                 self._chamar(self._ao_microfone, ligar)
+        elif verbo == "modo_escuta":
+            modo = dado.get("modo")
+            if not isinstance(modo, str) or modo not in MODOS_DE_ESCUTA:
+                sys.stderr.write(f"ponte: pedido de modo de escuta inválido: {dado!r}\n")
+                return
+            if self._ao_modo_escuta is not None:
+                self._chamar(self._ao_modo_escuta, modo)
         elif verbo == "reuniao":
             ligar = dado.get("ligar")
             if not isinstance(ligar, bool):
@@ -613,10 +630,13 @@ class PonteElectron:
             estado = self._ultimo_estado_guardado
             volume = self._ultimo_volume_guardado
             microfone = self._ultimo_microfone_guardado
+            modo = self._ultimo_modo_guardado
         if estado is not None:
             self._escrever(estado)
         if microfone is not None:
             self._escrever(microfone)
+        if modo is not None:
+            self._escrever(modo)
         if volume is not None:
             self._escrever(volume)
         self._chamar(self._ao_pronto)
@@ -637,6 +657,20 @@ class PonteElectron:
         with self._lock:
             if not self._pronto:
                 self._ultimo_microfone_guardado = msg
+                return
+        self._escrever(msg)
+
+    def enviar_modo_escuta(self, modo, fecha_em_min=None):
+        """Modo de escuta atual e, se o microfone está aberto sob desligamento
+        automático, em quantos minutos ele fecha (inteiro >= 0; `None` sem prazo)."""
+        if modo not in MODOS_DE_ESCUTA:
+            return
+        if isinstance(fecha_em_min, bool) or not isinstance(fecha_em_min, int) or fecha_em_min < 0:
+            fecha_em_min = None
+        msg = {"verbo": "modo_escuta", "modo": modo, "fecha_em_min": fecha_em_min}
+        with self._lock:
+            if not self._pronto:
+                self._ultimo_modo_guardado = msg
                 return
         self._escrever(msg)
 

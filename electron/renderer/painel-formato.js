@@ -109,7 +109,21 @@
     return n ? `usar ${n}` : "fazer uma ação";
   }
 
+  // Rótulo do chip MICROFONE: junta "está aberto?" com o modo de escuta, para
+  // quem olha saber na hora se o microfone está aberto e por que regra.
+  function rotuloMicrofone(modo, ligado, fechaEmMin) {
+    if (ligado) {
+      if (modo === "atalho") return { valor: "ABERTO (ATALHO)", estado: "ok" };
+      const prazo = Number.isInteger(fechaEmMin) && fechaEmMin >= 0
+        ? ` · FECHA EM ${fechaEmMin} MIN` : "";
+      return { valor: "OUVINDO" + prazo, estado: "ok" };
+    }
+    if (modo === "atalho") return { valor: "FECHADO · ATALHO", estado: "alerta" };
+    return { valor: "DESLIGADO", estado: "alerta" };
+  }
+
   return {
+    rotuloMicrofone,
     MS_QUADRO_FOCADO, MS_QUADRO_SEM_FOCO, msPorQuadro,
     formatarUsd, formatarKbs, formatarPercentual, formatarDisco,
     empurrar, pontosSparkline, tempoRestante, haQuanto, rotuloDoEstado,

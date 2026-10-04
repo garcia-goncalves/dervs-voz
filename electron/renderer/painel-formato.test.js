@@ -70,3 +70,13 @@ test("rotuloDaFerramenta traduz o nome interno para o leigo", () => {
   assert.strictEqual(F.rotuloDaFerramenta("Outra"), "usar Outra");
   assert.strictEqual(F.rotuloDaFerramenta(""), "fazer uma ação");
 });
+
+test("rótulo do microfone: aberto/fechado por modo, com prazo do desligamento", () => {
+  assert.deepStrictEqual(F.rotuloMicrofone("voz", true, 7), { valor: "OUVINDO · FECHA EM 7 MIN", estado: "ok" });
+  assert.deepStrictEqual(F.rotuloMicrofone("voz", true, null), { valor: "OUVINDO", estado: "ok" });
+  assert.deepStrictEqual(F.rotuloMicrofone("voz", true, -1), { valor: "OUVINDO", estado: "ok" });
+  assert.deepStrictEqual(F.rotuloMicrofone("atalho", true, null), { valor: "ABERTO (ATALHO)", estado: "ok" });
+  assert.deepStrictEqual(F.rotuloMicrofone("atalho", false, null), { valor: "FECHADO · ATALHO", estado: "alerta" });
+  assert.deepStrictEqual(F.rotuloMicrofone("desligado", false, null), { valor: "DESLIGADO", estado: "alerta" });
+  assert.deepStrictEqual(F.rotuloMicrofone("sei-la", false, null), { valor: "DESLIGADO", estado: "alerta" });
+});
