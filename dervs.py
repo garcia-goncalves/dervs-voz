@@ -136,6 +136,37 @@ def nivel_do_plano(plano) -> str:
     return pior
 
 
+def plano_pede_confirmacao(plano, politica="grave") -> bool:
+    """O plano precisa do clique do dono antes de rodar?
+
+    Regra do dono (03/10/2026): "só pedirá confirmações quando for coisa grave e
+    perigosa". Grave = qualquer passo destrutivo, que toca alvo de rede, que lê
+    segredo, que dirige o Chrome logado dele (e-mail, banco) ou que a lista local do
+    `dervs_safety` manda autorizar. O resto roda sozinho, depois de o DERVS dizer em
+    voz alta o que entendeu e vai fazer. A classificação LOCAL vale mais que o risco
+    que o cérebro declarou. Na dúvida (plano vazio, passo estranho, política
+    desconhecida) pede. `politica="sempre"` volta ao comportamento antigo."""
+    if politica != "grave" or not plano:
+        return True
+    for passo in plano:
+        if not isinstance(passo, dict):
+            return True
+        tipo = passo.get("tipo")
+        if tipo == "navegador":
+            return True
+        if tipo == "enriquecer":
+            continue
+        if not passo.get("comando"):
+            return True
+        if passo.get("toca_alvo"):
+            return True
+        d = seg.decidir_risco(passo.get("comando", ""), passo.get("risco", "reversivel"))
+        if (d["nivel"] == "destrutivo" or d.get("toca_alvo") or d.get("le_segredo")
+                or d.get("precisa_autorizacao") or d.get("dupla_confirmacao")):
+            return True
+    return False
+
+
 def descartar_wav(caminho):
     """Apaga o .wav de uma frase assim que ele não é mais necessário.
 
@@ -1219,6 +1250,12 @@ class PopUp(QtWidgets.QWidget):
 
     def _pensar(self):
         self._ocupado(True, "pensando…")
+        # Resposta imediata ("Certo."): só quando o último a falar foi o dono, não
+        # quando o cérebro está retomando depois de rodar passos.
+        if self.conversa and self.conversa[-1].get("papel") == "dono":
+            acusar = getattr(self.voz, "acusar_recebimento", None)
+            if acusar is not None:
+                acusar()
         self._tarefa = Tarefa(brain.pensar, list(self.conversa))
         self._registrar(self._tarefa)
         self._tarefa.pronto.connect(self._cerebro_respondeu)
@@ -1255,8 +1292,14 @@ class PopUp(QtWidgets.QWidget):
             self.plano = ficha["passos"]; self.passo_i = 0
             # plano de atalho local: roda os passos mas NÃO chama o cérebro no fim
             self._plano_local = ficha.get("local", False)
-            # NÃO roda de cara: mostra o plano e espera o OK do dono (voz ou botão).
-            self._confirmar_plano()
+            # Coisa grave: mostra o plano e espera o OK do dono (clique). O resto o
+            # DERVS já anunciou na 'fala' ("Entendi: vou ...") e roda sozinho.
+            if plano_pede_confirmacao(self.plano, cfg.carregar().get("confirmar_plano", "grave")):
+                self._confirmar_plano()
+            else:
+                self._plano_nivel_max = self._nivel_do_plano()
+                self._aguardando_ok = True          # só para o `confirmar_plano_ok` aceitar
+                self.confirmar_plano_ok(por_voz=False)
 
     def _confirmar_plano(self):
         """Mostra o plano inteiro e ESPERA o OK do dono (voz 'ok/pode/faz' ou

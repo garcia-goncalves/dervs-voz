@@ -654,6 +654,38 @@ def test_pedido_de_desenvolvimento_vai_sozinho_para_o_claude_code(motor, monkeyp
     assert "desenvolver" in (tmp_path / "r.jsonl").read_text(encoding="utf-8")
 
 
+def test_plano_inofensivo_roda_sozinho_depois_de_anunciar(motor, monkeypatch):
+    """O dono (03/10/2026): só confirma coisa grave. O resto o DERVS anuncia e faz."""
+    rodou = []
+    monkeypatch.setattr(motor, "_processar_passo", lambda: rodou.append(motor.plano[:]))
+    motor._cerebro_respondeu({"modo": "planejar", "fala": "Entendi: vou abrir a calculadora.",
+                              "passos": [{"descricao": "abre", "comando": "calc",
+                                          "risco": "reversivel", "toca_alvo": False}]})
+    assert rodou, "o plano inofensivo devia rodar sem pedir clique"
+    assert motor._aguardando_ok is False
+    assert not motor.ponte.de_tipo("plano") or motor.ponte.de_tipo("plano")[-1][1] == []
+
+
+def test_plano_grave_continua_esperando_o_clique(motor, monkeypatch):
+    rodou = []
+    monkeypatch.setattr(motor, "_processar_passo", lambda: rodou.append(1))
+    motor._cerebro_respondeu({"modo": "planejar", "fala": "Entendi: vou apagar a pasta. Posso?",
+                              "passos": [{"descricao": "apaga", "comando": "rm -rf C:/Users/x/Documents",
+                                          "risco": "destrutivo", "toca_alvo": False}]})
+    assert rodou == [] and motor._aguardando_ok is True
+
+
+def test_com_confirmar_sempre_ate_o_plano_inofensivo_espera(motor, monkeypatch):
+    import dervs_config
+    monkeypatch.setattr(dervs_config, "carregar", lambda: {**dervs_config.PADRAO, "confirmar_plano": "sempre"})
+    rodou = []
+    monkeypatch.setattr(motor, "_processar_passo", lambda: rodou.append(1))
+    motor._cerebro_respondeu({"modo": "planejar", "fala": "Entendi.",
+                              "passos": [{"descricao": "abre", "comando": "calc",
+                                          "risco": "reversivel", "toca_alvo": False}]})
+    assert rodou == [] and motor._aguardando_ok is True
+
+
 def test_frase_comum_segue_para_o_planejador(motor, monkeypatch):
     motor.claude = SessaoClaudeFalsa()
     motor._atalhos_ligados = False

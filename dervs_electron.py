@@ -760,6 +760,7 @@ def main():
                           ao_central=_ao_central_inicial, ao_integracao=_ao_integracao_inicial,
                           ao_permissoes=_ao_permissoes_inicial)
     motor = Motor(ponte)
+    motor.voz.preparar_acuses()          # áudios de "Certo." etc., uma vez, em segundo plano
     ao_claude_alvo.append(_construir_ao_claude(motor))
     ao_central_alvo.append(motor.central_pc.tratar)
     ao_microfone_alvo.append(motor.pedir_microfone)

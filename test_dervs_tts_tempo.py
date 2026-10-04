@@ -95,7 +95,7 @@ def test_sintetizar_openai_acelera_e_mede_o_gasto_do_audio_original(monkeypatch)
 
 def test_config_padrao_e_validacao():
     c = dervs_config.carregar()
-    assert c["voz_openai"] == "marin"
+    assert c["voz_openai"] == "cedar"
     assert 1.0 <= c["voz_openai_tempo"] <= 1.6
     ok = dervs_config._validar({**dervs_config.PADRAO, "voz_openai": "cedar", "voz_openai_tempo": 1.3})
     assert ok["voz_openai"] == "cedar" and ok["voz_openai_tempo"] == 1.3

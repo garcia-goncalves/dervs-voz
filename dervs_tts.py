@@ -28,8 +28,10 @@ import tempfile
 import threading
 import time
 import wave
+import hashlib
 import io
 import json
+import random
 import queue
 import re
 import urllib.request
@@ -127,18 +129,22 @@ OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
 OPENAI_TTS_TIMEOUT_S = 20
 OPENAI_DESCANSO_S = 60      # depois de uma falha, não insiste na nuvem por 1 min
 INSTRUCOES_VOZ_BR = (
-    "Voz: de uma pessoa real brasileira, adulta, confiante e calorosa. Não é locutor de "
-    "rádio nem atendente de call center.\n"
-    "Sotaque: português do Brasil, natural, com leve toque paulistano. Pronuncie como "
-    "brasileiro de verdade: 'r' e 'rr' do jeito daqui, 'ão', 'lh', vogais finais "
-    "reduzidas ('pode', 'leite', 'tá').\n"
-    "Ritmo: ágil e fluido, como conversa entre amigos. Ligue as palavras, sem pausas "
-    "longas, sem arrastar vogais nem sílabas finais. Rápido sem atropelar.\n"
-    "Entonação: firme e decidida. Final de frase seguro, nunca caindo mole nem "
-    "arrastando; pergunta sobe de forma natural. Dê ênfase às palavras importantes.\n"
-    "Emoção: presença e energia média-alta, um leve sorriso na voz. Naturalidade acima "
-    "de tudo. Nunca monótono, nunca robótico, nunca sotaque estrangeiro."
+    "Voz: homem adulto, timbre grave e suave, calmo, culto e elegante, como um assistente "
+    "de IA sofisticado (estilo JARVIS) falando português do Brasil. Confiante e preciso; "
+    "nunca locutor de rádio, nunca atendente de call center.\n"
+    "Sotaque: português do Brasil, natural e claro, neutro com leve toque paulistano. "
+    "Pronuncie como brasileiro de verdade: 'r' e 'rr' do jeito daqui, 'ão', 'lh', vogais "
+    "finais reduzidas ('pode', 'leite').\n"
+    "Ritmo: ágil e fluido, resposta pronta, sem pausas longas, sem arrastar vogais nem "
+    "sílabas finais. Rápido sem atropelar, com a calma de quem tem tudo sob controle.\n"
+    "Entonação: firme e decidida. Final de frase seguro, nunca caindo mole; pergunta "
+    "sobe de forma natural. Ênfase leve nas palavras importantes.\n"
+    "Emoção: presença tranquila, um traço discreto de humor seco quando cabe. "
+    "Naturalidade acima de tudo. Nunca monótono, nunca robótico, nunca sotaque estrangeiro."
 )
+# Respostas imediatas: ditas na hora, de um áudio já guardado em disco, enquanto o
+# cérebro pensa e a frase de verdade é gerada na nuvem (~2 s). Curtas e neutras.
+ACUSES = ("Certo.", "Entendido.", "Pois não.", "Um instante.")
 _FIM_FRASE = re.compile(r"(?<=[.!?;:])\s+")
 _FIM_DA_FILA = object()
 
@@ -587,6 +593,63 @@ class Voz:
                 continue
             self._tocar_e_apagar(wav)
             falou = True
+
+    # ---- resposta imediata ("Certo.") -------------------------------------------------
+    def _dir_acuses(self) -> str:
+        forcado = os.environ.get("DERVS_ACUSES_DIR")
+        if forcado:
+            return forcado
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "dervs", "acuses")
+
+    def _arquivo_acuse(self, frase: str) -> str:
+        """O nome muda com a voz, o modelo, a velocidade e o estilo: trocar qualquer
+        um deles gera os áudios de novo em vez de tocar a voz velha."""
+        chave = "|".join((self.voz_openai, self.modelo_openai, str(self.tempo_openai),
+                          INSTRUCOES_VOZ_BR, frase))
+        return os.path.join(self._dir_acuses(), hashlib.sha1(chave.encode("utf-8")).hexdigest()[:16] + ".wav")
+
+    def preparar_acuses(self, bloquear: bool = False):
+        """Gera, uma única vez, os áudios das respostas imediatas (centavos). Roda em
+        segundo plano; só o que falta; respeita o teto de gasto; nunca levanta."""
+        def _gerar():
+            try:
+                if not self.ligada or self.motor != "openai" or not self._chave_openai():
+                    return
+                os.makedirs(self._dir_acuses(), exist_ok=True)
+                for frase in ACUSES:
+                    destino = self._arquivo_acuse(frase)
+                    if os.path.exists(destino):
+                        continue
+                    if not dervs_gasto.pode_gastar()[0]:
+                        return
+                    wav = sintetizar_openai(frase, self.voz_openai, self.modelo_openai,
+                                            INSTRUCOES_VOZ_BR, self._chave_openai(), self.tempo_openai)
+                    if wav:
+                        shutil.move(wav, destino)
+            except Exception:
+                pass
+        if bloquear:
+            _gerar()
+        else:
+            threading.Thread(target=_gerar, daemon=True).start()
+
+    def acusar_recebimento(self, bloquear: bool = False):
+        """Diz "Certo." na hora. Nunca atrasa nada: se o áudio ainda não existe, fica
+        quieto. Toca num player à parte, sem mexer na fila da fala de verdade."""
+        def _tocar_acuse():
+            try:
+                if not self.ligada or self.motor != "openai":
+                    return
+                arquivo = self._arquivo_acuse(random.choice(ACUSES))
+                if os.path.exists(arquivo):
+                    criar_reprodutor(arquivo)
+            except Exception:
+                pass
+        if bloquear:
+            _tocar_acuse()
+        else:
+            threading.Thread(target=_tocar_acuse, daemon=True).start()
 
     def _tocar_e_apagar(self, wav):
         if not wav or not os.path.exists(wav) or os.path.getsize(wav) == 0:

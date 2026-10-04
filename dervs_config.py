@@ -163,12 +163,18 @@ PADRAO = {
 
     # Voz da nuvem (quando motor="openai"): ash, onyx, echo, sage, verse, ballad
     # (masculinas/neutras) ou coral, nova, shimmer (femininas).
-    # "marin" e "cedar" são as de maior qualidade, recomendadas pela própria OpenAI.
-    "voz_openai": "marin",
+    # "cedar" (masculina, a mais próxima de um JARVIS) e "marin" são as de maior qualidade,
+    # recomendadas pela própria OpenAI. Outras masculinas: onyx, ash, echo, fable, verse.
+    "voz_openai": "cedar",
     "voz_openai_modelo": "gpt-4o-mini-tts",
     # Aceleração da voz da nuvem SEM mudar o tom (a OpenAI não tem parâmetro de
     # velocidade). 1.0 = como a API entrega; 1.25 = bem mais ágil; vai de 1.0 a 1.6.
     "voz_openai_tempo": 1.25,
+
+    # Quando o DERVS pede o seu OK antes de agir: "grave" (padrão) só pede em coisa
+    # destrutiva, que toca servidor/rede, que lê segredo ou que dirige o seu Chrome
+    # logado; o resto ele anuncia ("Entendi: vou...") e faz. "sempre" pede em todo plano.
+    "confirmar_plano": "grave",
 
     # Voz do Kokoro (quando motor="kokoro"): "pm_santa" (masculina grave,
     # feiticeiro), "pm_alex" (masculina) ou "pf_dora" (feminina).
@@ -282,6 +288,8 @@ def _validar(conf: dict) -> dict:
         conf["voz_openai"] = PADRAO["voz_openai"]
     if not isinstance(conf.get("voz_openai_modelo"), str) or not conf["voz_openai_modelo"]:
         conf["voz_openai_modelo"] = PADRAO["voz_openai_modelo"]
+    if conf.get("confirmar_plano") not in ("grave", "sempre"):
+        conf["confirmar_plano"] = PADRAO["confirmar_plano"]
     tempo = conf.get("voz_openai_tempo")
     if isinstance(tempo, bool) or not isinstance(tempo, (int, float)) or not 1.0 <= tempo <= 1.6:
         conf["voz_openai_tempo"] = PADRAO["voz_openai_tempo"]
