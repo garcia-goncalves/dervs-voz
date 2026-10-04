@@ -8,6 +8,7 @@ formato `node --test`. Sem Node na máquina, o teste é pulado (não falha).
 """
 import os
 import shutil
+import glob
 import subprocess
 
 import pytest
@@ -18,7 +19,10 @@ PASTA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electron", "re
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node não instalado")
 def test_funcoes_puras_do_painel_passam_no_node():
     janela_estado = os.path.join(os.path.dirname(PASTA), "janela-estado.test.js")
-    r = subprocess.run(["node", "--test", PASTA, janela_estado], capture_output=True, text=True,
+    # Arquivos listados um a um: o Node 22+ não aceita pasta no `--test` (tenta
+    # carregá-la como módulo); o Node 20 aceitava. Assim vale nas duas versões.
+    testes = sorted(glob.glob(os.path.join(PASTA, "*.test.js"))) + [janela_estado]
+    r = subprocess.run(["node", "--test", *testes], capture_output=True, text=True,
                        timeout=60, encoding="utf-8", errors="replace")
     assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-500:]
 
