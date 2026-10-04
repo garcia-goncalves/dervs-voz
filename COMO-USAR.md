@@ -450,6 +450,15 @@ continuam no caminho rápido de sempre. Cada escolha fica em
 `%LOCALAPPDATA%\dervs\roteamento.jsonl`, com o motivo (só a frase de quem foi para o
 Claude é guardada, cortada em 80 letras).
 
+### Voz e conversa (03/10/2026)
+
+A voz agora é a **cedar** (masculina, estilo JARVIS), um pouco mais rápida (1,25x). Para
+mudar, `voz_openai` (cedar, marin, onyx, ash, echo, fable, verse...) e `voz_openai_tempo`
+(1,0 a 1,6) no `config.json`; reinicie com o botão `DERVS - Reiniciar`. Assim que você
+termina de falar ele diz "Certo." na hora e depois "Entendi: vou ..." com o que vai fazer.
+Ele só pede o seu OK em coisa grave (apagar, servidor/rede de terceiros, segredo, e-mail ou
+banco pelo navegador). Para voltar a pedir sempre: `"confirmar_plano": "sempre"`.
+
 ### Teto de gasto
 
 O teto diário (padrão US$ 3,00) vale para **toda** chamada paga: cérebro, voz na nuvem,

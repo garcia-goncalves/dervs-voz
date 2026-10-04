@@ -9,8 +9,8 @@
 
 HUD estilo painel de controle (identidade JARVIS, ciano/preto, com anéis
 girando e núcleo que reage à voz) na bandeja. Você fala → transcreve → o
-cérebro entende e propõe um plano → você confirma → ele executa (abre apps,
-sites, roda comandos). Fala de volta com voz humana.
+cérebro entende, diz "Entendi: vou…" e executa (abre apps, sites, roda
+comandos); só pede o seu OK no que é grave (`confirmar_plano`). Fala de volta com voz humana.
 
 **A tela é Electron desde 16/09/2026** — antes era uma janela Qt visível com um
 selo flutuante; hoje o Qt continua vivo por baixo (motor invisível, ver seção
@@ -162,6 +162,33 @@ terminal — com o seu `~/.claude` (CLAUDE.md, skills, agentes, MCPs) — pela
   cabeçalho de `dervs_ponte_electron.py`. Texto do Claude só entra na tela por
   `textContent` ou pelo `painel-markdown.js` (negrito, código, lista; sem `innerHTML`).
 
+## Autonomia configurável, voz JARVIS e botões de socorro (02 a 03/10/2026)
+
+- **Permissões por categoria** (`dervs_permissoes.py`, painel "O que o DERVS pode fazer"):
+  8 categorias × `analisa` / `pergunta` / `sozinho`. A política só REDUZ poder: os
+  bloqueios do gancho e o `dervs_safety` rodam antes, `apagar` e `servidor` nunca chegam a
+  `sozinho`, e "sozinho" é uma **lista positiva** (escrita só dentro de `pastas_de_projeto`,
+  pesquisa na web, `pip/npm/winget` simples, abrir programa conhecido). Passou por 4 rodadas
+  de `security-reviewer`; o hook de push exige que o revisor ABRA cada arquivo sensível.
+- **Só confirma o grave** (`confirmar_plano`: `grave` padrão | `sempre`): plano sem passo
+  destrutivo, alvo de rede, segredo ou navegador logado roda sozinho depois de a fala começar
+  com "Entendi: vou…". A regra mora em `dervs.plano_pede_confirmacao`.
+- **Teto de gasto** (`teto_gasto_dia_usd`, US$ 3,00): vale em cérebro, voz, transcrição e
+  navegador (`dervs_gasto.pode_gastar`), falha fechado; o Claude da assinatura não conta.
+- **Roteador** (`dervs_roteador.py`): pedido claro de desenvolver vai ao Claude Code;
+  `roteamento.jsonl` guarda o motivo (a fala do planejador não fica no disco).
+- **Piloto automático** (`dervs_piloto.py`): lê a queda anterior (`%APPDATA%\dervs\quedas`),
+  explica em português e prepara conserto em worktree `piloto/<nome>`; **só anuncia**, a
+  execução com o Claude Code real ainda não está ligada.
+- **Voz**: `cedar` (masculina) com estilo JARVIS em `INSTRUCOES_VOZ_BR`, acelerada 1,25x por
+  WSOLA em numpy (`voz_openai_tempo`, 1,0 a 1,6; o tom não muda); `acusar_recebimento` toca
+  "Certo." de áudio guardado em `%LOCALAPPDATA%\dervs\acuses`. A OpenAI não tem parâmetro de
+  velocidade para essa voz. Tempo real de verdade exige a API Realtime (projeto à parte).
+- **Botões na Área de Trabalho**: `DERVS - Reiniciar`, `Parar`, `Resetar`
+  (`scripts/dervs_controle.py`; refazer com `scripts/instalar_atalho.py`).
+- Esteiras: `docs/esteira/dervs-autonomia/` (pronta) e `docs/esteira/dervs-jarvis/` (briefing
+  aprovado: modos de escuta, SSH/PuTTY, projetos/VS Code/GitHub, autoconfiguração).
+
 ## Configuração
 
 No Windows fica em `%APPDATA%\dervs\config.json`; no Linux, em
@@ -173,6 +200,8 @@ Chaves: `stt`, `stt_openai_modelo`, `porteiro`, `porteiro_modelo`, `cerebro`,
 `janela_desperto_seg`, `atalhos_ligados`, `escuta_ao_abrir`, `porteiro_registrar_texto`
 (guardar o TEXTO que o porteiro ouviu no diário — padrão `false`), `dervs_app_url`
 (URL que o botão "Abrir DERVS App" do HUD abre — padrão `http://localhost:4777`),
+`voz_openai` (`cedar` padrão), `voz_openai_tempo`, `confirmar_plano`, `permissoes`,
+`teto_gasto_dia_usd`, `pastas_de_projeto` (ver a seção de autonomia acima),
 `claude_perfil` (`dono` = o Claude Code carrega o `~/.claude` inteiro; `equipe` =
 só o harness do projeto — padrão `dono`; não mexe em `cerebro`),
 e as do navegador. Valor inválido cai no padrão em vez de derrubar o app
