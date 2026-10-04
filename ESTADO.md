@@ -3,9 +3,11 @@
 O que funciona, o que não funciona, e o que falta. Escrito para ser lido pelo
 dono, não por um programador.
 
-Última verificação: 02/10/2026. **2313 testes verdes** no ambiente do
+Última verificação: 04/10/2026. **2313 testes verdes** no ambiente do
 projeto (`dervs-venv`), que é onde o DERVS de fato roda. Nenhum erro de
 coleta, que é o que impede um arquivo quebrado de esconder a suíte inteira.
+
+**CI (04/10/2026): no ar.** `.github/workflows/ci.yml` roda a suíte inteira (`python -m pytest`) em Windows a cada `push` e a cada PR, em um job só (Windows conta em dobro na cota de Actions). Primeira execução verde: ~3 min. Dois defeitos de teste achados e corrigidos no caminho: `node --test` com pasta (quebra no Node 22) e servidor falso da ponte que recusava sem ler o corpo (queda de conexão no Windows).
 
 **Chamada estrita (04/10/2026): pronta.** O DERVS só acorda se o nome vier no começo da fala ("DERVS...", "Ei DERVS", "OK DERVS"); falar sobre ele não o liga. Padrão ligado (`chamada_estrita` no `config.json`); corrige também o "OK" que sobrava colado no pedido. Antes, o nome valia em qualquer posição e "vou mostrar o dervs pra ele" acordava o agente. **Ainda falta** da esteira `dervs-jarvis`: modos de escuta (Desligado/Atalho/Voz) com indicador, desligamento automático e "pare de ouvir". Arquitetura 24 h/multiusuário: `docs/esteira/dervs-jarvis/arquitetura-24h.md`.
 
