@@ -179,7 +179,12 @@ class Endpointer:
 # o "is" sobrando dentro do pedido. Fora da lista ele ainda acorda por
 # parecença (0,89), que é o certo.
 NOMES = ("dervs", "dervis", "derves", "dervz", "derbs", "dervys")
-_SAUDACOES = ("ei ", "ê ", "ô ", "o ", "oi ", "olá ", "ola ", "alô ", "alo ")
+_SAUDACAO_RE = re.compile(
+    r"(?:e a[ií]|ei|ê|ô|o|oi|olá|ola|alô|alo|ok|okay|hey)(?=[\s,])[\s,]*", re.IGNORECASE)
+# No modo ESTRITO só estas saudações podem vir antes do nome (o "o" fica de fora:
+# "o dervs não acordou" é conversa SOBRE ele, não uma chamada).
+_SAUDACOES_ESTRITAS = frozenset(
+    {"", "ei", "ê", "ô", "oi", "olá", "ola", "alô", "alo", "ok", "okay", "hey", "e aí", "e ai"})
 _LIMIAR_PARECENCA = 0.87
 _TAM_MIN, _TAM_MAX = 4, 7           # "dervs" tem 5; damos folga pra menos e pra mais
 _PALAVRA_RE = re.compile(r"[^\W\d_]+", re.UNICODE)   # sequência de letras (sem número/underline)
@@ -217,13 +222,18 @@ def _pontuar_nome(palavra: str, canon):
     return max(difflib.SequenceMatcher(None, p, c).ratio() for c in canon)
 
 
-def separar_chamada(texto: str, nomes=NOMES):
+def separar_chamada(texto: str, nomes=NOMES, estrito: bool = False):
     """Vê se a frase chama o DERVS pelo nome e separa o pedido do nome.
 
     Devolve (tem_nome, resto): tem_nome=True se a palavra de acordar apareceu
     (em qualquer posição da frase, e mesmo se o Whisper a quebrou em duas
     palavras, tipo "der vis" ou "derv is"); resto = o pedido sem o nome nem
     a saudação que vier colada nele.
+
+    `estrito=True`: o nome só vale no COMEÇO da fala, com no máximo uma saudação
+    antes ("ei", "ok", "oi"...). Falar SOBRE o DERVS ("vou mostrar o dervs pra
+    ele") não o acorda. É o modo da escuta por voz: o dono pediu que ele nunca
+    ative do nada. Sem a chamada, devolve (False, fala inteira).
     """
     t = (texto or "").strip()
     if not t:
@@ -265,14 +275,18 @@ def separar_chamada(texto: str, nomes=NOMES):
 
     ini, fim = span
     prefixo, sufixo = t[:ini], t[fim:]
+    if estrito:
+        # Tudo que vier antes do nome conta, até número e símbolo: "♪ Dervs ♪" (música)
+        # ou "10 dervs" (legenda) não são chamada. Só espaço e pontuação são ignorados.
+        antes = re.sub(r"[\s,.!?:;]+", " ", prefixo.lower()).strip()
+        if antes not in _SAUDACOES_ESTRITAS:
+            return False, t
 
     # a saudação ("ei", "oi"...) só existe no INÍCIO da frase inteira — se
     # estiver lá e vier antes do nome, tira só ela do prefixo, não o resto
-    low = t.lower()
-    for saud in _SAUDACOES:
-        if low.startswith(saud) and len(saud) <= ini:
-            prefixo = prefixo[len(saud):]
-            break
+    saudacao = _SAUDACAO_RE.match(t)
+    if saudacao and saudacao.end() <= ini:
+        prefixo = prefixo[saudacao.end():]
 
     prefixo = prefixo.rstrip(" ,.!?:;-")
     sufixo = sufixo.lstrip(" ,.!?:;-")

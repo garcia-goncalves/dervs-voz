@@ -854,7 +854,8 @@ class PopUp(QtWidgets.QWidget):
     def _entrada_continua(self, texto):
         """Aplica a palavra de acordar. Dormindo, só reage se ouvir 'DERVS'.
         Desperto (janela de alguns segundos), atende tudo — como a Siri."""
-        tem_nome, resto = separar_chamada(texto)
+        tem_nome, resto = separar_chamada(
+            texto, estrito=self._conf.get("chamada_estrita") is not False)
         agora = time.time()
         desperto = self._esta_desperto()
 

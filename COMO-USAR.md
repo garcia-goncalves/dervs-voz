@@ -152,6 +152,11 @@ Fica ouvindo a sala. Quando você diz **"DERVS"** (ou "OK DERVS", ou "Ei DERVS")
 ele acorda, entende o pedido, mostra o que vai fazer, espera você aprovar, faz,
 e responde falando.
 
+**Só acorda se você o chamar no começo da fala.** "DERVS, que horas são?" e
+"Ei DERVS, abre o Chrome" funcionam. Falar *sobre* ele ("vou mostrar o dervs pra
+ele") **não** o acorda. Se preferir o jeito antigo, em que o nome valia em qualquer
+lugar da frase, ponha `"chamada_estrita": false` no `config.json`.
+
 ---
 
 ## O ponto mais importante: o que sai da sua máquina, e o que não sai

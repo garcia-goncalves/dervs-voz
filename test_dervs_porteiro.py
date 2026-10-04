@@ -34,9 +34,15 @@ def test_acorda_com_ok_na_frente():
     assert acordou is True
 
 
-def test_acorda_com_o_nome_no_fim():
-    acordou, _ = _porteiro_que_ouve("que horas sao dervs").ouviu_o_nome("x.wav")
-    assert acordou is True
+def test_nome_no_fim_so_acorda_no_modo_antigo():
+    # Decisão de 04/10: a chamada ESTRITA é o padrão (o nome só vale no começo da
+    # fala, para falar SOBRE o DERVS não ligar o agente). O modo antigo continua
+    # disponível por `chamada_estrita: false`.
+    estrito, _ = _porteiro_que_ouve("que horas sao dervs").ouviu_o_nome("x.wav")
+    assert estrito is False
+    p = _porteiro_que_ouve("que horas sao dervs")
+    p.estrito = False
+    assert p.ouviu_o_nome("x.wav")[0] is True
 
 
 def test_nao_acorda_sem_o_nome():

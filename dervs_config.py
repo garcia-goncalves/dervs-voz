@@ -138,6 +138,11 @@ PADRAO = {
     # por uma semana se o DERVS estiver "ignorando" você e for preciso ver o
     # que o porteiro entendeu; depois desligue e apague o arquivo.
     "porteiro_registrar_texto": False,
+    # CHAMADA ESTRITA: só acorda se o nome vier no COMEÇO da fala ("DERVS, ...",
+    # "Ei DERVS", "OK DERVS"). Falar SOBRE ele ("vou mostrar o dervs pra ele")
+    # não liga o agente. Foi pedido do dono: "não pode ativar do nada". Desligue
+    # para voltar ao modo antigo, em que o nome valia em qualquer lugar da frase.
+    "chamada_estrita": True,
 
     # Cérebro: "openai" (gpt-4.1-nano — ultrarrápido e barato, precisa de chave
     # em ~/voice/.env e internet) ou "claude" (CLI local, grátis na assinatura).
@@ -275,6 +280,8 @@ def _validar(conf: dict) -> dict:
         conf["porteiro"] = PADRAO["porteiro"]
     if not isinstance(conf.get("porteiro_registrar_texto"), bool):
         conf["porteiro_registrar_texto"] = PADRAO["porteiro_registrar_texto"]
+    if not isinstance(conf.get("chamada_estrita"), bool):
+        conf["chamada_estrita"] = PADRAO["chamada_estrita"]
     if not isinstance(conf.get("porteiro_modelo"), str) or not conf["porteiro_modelo"]:
         conf["porteiro_modelo"] = PADRAO["porteiro_modelo"]
     if conf.get("cerebro") not in ("openai", "claude"):

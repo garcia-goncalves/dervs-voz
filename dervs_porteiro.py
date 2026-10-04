@@ -113,8 +113,11 @@ class PorteiroLocal:
     """
 
     def __init__(self, tamanho: str = MODELO_PADRAO, threads: int = 8,
-                 transcritor=None, diario=None, registrar_texto: bool = False):
+                 transcritor=None, diario=None, registrar_texto: bool = False,
+                 estrito: bool = True):
         self.tamanho = tamanho
+        # estrito: o nome só vale no começo da fala (ver separar_chamada)
+        self.estrito = estrito
         self.threads = threads
         # `diario` é o caminho do arquivo, ou None para não registrar nada
         # (o padrão de quem constrói na mão, como os testes). `criar_porteiro`
@@ -179,7 +182,7 @@ class PorteiroLocal:
             sys.stderr.flush()
             self._anotar(caminho_wav, False, "", erro=True)
             return False, ""
-        acordou, _resto = separar_chamada(texto)
+        acordou, _resto = separar_chamada(texto, estrito=self.estrito)
         self._anotar(caminho_wav, bool(acordou), texto)
         return bool(acordou), texto
 
@@ -218,4 +221,5 @@ def criar_porteiro(conf=None):
     threads = int(conf.get("porteiro_threads", 8))
     return PorteiroLocal(tamanho=tamanho, threads=threads,
                          diario=caminho_do_diario(),
-                         registrar_texto=conf.get("porteiro_registrar_texto") is True)
+                         registrar_texto=conf.get("porteiro_registrar_texto") is True,
+                         estrito=conf.get("chamada_estrita") is not False)
