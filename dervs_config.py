@@ -83,6 +83,15 @@ PADRAO = {
     # (01/09/2026) e o dono achou que ele estava ignorando.
     "escuta_ao_abrir": True,
 
+    # MODO DE ESCUTA que vale ao abrir (briefing dervs-jarvis): "desligado" (microfone
+    # fechado — o padrão), "atalho" (só abre enquanto Ctrl+Alt+Espaço está apertado)
+    # ou "voz" (escuta o nome "DERVS"). Guarda a última escolha do dono; qualquer
+    # valor torto cai em "desligado". Substitui `escuta_ao_abrir` na hora de abrir.
+    "modo_escuta": "desligado",
+    # Minutos sem uso até o microfone fechar sozinho (1 a 240). Não existe "nunca":
+    # microfone esquecido aberto é o risco que esta chave impede.
+    "escuta_auto_desligar_min": 10,
+
     # Ouvido (transcrição PRECISA, do pedido — não confundir com o porteiro,
     # que é local e de graça): "openai" (precisa de chave e internet) ou
     # "local" (Whisper no processador, grátis e offline, ~4,7s). "openai" cai
@@ -264,6 +273,9 @@ def _validar(conf: dict) -> dict:
     # senão um "false" entre aspas ligaria a escuta por ser string não-vazia.
     if not isinstance(conf.get("escuta_ao_abrir"), bool):
         conf["escuta_ao_abrir"] = PADRAO["escuta_ao_abrir"]
+    from dervs_modos_escuta import normalizar_minutos, normalizar_modo
+    conf["modo_escuta"] = normalizar_modo(conf.get("modo_escuta"))
+    conf["escuta_auto_desligar_min"] = normalizar_minutos(conf.get("escuta_auto_desligar_min"))
     if conf.get("stt") not in ("openai", "local"):
         conf["stt"] = PADRAO["stt"]
     if not isinstance(conf.get("stt_openai_modelo"), str) or not conf["stt_openai_modelo"]:

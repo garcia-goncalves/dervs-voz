@@ -46,6 +46,7 @@ try:
 except Exception:
     _conf = {}
 _conf["escuta_ao_abrir"] = False
+_conf["modo_escuta"] = "desligado"   # Onda A: é ele que decide abrir o microfone
 with open(os.path.join(os.environ["APPDATA"], "dervs", "config.json"), "w", encoding="utf-8") as _f:
     json.dump(_conf, _f)
 

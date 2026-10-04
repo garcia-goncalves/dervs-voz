@@ -254,3 +254,28 @@ def test_claude_perfil_aceita_equipe():
 @pytest.mark.parametrize("torto", ["admin", "", None, 3, ["dono"], "DONO"])
 def test_claude_perfil_torto_cai_no_padrao(torto):
     assert cfg._validar({**cfg.PADRAO, "claude_perfil": torto})["claude_perfil"] == "dono"
+
+
+def test_modo_escuta_nasce_desligado():
+    """Onda A: microfone fechado por padrão numa instalação nova."""
+    assert cfg.PADRAO["modo_escuta"] == "desligado"
+    assert cfg.PADRAO["escuta_auto_desligar_min"] == 10
+
+
+@pytest.mark.parametrize("bruto,esperado", [
+    ('"voz"', "voz"), ('"atalho"', "atalho"), ('"sempre"', "desligado"),
+    ("true", "desligado"), ("7", "desligado"),
+])
+def test_modo_escuta_valor_torto_cai_em_desligado(tmp_path, monkeypatch, bruto, esperado):
+    caminho = tmp_path / "config.json"
+    caminho.write_text('{"modo_escuta": %s}' % bruto, encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    assert cfg.carregar()["modo_escuta"] == esperado
+
+
+@pytest.mark.parametrize("bruto,esperado", [("0", 1), ("-5", 1), ("9999", 240), ('"x"', 10), ("30", 30)])
+def test_auto_desligar_fica_entre_1_e_240(tmp_path, monkeypatch, bruto, esperado):
+    caminho = tmp_path / "config.json"
+    caminho.write_text('{"escuta_auto_desligar_min": %s}' % bruto, encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    assert cfg.carregar()["escuta_auto_desligar_min"] == esperado

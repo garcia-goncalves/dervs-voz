@@ -40,6 +40,7 @@ from dervs_listen import (Endpointer, Microfone, VigiaDeSilencio,
                           esta_mudo, motivo_do_silencio, FRAME_BYTES,
                           FRAME_AMOSTRAS, TAXA)
 import dervs_nivel
+import dervs_modos_escuta as modos
 
 HOME = os.path.expanduser("~")
 AQUI = os.path.dirname(os.path.abspath(__file__))
@@ -674,10 +675,17 @@ class PopUp(QtWidgets.QWidget):
         # ...mas respeitando a ULTIMA escolha dele: se desligou a escuta e
         # fechou o app, abre desligado. Sem isso o botao nao e um liga/desliga,
         # e um lembrete que se apaga sozinho toda vez que o app reabre.
-        if cfg.carregar()["escuta_ao_abrir"]:
-            QtCore.QTimer.singleShot(800, lambda: self.b_conversa.setChecked(True))
-        else:
+        # Desde a Onda A (04/10/2026) quem manda ao abrir é o MODO DE ESCUTA
+        # (`modo_escuta`), não mais `escuta_ao_abrir`: o padrão é DESLIGADO — o
+        # microfone nunca abre sozinho numa instalação nova — e o que o dono
+        # escolheu por último (atalho ou voz) volta, com o indicador na tela e o
+        # desligamento automático correndo.
+        self._iniciar_modos_de_escuta()
+        modo_inicial = modos.normalizar_modo(self._conf.get("modo_escuta"))
+        if modo_inicial == modos.DESLIGADO:
             QtCore.QTimer.singleShot(800, self._mostrar_escuta_desligada)
+        else:
+            QtCore.QTimer.singleShot(800, lambda: self.definir_modo_escuta(modo_inicial))
 
     def _checar_lembretes(self):
         """Um toque do relógio: se há lembrete vencido e o DERVS não está
@@ -702,7 +710,8 @@ class PopUp(QtWidgets.QWidget):
         conclusao natural e "quebrou de novo" -- exatamente o susto de 01/09.
         """
         self.b_conversa.setText("🎙️  Microfone desligado")
-        self.status.setText("escuta desligada — clique no botao para ligar")
+        self.status.setText("escuta desligada — clique no botao para ligar, ou segure "
+                            + modos.NOME_DO_ATALHO + " para falar")
 
     # ---- posicionar no centro e focar ----
     def abrir(self):
@@ -737,6 +746,16 @@ class PopUp(QtWidgets.QWidget):
         # grava ANTES de mexer no microfone: se a captura falhar, o que ele
         # escolheu continua valendo na próxima abertura.
         cfg.gravar("escuta_ao_abrir", bool(ligar))
+        if not self._sem_gravar_modo:
+            # clique no botão = escolha do dono: vira o modo (voz ou desligado) e
+            # tira o DERVS do modo atalho, se estava nele.
+            self._modo = modos.VOZ if ligar else modos.DESLIGADO
+            cfg.gravar("modo_escuta", self._modo)
+            self._parar_atalho()
+            if ligar:
+                self._auto.armar()
+            else:
+                self._auto.desarmar()
         if ligar:
             self.escuta = Escuta()
             self._registrar(self.escuta)   # mantém referência até a thread morrer
@@ -753,9 +772,10 @@ class PopUp(QtWidgets.QWidget):
                 "LIGADO: o microfone está aberto. Só respondo quando ouvir "
                 "'DERVS' ou 'OK DERVS' — o resto é decidido aqui na sua "
                 "máquina e não sai dela. Clique para desligar o microfone.")
-            self._toast("ouvindo 🎙️ — me chame por 'DERVS'")
-            if self.voz.ligada:
-                self.voz.falar("Tô ligado. É só me chamar de DERVS.")
+            if not self._por_atalho:
+                self._toast("ouvindo 🎙️ — me chame por 'DERVS'")
+                if self.voz.ligada:
+                    self.voz.falar("Tô ligado. É só me chamar de DERVS.")
         else:
             if self.escuta is not None:
                 self.escuta.parar()        # fecha o microfone; a thread sai sozinha
@@ -771,7 +791,132 @@ class PopUp(QtWidgets.QWidget):
             self.b_conversa.setToolTip(
                 "DESLIGADO: o microfone está fechado, não estou ouvindo nada. "
                 "Clique para eu começar a ouvir.")
-            self._toast("parei de ouvir")
+            if not self._por_atalho:
+                self._toast("parei de ouvir")
+            if self._modo == modos.ATALHO:
+                self._pintar_modo_atalho()
+
+    # ---- modos de escuta: Desligado / Atalho / Voz (Onda A, 04/10/2026) ----
+    # Quanto o microfone fica aberto depois de soltar o atalho: o Endpointer só
+    # entrega a frase depois de ~1,1 s de silêncio; fechar antes cortaria o fim
+    # do pedido.
+    GRACA_ATALHO_S = 1.6
+
+    def _iniciar_modos_de_escuta(self):
+        self._modo = modos.DESLIGADO
+        self._sem_gravar_modo = False   # True enquanto o atalho mexe no botão
+        self._por_atalho = False        # True: abrir/fechar sem toast nem voz
+        self._auto = modos.AutoDesligamento(self._conf["escuta_auto_desligar_min"])
+        self._tecla = modos.TeclaSegurada()
+        self._atalho_soltou_em = None
+        # QTimers nascem aqui, na thread do Qt (fora dela nunca disparam).
+        self._timer_tecla = QtCore.QTimer(self)
+        self._timer_tecla.timeout.connect(self._passo_tecla)
+        self._timer_auto = QtCore.QTimer(self)
+        self._timer_auto.timeout.connect(self._checar_auto_desligamento)
+        self._timer_auto.start(5000)
+
+    def modo_escuta(self) -> str:
+        return self._modo
+
+    def definir_modo_escuta(self, modo):
+        """Troca o modo de escuta e grava a escolha. É o ÚNICO ponto de entrada
+        para trocar de modo (botão, HUD, voz): os três modos passam por aqui."""
+        modo = modos.normalizar_modo(modo)
+        if modo == modos.VOZ:
+            self._parar_atalho()
+            if not self.b_conversa.isChecked():
+                self.b_conversa.setChecked(True)
+        elif modo == modos.DESLIGADO:
+            self._parar_atalho()
+            if self.b_conversa.isChecked():
+                self.b_conversa.setChecked(False)
+        else:
+            self._sem_gravar_modo = True
+            try:
+                if self.b_conversa.isChecked():
+                    self.b_conversa.setChecked(False)
+            finally:
+                self._sem_gravar_modo = False
+            self._auto.desarmar()
+            self._tecla = modos.TeclaSegurada()
+            self._atalho_soltou_em = None
+            self._timer_tecla.start(30)
+        self._modo = modo
+        cfg.gravar("modo_escuta", modo)
+        if modo == modos.ATALHO:
+            self._pintar_modo_atalho()
+            self._toast("modo atalho — segure " + modos.NOME_DO_ATALHO + " para falar")
+        elif modo == modos.VOZ:
+            self._auto.armar()
+
+    def _pintar_modo_atalho(self):
+        self.b_conversa.setText("⌨️  Atalho: segure " + modos.NOME_DO_ATALHO)
+        self.b_conversa.setToolTip(
+            "MODO ATALHO: o microfone está fechado e só abre enquanto você segura "
+            + modos.NOME_DO_ATALHO + ". Clique para eu ouvir pelo nome 'DERVS'.")
+        self.status.setText("microfone fechado — segure " + modos.NOME_DO_ATALHO + " para falar")
+
+    def _parar_atalho(self):
+        self._timer_tecla.stop()
+        self._atalho_soltou_em = None
+
+    def _microfone_do_atalho(self, ligar: bool):
+        """Abre/fecha o microfone pelo mesmo caminho do botão, sem virar escolha
+        do dono (não grava modo) e sem falar nem mostrar toast."""
+        if (self.escuta is not None) == ligar:
+            return
+        self._sem_gravar_modo = self._por_atalho = True
+        try:
+            self.b_conversa.setChecked(ligar)
+        finally:
+            self._sem_gravar_modo = self._por_atalho = False
+
+    def _passo_tecla(self):
+        """Um toque do relógio de 30 ms do modo atalho."""
+        if self._modo != modos.ATALHO:
+            return
+        if getattr(self, "_reuniao_fim", None) is not None:
+            self._tecla.passo()            # reunião manda: microfone fechado, ponto
+            return
+        evento = self._tecla.passo()
+        agora = time.time()
+        if evento == "apertou":
+            self._atalho_soltou_em = None
+            self.voz.calar()               # barge-in: se está falando, cala para te ouvir
+            self._microfone_do_atalho(True)
+            self._acordar(novo=True)       # falou com ele de propósito: sem porteiro
+            self.status.setText("🔴 ouvindo — fale e solte " + modos.NOME_DO_ATALHO)
+        elif evento == "soltou":
+            self._atalho_soltou_em = agora
+        if (self._atalho_soltou_em is not None and not self._tecla.apertada
+                and agora - self._atalho_soltou_em >= self.GRACA_ATALHO_S):
+            self._atalho_soltou_em = None
+            self._microfone_do_atalho(False)
+            self._pintar_modo_atalho()
+
+    def _checar_auto_desligamento(self):
+        """Microfone aberto sem uso por N minutos fecha sozinho."""
+        try:
+            if self._auto.venceu() and self.escuta is not None:
+                minutos = self._auto.minutos
+                self.b_conversa.setChecked(False)   # grava modo desligado
+                frase = ("Fechei o microfone: %d min sem uso. Ligue de novo no botão "
+                         "ou segure %s." % (minutos, modos.NOME_DO_ATALHO))
+                self._diz("dervs", frase)
+                self._toast("microfone fechado por inatividade")
+                self.status.setText("escuta desligada por inatividade")
+        except Exception as e:  # o relógio nunca pode derrubar o app
+            print(f"[escuta] falha ao desligar por inatividade: {e}", file=sys.stderr)
+
+    def _pare_de_ouvir(self):
+        """Comando de voz: fecha o microfone."""
+        self.b_conversa.setChecked(False)
+        frase = ("Parei de ouvir. Para eu voltar, ligue o microfone no botão ou "
+                 "segure %s." % modos.NOME_DO_ATALHO)
+        self._diz("dervs", frase)
+        if self.voz.ligada:
+            self.voz.falar("Parei de ouvir.")
 
     def _descartar_wav(self, caminho):
         descartar_wav(caminho)
@@ -799,6 +944,7 @@ class PopUp(QtWidgets.QWidget):
         relógio zerar, e o portão ficaria aberto para sempre numa conversa
         longa — com tudo que fosse falado na sala indo para a nuvem.
         """
+        self._auto.tocar()          # falou com ele: o microfone não é "esquecido"
         agora = time.time()
         if novo or not self._desperto:
             self._desperto_desde = agora
@@ -866,6 +1012,9 @@ class PopUp(QtWidgets.QWidget):
 
         if tem_nome:
             texto = resto
+        if modos.eh_pare_de_ouvir(texto):
+            self._pare_de_ouvir()
+            return
         self._acordar(novo=tem_nome)
 
         if not texto.strip():

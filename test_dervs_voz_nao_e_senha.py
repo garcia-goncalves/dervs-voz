@@ -85,6 +85,11 @@ def test_plano_vazio_e_reversivel():
 
 # ---------------------------------------- trava 2: teto absoluto do desperto
 
+class _AutoFalso:
+    def tocar(self):
+        pass
+
+
 class _EstadoFalso:
     """Só os campos que `_acordar`/`_esta_desperto` tocam. Evita construir a
     janela inteira do Qt para testar uma regra de tempo."""
@@ -95,6 +100,7 @@ class _EstadoFalso:
         self._desperto = False
         self._desperto_ate = 0.0
         self._desperto_desde = 0.0
+        self._auto = _AutoFalso()               # `_acordar` renova o desligamento automático
 
 
 def test_acorda_ao_ouvir_o_nome():

@@ -293,11 +293,13 @@ class Motor(dervs.PopUp):
         abrir ouvindo de novo. Por isso o valor gravado é restaurado."""
         antes = config.carregar()["escuta_ao_abrir"]
         self._efeito_reuniao = True
+        self._sem_gravar_modo = True    # reunião não vira o modo de escuta do dono
         try:
             if bool(self.b_conversa.isChecked()) != ligar:
                 self.b_conversa.setChecked(ligar)
         finally:
             self._efeito_reuniao = False
+            self._sem_gravar_modo = False
         config.gravar("escuta_ao_abrir", antes)
 
     def _reuniao_encerrar(self):
