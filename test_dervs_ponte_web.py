@@ -64,9 +64,12 @@ class FalsoPainel:
 
             def do_POST(self):
                 painel.tokens_vistos.append(self.headers.get("Authorization"))
+                # Ler o corpo ANTES de recusar: responder e fechar com bytes não lidos
+                # faz o Windows mandar RST e o cliente vê a conexão cair em vez do 401/403
+                # (falhou assim, às vezes, na CI).
+                corpo = self._corpo()
                 if painel.status != 200:
                     return self._responder(painel.status, {"erro": "x"})
-                corpo = self._corpo()
                 if self.path == "/agente/voz/pedido":
                     painel.pedidos.append(corpo)
                     return self._responder(200, painel.resposta_pedido)
