@@ -335,11 +335,13 @@ class IntegracaoLocal:
                 if self._terminal_fabrica is not None:
                     self._terminal_obj = self._terminal_fabrica(motor)
                 else:
+                    import dervs_putty
                     import dervs_ssh
                     # o LogAcoes do Motor, nunca um segundo: duas instâncias sobre o mesmo
                     # arquivo quebrariam a corrente de hashes
                     self._terminal_obj = dervs_ssh.TerminalSSH(
-                        motor.log, dervs_ssh.AprovadorMotor(motor), arquivo_hosts=self._arquivo_hosts)
+                        motor.log, dervs_ssh.AprovadorMotor(motor), arquivo_hosts=self._arquivo_hosts,
+                        leitor_putty=dervs_putty.ler_sessoes_do_registro)
             return self._terminal_obj
 
     def arquivo_de_hosts(self) -> str:
@@ -375,6 +377,35 @@ class IntegracaoLocal:
             self._montar_cartao(r["proposta"])
         else:
             self._resultado_ssh(r, apelido, comando, "leitura")
+
+    def apelidos(self) -> list:
+        """Servidores que a voz pode citar (arquivo do dono + sessões do PuTTY). Nunca levanta."""
+        try:
+            return self._terminal().apelidos()
+        except Exception:
+            return []
+
+    def ssh_por_voz(self, apelido, comando, pergunta=None) -> str:
+        """O mesmo caminho do clique da tela, para o pedido falado: leitura roda e volta resumida
+        em voz; o que muda servidor só vira o CARTÃO na tela (a aprovação é sempre o clique).
+        Devolve a frase que o DERVS fala. Bloqueia até 60 s: chamar de uma thread."""
+        if pergunta is not None:     # "pergunta pro Claude da VPS": nunca é leitura, sempre cartão
+            import dervs_ssh
+            comando = dervs_ssh.comando_claude_da_vps(pergunta)
+            if comando is None:
+                return "Não consegui transformar essa pergunta num comando seguro. Nada foi feito."
+        r = self._terminal().rodar(apelido, comando)
+        if r.get("precisa_clique"):
+            self._montar_cartao(r["proposta"])
+            return (f"Isso mexe no servidor {apelido}. Pus o cartão na tela Integração, "
+                    "com o comando exato. Só roda se você confirmar lá.")
+        self._resultado_ssh(r, apelido, comando, "leitura")
+        if not r.get("ok"):
+            return f"Não rodei no {apelido}: {str(r.get('motivo') or 'recusado')[:160]}"
+        linhas = [l.strip() for l in str(r.get("saida") or "").splitlines() if l.strip()]
+        resumo = " / ".join(linhas[:4])[:240]
+        return (f"No {apelido}: {resumo}. A saída inteira está na tela Integração."
+                if resumo else f"No {apelido}: rodou sem saída.")
 
     def _montar_cartao(self, proposta: dict):
         ref = proposta.get("aprovacao") or {}

@@ -37,6 +37,7 @@ import dervs_central_painel as central_painel
 import dervs_claude_code as claude_code
 import dervs_config as config
 import dervs_roteador as roteador
+import dervs_voz_infra as voz_infra
 import dervs_diario as diario
 import dervs_instancia as instancia
 import dervs_integracao_painel as integracao_painel
@@ -175,6 +176,8 @@ class Motor(dervs.PopUp):
         self._cartao_pendente = None
         # O Claude Code (onda B). Só cria o objeto: o laço e o `claude` só sobem
         # na primeira pergunta. O perfil vem da config (`claude_perfil`).
+        self.infra_voz = None        # `AcoesVoz`: ligado em `main`, depois da tela Integração
+        self.infra_apelidos = lambda: []
         self.aprovacao = None        # o Motor da onda C: só a ponte do painel o vê
         self._trava_motor = threading.Lock()   # três threads o pedem; nasce um só
         self.claude = claude_code.SessaoClaudeCode(
@@ -210,6 +213,8 @@ class Motor(dervs.PopUp):
         fluxo de sempre."""
         texto = self.entrada.toPlainText().strip()
         if texto and self._tarefa is None and not self._aguardando_ok:
+            if self._tentar_infra_voz(texto):
+                return
             if central_painel.eh_pergunta_de_saude(texto):
                 self._diz("dono", texto)
                 self.entrada.clear()
@@ -232,6 +237,44 @@ class Motor(dervs.PopUp):
                         "Diga 'para' se quiser interromper.")
                 return
         super().executar()
+
+    def _tentar_infra_voz(self, texto) -> bool:
+        """Servidor, projeto, GitHub e configuração por voz (`dervs_voz_infra`). True quando a
+        fala foi atendida aqui; False deixa o roteador e o cérebro seguirem como sempre."""
+        acoes = self.infra_voz
+        if acoes is None:
+            return False
+        if acoes.tem_pendencia():
+            resposta = voz_infra.resposta_de_envio(texto)
+            if resposta is None:
+                self._claude_fala.emit(acoes.responder_pendencia(False))   # falou outra coisa: o pedido caiu
+            else:
+                self._diz("dono", texto)
+                self.entrada.clear()
+                self._falar_de_thread(lambda: acoes.responder_pendencia(resposta == "sim"))
+                return True
+        try:
+            intencao = voz_infra.interpretar(texto, self.infra_apelidos())
+        except Exception:
+            return False
+        if intencao is None:
+            return False
+        self._diz("dono", texto)
+        self.entrada.clear()
+        self._falar_de_thread(lambda: acoes.executar(intencao))
+        return True
+
+    def _falar_de_thread(self, trabalho):
+        """Roda `trabalho` (que pode demorar: ssh, git) fora da thread da tela e fala o que ele
+        devolver. O sinal `_claude_fala` faz a travessia de volta, como o Claude Code."""
+        def corpo():
+            try:
+                fala = trabalho()
+            except Exception as erro:
+                fala = f"Algo falhou por dentro ({type(erro).__name__}). Nada foi feito."
+            if fala:
+                self._claude_fala.emit(fala)
+        threading.Thread(target=corpo, name="dervs-infra-voz", daemon=True).start()
 
     def _motor_aprovacao(self):
         """O Motor de aprovação, criado na primeira necessidade. Só a ponte do
@@ -720,6 +763,15 @@ def _anunciar_queda_anterior(ponte, queda, permissoes):
         _avisar("piloto automático falhou ao anunciar a queda: %s" % e)
 
 
+def _raizes_de_projeto() -> list:
+    """Onde a voz procura projetos: as pastas de projeto do painel; sem nenhuma, a pasta
+    `source\\repos` do dono (só leitura de nomes: abrir e consertar passam pelas travas
+    de `dervs_voz_infra`)."""
+    pastas = list(config.carregar().get("pastas_de_projeto") or [])
+    padrao = os.path.join(os.path.expanduser("~"), "source", "repos")
+    return pastas or ([padrao] if os.path.isdir(padrao) else [])
+
+
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -836,6 +888,18 @@ def main():
         ponte, motor_fabrica=motor._motor_aprovacao, seletor_fn=ponte_web.seletor_de_cerebros,
         ponte_web_fn=lambda: (getattr(motor, "ponte_web", None), getattr(motor, "ponte_web_motivo", "")))
     ao_integracao_alvo.append(integracao.tratar)
+
+    def _aplicar_ao_vivo(chave, valor):
+        # a config já foi gravada; aqui a voz que está falando agora passa a usar o valor novo
+        atributo = {"voz_openai_tempo": "tempo_openai", "voz_velocidade": "voz_velocidade",
+                    "voz_openai": "voz_openai"}.get(chave)
+        if atributo:
+            setattr(motor.voz, atributo, valor)
+
+    motor.infra_apelidos = integracao.apelidos
+    motor.infra_voz = voz_infra.AcoesVoz(
+        terminal_por_voz=integracao.ssh_por_voz, raizes_fn=_raizes_de_projeto,
+        gravar_config=config.gravar, ler_config=config.carregar, aplicar_ao_vivo=_aplicar_ao_vivo)
     ao_permissoes_alvo.append(permissoes_painel.PermissoesLocal(ponte).tratar)
 
     def _aviso_do_painel(texto, alvo):

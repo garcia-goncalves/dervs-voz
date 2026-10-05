@@ -35,12 +35,14 @@ import json
 import os
 import re
 import secrets
+import shlex
 import subprocess
 import threading
 import time
 
 import dervs_config
 import dervs_log_acoes
+import dervs_putty
 import dervs_safety
 
 TETO_SAIDA = 64 * 1024
@@ -191,8 +193,10 @@ def hash_do_par(apelido: str, comando: str, host: dict) -> str:
     """Impressão digital do que o dono viu: apelido, comando E o destino que o
     apelido tinha na hora (host, usuário, porta). Se o cadastro mudar depois do
     clique, o hash muda e a execução é recusada."""
-    texto = json.dumps(["ssh", apelido, comando, host["host"], host["usuario"], host["porta"]],
-                       ensure_ascii=True, separators=(",", ":"))
+    partes = ["ssh", apelido, comando, host["host"], host["usuario"], host["porta"]]
+    if host.get("origem") == "putty":      # o plink carrega a sessão pelo NOME: ele também é visto
+        partes.append(host["sessao"])
+    texto = json.dumps(partes, ensure_ascii=True, separators=(",", ":"))
     return hashlib.sha256(texto.encode("ascii")).hexdigest()
 
 
@@ -225,6 +229,19 @@ def classificar_comando(comando) -> dict:
             and any(p.fullmatch(comando) for p in _LEITURAS)):
         return resposta("leitura", "comando de leitura conhecido")
     return resposta("muda_estado", "comando fora da lista de leitura — precisa do seu clique")
+
+
+def comando_claude_da_vps(pergunta) -> str | None:
+    """`claude -p '<pergunta>'` para o Claude Code que já mora na VPS. Nunca é leitura: o
+    classificador o põe em `muda_estado`, então SEMPRE vira cartão com o texto exato. A
+    pergunta vai entre aspas simples (shlex), numa linha só; vazia ou longa demais = None."""
+    if not isinstance(pergunta, str):
+        return None
+    texto = " ".join(pergunta.split())
+    if not texto or not texto.isprintable():
+        return None
+    comando = "claude -p " + shlex.quote(texto)
+    return comando if len(comando) <= MAX_COMANDO else None
 
 
 # ------------------------------------------------------------ o ssh de verdade
@@ -410,7 +427,7 @@ class AprovadorMotor:
 class TerminalSSH:
     def __init__(self, log, aprovador=None, *, executar_ssh=None, arquivo_hosts: str | None = None,
                  ssh_exe: str | None = None, relogio=time.monotonic, timeout_s: int = TIMEOUT_S,
-                 max_por_hora: int = MAX_POR_HORA):
+                 max_por_hora: int = MAX_POR_HORA, leitor_putty=None, plink_exe: str | None = None):
         if log is None or not hasattr(log, "registrar"):
             raise TypeError("o terminal SSH recebe o LogAcoes já existente; não cria outro")
         self._log = log
@@ -418,6 +435,8 @@ class TerminalSSH:
         self._executar = executar_ssh or executar_ssh_padrao
         self._arquivo_hosts = arquivo_hosts or arquivo_hosts_padrao()
         self._ssh_exe = ssh_exe
+        self._leitor_putty = leitor_putty      # None = sem PuTTY (testes); o painel passa o do registro
+        self._plink_exe = plink_exe
         self._relogio = relogio
         self._timeout_s = timeout_s
         self._max_por_hora = max_por_hora
@@ -428,7 +447,27 @@ class TerminalSSH:
 
     # --------------------------------------------------- utilidades
     def _hosts(self) -> dict:
-        return carregar_hosts(self._arquivo_hosts)
+        hosts = carregar_hosts(self._arquivo_hosts)
+        if self._leitor_putty is not None:
+            try:
+                do_putty = self._leitor_putty()[0]
+            except Exception:
+                do_putty = {}
+            # o arquivo do dono manda: apelido repetido fica com a entrada do arquivo
+            do_putty = {a: h for a, h in do_putty.items()
+                        if _APELIDO.fullmatch(a) and _host_valido(h.get("host"))
+                        and _USUARIO.fullmatch(str(h.get("usuario"))) and _porta_valida(h.get("porta"))}
+            hosts = {**do_putty, **hosts}
+        return hosts
+
+    def _executavel(self, host: dict) -> str | None:
+        """Caminho do programa que roda o comando: plink para sessão do PuTTY, ssh
+        para o resto. Sessão do PuTTY sem plink instalado cai no ssh do Windows."""
+        if host.get("origem") == "putty":
+            plink = self._plink_exe or dervs_putty.localizar_plink()
+            if plink:
+                return plink
+        return self._ssh_exe or localizar_ssh()
 
     def apelidos(self) -> list:
         return sorted(self._hosts())
@@ -516,7 +555,7 @@ class TerminalSSH:
         c = classificar_comando(comando)
         if c["nivel"] == "recusado" or c["nivel"] != p["nivel"]:
             return recusa("o comando não passa mais na classificação", apelido=apelido)
-        ssh_exe = self._ssh_exe or localizar_ssh()
+        ssh_exe = self._executavel(host)
         if not ssh_exe:
             return recusa("o terminal SSH está indisponível: o OpenSSH do Windows (ssh.exe em "
                           "System32/OpenSSH) não está instalado", apelido=apelido)
@@ -567,7 +606,10 @@ class TerminalSSH:
                 self._em_uso.discard(apelido)
 
     def _rodar(self, proposta_id, p, host, ssh_exe) -> dict:
-        argv = montar_argv(ssh_exe, host, p["comando"])
+        if host.get("origem") == "putty" and os.path.basename(ssh_exe).lower() == "plink.exe":
+            argv = dervs_putty.montar_argv_plink(ssh_exe, host["sessao"], p["comando"])
+        else:
+            argv = montar_argv(ssh_exe, host, p["comando"])
         rc, bruto, motivo = None, b"", ""
         try:
             rc, bruto = self._executar(argv, self._timeout_s)

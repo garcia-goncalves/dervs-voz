@@ -577,3 +577,17 @@ de cada coisa — está no arquivo `ESTADO.md`, na pasta do projeto.
 | Parece que tem mais de um DERVS aberto | Não tem mais como acontecer. Se acontecer, me avise — é um defeito novo. |
 | Ele pede confirmação demais | Me avise. A rede de segurança prefere perguntar a mais que a menos, mas se estiver incomodando dá para afinar. |
 | "não achei a biblioteca sounddevice" | Faltou instalar. Me avise que eu instalo. |
+
+## Pedidos por voz: servidor, projetos, GitHub e ajustes
+
+| Você diz | O que acontece |
+|---|---|
+| "Como está o disco da VPS?" (também memória, uptime, containers, "status do nginx", "logs do X") | Roda na hora e lê o resultado; a saída inteira fica na tela Integração. |
+| "Roda <comando> na VPS" | Leitura roda; o que muda o servidor vira um cartão na tela Integração e só roda se você clicar. |
+| "Pergunta pro Claude da VPS …" | Sempre vira cartão, com o texto exato. |
+| "Abre o projeto X" | Abre a pasta no VS Code (procura em `source\repos` ou nas pastas de projeto do painel). |
+| "No projeto X, pede pro Claude …" | Pede "confirma"; então abre o Claude Code numa cópia isolada, sem poder mandar nada ao GitHub. |
+| "Faz commit e push do projeto X" | Diz o que vai e pede "confirma"; sobe num branch novo `dervs/voz-…`, nunca na main, nunca com segredo. |
+| "Fala mais rápido" / "troca a voz para onyx" / "ativa o modo sempre confirmar" | Muda só essas configurações. Permissões, teto de gasto e pastas de projeto só pelo painel. |
+
+Servidores vêm das sessões salvas do PuTTY (precisam de endereço **e** usuário) e do arquivo `ssh_hosts.json`. Na primeira vez, conecte uma vez pelo PuTTY para ele guardar a chave do servidor: o DERVS recusa servidor desconhecido.
