@@ -142,3 +142,37 @@ R$ 50,00 por dia); cota por conta exige tabela nova e é decisão do dono.
 **Próximos passos, em ordem:** (a) Fase 2 da `dervs-2a` e deploy; (b) porteiro `/agente/voz/triagem`
 (web) e, no VOZ, cliente que o chama no lugar da TypeSafe direta; (c) estúdio e Hermes na VPS, só depois
 de o dono criar chave de API com teto de gasto; (d) instalador do VOZ.
+
+## 8. Decisão de arquitetura (05/10/2026) — o pesado na VPS, o que toca o PC fica no PC
+
+Pergunta do dono: o DERVS VOZ é app instalado no Windows ou mora na VPS? Resposta: **os dois, cada um
+no que só ele pode fazer.** Um programa na VPS não escuta o microfone, não aperta atalho, não abre o
+VS Code nem lê arquivo do computador de ninguém. Um programa só no PC pesa a máquina e não trabalha
+quando o PC está desligado.
+
+| Fica no PC (leve, "mãos, ouvidos e boca") | Sobe para a VPS ("cérebro e memória") |
+|---|---|
+| Microfone, atalho, detecção de fala, widget/painel | Cérebro principal (chamada à Anthropic/OpenAI por chave de API) |
+| Abrir apps, VS Code, navegador; arquivos locais | Hermes, estúdio (Bolt.diy), agentes de 24 h |
+| Claude Code/Codex com o login pessoal de cada um | Porteiro do JEV (triagem) e todas as chaves |
+| Ponte só de saída até o servidor; cartão de aprovação | Contas, cota por usuário, memória/diário compartilhado, fila de tarefas |
+| Voz de resposta tocada (áudio vem pronto do servidor) | Síntese de voz (cedar) e transcrição pesada, se a latência permitir |
+
+**Latência:** o caminho curto fica no PC — "Certo." imediato, detecção de fala, atalho, comandos
+locais conhecidos (hora, abrir app) **sem ir ao servidor**. Só raciocínio e agente longo sobem. Se a
+rede cair, o PC continua com o roteador local e avisa que o cérebro grande está fora.
+
+**Multiusuário:** cada pessoa tem um PC com VOZ pareado (crachá por máquina, revogável) a uma conta
+do DERVS web. A VPS atende todos; cada tarefa de agente roda em contêiner próprio, sem docker.sock.
+
+**Custo:** a VPS já tem ~20 GB livres. Cota por conta (tabela nova no web) antes de abrir para
+terceiros; hoje só existe o teto compartilhado. Assinatura pessoal (Max/Codex) nunca atende outra
+pessoa: no servidor, só chave de API com teto.
+
+**Segurança:** chave só na VPS; ponte só de saída; "pare de ouvir"/modo Desligado continua local;
+o que muda estado exige o "confirma" local — o servidor propõe, **o PC decide**.
+
+**Ordem (inalterada, com um acréscimo):** (a) porteiro `/agente/voz/triagem` no web; (b) estúdio e
+Hermes na VPS com chave de teto; (c) **cérebro por servidor** (VOZ pergunta ao web em vez de chamar
+a API direto); (d) cota por conta; (e) instalador do VOZ. Nada disso é construído no VOZ antes de o
+web expor a rota — contrato primeiro.
