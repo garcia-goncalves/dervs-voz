@@ -591,3 +591,28 @@ de cada coisa — está no arquivo `ESTADO.md`, na pasta do projeto.
 | "Fala mais rápido" / "troca a voz para onyx" / "ativa o modo sempre confirmar" | Muda só essas configurações. Permissões, teto de gasto e pastas de projeto só pelo painel. |
 
 Servidores vêm das sessões salvas do PuTTY (precisam de endereço **e** usuário) e do arquivo `ssh_hosts.json`. Na primeira vez, conecte uma vez pelo PuTTY para ele guardar a chave do servidor: o DERVS recusa servidor desconhecido.
+
+
+## O cofre: o segundo cérebro (05/10/2026)
+
+O cofre é uma **pasta de notas no seu computador**, a pasta `DERVS-Cofre` dentro de *Documentos* (dá para trocar: `cofre_pasta` no `config.json`). Cada nota é um arquivo de texto comum (`.md`), então abre no Bloco de Notas, no **Obsidian** (gratuito: "Abrir pasta como cofre") ou no Logseq. Os links `[[assim]]` ligam uma nota a outra e a busca é instantânea. O DERVS cria a pasta sozinho na primeira vez.
+
+**Por voz** (com o microfone aberto, no modo Atalho ou Chamar por voz):
+
+| Você diz | O que acontece |
+|---|---|
+| "DERVS, anota que preciso renovar o domínio" | grava uma nota em `entrada/` e responde "Anotei." |
+| "lembra que o dentista é na terça" · "não esquece que…" | o mesmo (para avisar numa hora marcada, continue usando "me lembra em 10 minutos…") |
+| "anota em privado que…" | grava em `privado/`; nunca é lida em voz alta nem sai do computador |
+| "o que eu sei sobre o servidor?" · "procura nas minhas notas disco cheio" | acha as 3 melhores notas e lê o título e um pedacinho da primeira |
+| "abre o cofre" | abre a pasta no Explorer (o botão **COFRE** do painel faz o mesmo e mostra quantas notas há) |
+
+**O que ele nunca faz:** anotar senha ou chave (ele recusa e avisa); ler em voz alta ou mandar para a internet o que está em `privado/` ou tem a etiqueta `#privado`; escrever fora da pasta do cofre. O diário do dia (`diario/AAAA-MM-DD.md`) guarda só números: quantas frases ouviu, quantas vezes acordou e o gasto. Nunca o que você disse.
+
+Uma nota conta como privada se estiver numa pasta `privado/` (maiúscula não importa), tiver `#privado` no texto ou `privado` em `tags:`/`etiquetas:` no cabeçalho (o jeito do Obsidian). Na dúvida, o DERVS trata como privada. O DERVS também **não entra** em atalho de pasta (junction) para fora do cofre, e não sobrescreve uma nota diária sua: se já existir `diario/AAAA-MM-DD.md` escrita por você, o diário dele vai para `AAAA-MM-DD-dervs.md`.
+
+**O filtro de segredo é uma heurística, não um cofre-forte:** pega chave `sk-…`, `ghp_…`, `AKIA…`, "senha: …", e "a senha do wifi é bananas123" (frase com número), mas uma senha só de letras dita em frase solta pode passar. Não dite senha.
+
+**Um aviso honesto:** o que você dita passa pela transcrição de voz, que (se estiver em `openai`) vai para a OpenAI como qualquer outra fala sua. O cofre protege o que já está guardado, não o que você acabou de dizer. Para algo realmente sigiloso, escreva direto no arquivo.
+
+**Ainda não existe:** busca por significado (achar "dentista" quando a nota diz "consulta odontológica"), sincronizar o cofre com outro computador ou com a VPS, e o cérebro do DERVS consultar o cofre sozinho antes de responder (a função `contexto_para_nuvem` já está pronta e testada, falta ligá-la ao prompt do cérebro).

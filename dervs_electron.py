@@ -35,10 +35,13 @@ import dervs
 import dervs_aprovacao as aprovacao
 import dervs_central_painel as central_painel
 import dervs_claude_code as claude_code
+import dervs_cofre as cofre
+import dervs_cofre_voz as cofre_voz
 import dervs_config as config
 import dervs_roteador as roteador
 import dervs_voz_infra as voz_infra
 import dervs_diario as diario
+import dervs_gasto as gasto
 import dervs_instancia as instancia
 import dervs_integracao_painel as integracao_painel
 import dervs_modos_escuta as modos
@@ -176,6 +179,7 @@ class Motor(dervs.PopUp):
         self._cartao_pendente = None
         # O Claude Code (onda B). Só cria o objeto: o laço e o `claude` só sobem
         # na primeira pergunta. O perfil vem da config (`claude_perfil`).
+        self.cofre = None            # `dervs_cofre.Cofre`: ligado em `main` (segundo cérebro)
         self.infra_voz = None        # `AcoesVoz`: ligado em `main`, depois da tela Integração
         self.infra_apelidos = lambda: []
         self.aprovacao = None        # o Motor da onda C: só a ponte do painel o vê
@@ -213,6 +217,8 @@ class Motor(dervs.PopUp):
         fluxo de sempre."""
         texto = self.entrada.toPlainText().strip()
         if texto and self._tarefa is None and not self._aguardando_ok:
+            if self._tentar_cofre_voz(texto):
+                return
             if self._tentar_infra_voz(texto):
                 return
             if central_painel.eh_pergunta_de_saude(texto):
@@ -237,6 +243,23 @@ class Motor(dervs.PopUp):
                         "Diga 'para' se quiser interromper.")
                 return
         super().executar()
+
+    def _tentar_cofre_voz(self, texto) -> bool:
+        """Segundo cérebro por voz ("anota que…", "o que eu sei sobre…", "abre o cofre"). True quando
+        a fala foi atendida aqui; qualquer outra segue para a infra, o roteador e o cérebro."""
+        cv = self.cofre
+        if cv is None:
+            return False
+        try:
+            intencao = cofre_voz.interpretar(texto)
+        except Exception:
+            return False
+        if intencao is None:
+            return False
+        self._diz("dono", texto)
+        self.entrada.clear()
+        self._falar_de_thread(lambda: cofre_voz.executar(intencao, cv, abrir_pasta=_abrir_pasta))
+        return True
 
     def _tentar_infra_voz(self, texto) -> bool:
         """Servidor, projeto, GitHub e configuração por voz (`dervs_voz_infra`). True quando a
@@ -763,6 +786,31 @@ def _anunciar_queda_anterior(ponte, queda, permissoes):
         _avisar("piloto automático falhou ao anunciar a queda: %s" % e)
 
 
+def _abrir_pasta(caminho):
+    """Abre a pasta no Explorer do Windows (só o caminho do cofre, que vem do Python)."""
+    if sys.platform == "win32":
+        os.startfile(caminho)
+
+
+def _numeros_do_dia() -> dict:
+    """Só números do dia para o diário do cofre — nunca texto de fala."""
+    import datetime
+    from dervs_porteiro import caminho_do_diario
+    r = diario.resumo_do_dia(caminho_do_diario(), datetime.date.today())
+    return {"ouvidas": r["ouvidas"], "acordadas": r["acordou"], "gasto_usd": gasto.total_do_dia()["total"]}
+
+
+def _ligar_cofre(motor, ponte, parar):
+    """Cria o cofre e o laço que mantém o chip e o diário em dia. Falha aqui nunca derruba o DERVS."""
+    try:
+        pasta = config.carregar().get("cofre_pasta") or str(cofre.pasta_padrao())
+        motor.cofre = cofre.Cofre(pasta)
+        cofre.iniciar_loop_cofre(ponte, parar, motor.cofre, numeros_fn=_numeros_do_dia)
+    except Exception as erro:
+        motor.cofre = None
+        _avisar("cofre de notas desligado: %s" % type(erro).__name__)
+
+
 def _raizes_de_projeto() -> list:
     """Onde a voz procura projetos: as pastas de projeto do painel; sem nenhuma, a pasta
     `source\\repos` do dono (só leitura de nomes: abrir e consertar passam pelas travas
@@ -874,6 +922,7 @@ def main():
     sistema.iniciar_loop_sistema(ponte, parar_sistema)
     # Cartão do diário do porteiro (HOJE: N ouvidas · M acordei), a cada ~30 s.
     diario.iniciar_loop_diario(ponte, parar_sistema)
+    _ligar_cofre(motor, ponte, parar_sistema)
     # Dados do painel grande: agenda, entradas do diário, gasto do dia e voz.
     painel.iniciar_loop_painel(ponte, parar_sistema, voz=motor.voz)
     # Central do PC: análise diária com o PC ocioso (só lê e avisa).

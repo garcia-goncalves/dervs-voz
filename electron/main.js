@@ -55,9 +55,10 @@ let arrastoAlca = null;  // { x, y, largura, altura } no começo do arrasto
 const ultimosPorCanal = new Map();   // canal -> último dado (só canais "de estado")
 const CANAIS_DE_ESTADO = new Set([
   "dervs:estado", "dervs:microfone", "dervs:modo-escuta", "dervs:sistema", "dervs:diario", "dervs:reuniao",
-  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz",
+  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz", "dervs:cofre",
   "dervs:plano"]);   // reload do painel com cartão pendente repõe o cartão
 const MODOS_DE_ESCUTA = new Set(["desligado", "atalho", "voz"]);
+let pastaDoCofre = null;             // pasta do cofre de notas, só neste processo (verbo "cofre")
 const historicoFalas = [];           // últimas falas da conversa
 const historicoAcoes = [];           // últimas ações
 const MAX_HISTORICO = 30;
@@ -410,6 +411,17 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo gasto com campo faltando/invalido, ignorado");
       }
       break;
+    case "cofre":
+      // Segundo cérebro: a contagem vai para a tela; a PASTA fica só aqui (o botão "abrir"
+      // pede, este processo abre). Pasta vem do Python (lado confiável), mas é conferida.
+      if (Number.isInteger(mensagem.notas) && mensagem.notas >= 0
+          && typeof mensagem.pasta === "string" && mensagem.pasta.length > 0 && mensagem.pasta.length <= 500) {
+        pastaDoCofre = mensagem.pasta;
+        difundir("dervs:cofre", { notas: mensagem.notas });
+      } else {
+        console.error("electron: verbo cofre com campo faltando/invalido, ignorado");
+      }
+      break;
     case "agenda":
       if (Array.isArray(mensagem.itens)) {
         difundir("dervs:agenda", { itens: mensagem.itens.slice(0, 50).map((i) => ({
@@ -648,6 +660,12 @@ ipcMain.on("dervs:alternar-reuniao", (_evento, ligar) => {
 // + setWindowOpenHandler já bloqueiam isso).
 ipcMain.on("dervs:abrir-app-dervs", () => {
   shell.openExternal(urlDoDervsApp());
+});
+
+// Botão "COFRE": abre a pasta de notas no Explorer. A tela não sabe o caminho nem manda um:
+// só pede, e este processo abre o que o Python informou.
+ipcMain.on("dervs:abrir-cofre", () => {
+  if (pastaDoCofre) shell.openPath(pastaDoCofre);
 });
 
 // Claude Code (onda B): a tela só PEDE; o Python valida de novo (não há confiança

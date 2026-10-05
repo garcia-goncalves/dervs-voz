@@ -58,6 +58,10 @@ contextBridge.exposeInMainWorld("dervs", {
   aoDiarioEntradas: aoCanal("dervs:diario-entradas"),
   aoGasto: aoCanal("dervs:gasto"),
   aoVoz: aoCanal("dervs:voz"),
+  aoCofre: aoCanal("dervs:cofre"),
+  abrirCofre: () => {
+    ipcRenderer.send("dervs:abrir-cofre");
+  },
   aoAcao: aoCanal("dervs:acao"),
   // Controles da janela grande — só PEDEM; quem mexe na janela é o main.js.
   painelEsconder: () => { ipcRenderer.send("dervs:painel-esconder"); },

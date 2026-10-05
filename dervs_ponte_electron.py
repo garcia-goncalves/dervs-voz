@@ -66,6 +66,10 @@ Verbos Python → Electron (só estes):
             grande, 28/09/2026): gasto ESTIMADO de hoje em dólar, lido de
             `gasto.jsonl` por `dervs_painel.py`. Só depois do `pronto`; valor
             igual ao último não é reenviado.
+  cofre   {"notas", "pasta"} — extensão do protocolo (segundo cérebro, 05/10/2026): quantas
+            notas o cofre tem e onde ele mora (a pasta fica só no processo principal, para o
+            botão "abrir"; o renderer só vê a contagem). Só depois do `pronto`; igual ao último
+            não é reenviado.
   agenda  {"itens": [{"quando", "quando_txt", "texto"}]} — lembretes pendentes
             reais (`dervs_lembretes.Agenda`). Lista vazia é mensagem válida.
   diario_entradas {"entradas": [{"hora", "acordou", "palavras", "duracao_s"}]}
@@ -771,6 +775,14 @@ class PonteElectron:
         self._enviar_se_mudou({"verbo": "gasto", **{
             k: round(float(gasto.get(k, 0.0)), 6)
             for k in ("total", "tts", "stt", "cerebro")}})
+
+    def enviar_cofre(self, notas, pasta):
+        """Contagem de notas do cofre e a pasta dele (ver `dervs_cofre.py`)."""
+        try:
+            n = max(0, int(notas))
+        except (TypeError, ValueError):
+            n = 0
+        self._enviar_se_mudou({"verbo": "cofre", "notas": n, "pasta": str(pasta)[:500]})
 
     def enviar_agenda(self, itens):
         """Lembretes pendentes: `[{"quando", "quando_txt", "texto"}]`."""

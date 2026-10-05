@@ -190,6 +190,11 @@
       `voz ${n(g.tts || 0)} · escuta ${n(g.stt || 0)} · cérebro ${n(g.cerebro || 0)}`;
   }
 
+  function aoCofre(c) {
+    if (!c || !Number.isInteger(c.notas)) return;
+    $("p-cofre-valor").textContent = c.notas === 1 ? "1 nota" : `${c.notas} notas`;
+  }
+
   // O Python é dono do temporizador da reunião: o clique só PEDE, e o botão só
   // muda de cara quando o Python responde (mesma regra do microfone).
   function aoReuniao({ restanteS } = {}) {
@@ -822,6 +827,8 @@
   window.dervs.aoAgenda(aoAgenda);
   window.dervs.aoDiarioEntradas(aoDiarioEntradas);
   window.dervs.aoGasto(aoGasto);
+  window.dervs.aoCofre(aoCofre);
+  $("p-abrir-cofre").addEventListener("click", () => window.dervs.abrirCofre());
   window.dervs.aoVoz(aoVoz);
   window.dervs.aoAcao(aoAcao);
 

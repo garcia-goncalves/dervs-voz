@@ -257,6 +257,9 @@ PADRAO = {
     # "Criar e alterar arquivos" está em "Faz sozinho". Caminhos completos. Não vale raiz
     # de disco, o perfil, AppData nem pasta que os contenha; fora delas ele sempre pergunta.
     "pastas_de_projeto": [],
+    # Cofre de notas (segundo cérebro, `dervs_cofre.py`). Vazio = a pasta DERVS-Cofre em
+    # Documentos. O conteúdo nunca sai do computador sem o dono pedir; `privado/` jamais.
+    "cofre_pasta": "",
 }
 
 
@@ -357,6 +360,9 @@ def _validar(conf: dict) -> dict:
     if conf.get("claude_perfil") not in ("dono", "equipe"):
         conf["claude_perfil"] = PADRAO["claude_perfil"]
     conf["permissoes"] = dervs_permissoes.normalizar(conf.get("permissoes"))
+    if not isinstance(conf.get("cofre_pasta"), str) or len(conf["cofre_pasta"]) > 300 or (
+            conf["cofre_pasta"] and not dervs_permissoes.raiz_valida(conf["cofre_pasta"])):
+        conf["cofre_pasta"] = PADRAO["cofre_pasta"]      # raiz de disco, perfil, AppData, UNC: volta ao padrão
     pastas = conf.get("pastas_de_projeto")
     if not isinstance(pastas, list):
         pastas = []
