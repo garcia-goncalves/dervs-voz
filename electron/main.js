@@ -55,7 +55,7 @@ let arrastoAlca = null;  // { x, y, largura, altura } no começo do arrasto
 const ultimosPorCanal = new Map();   // canal -> último dado (só canais "de estado")
 const CANAIS_DE_ESTADO = new Set([
   "dervs:estado", "dervs:microfone", "dervs:modo-escuta", "dervs:sistema", "dervs:diario", "dervs:reuniao",
-  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz", "dervs:cofre",
+  "dervs:agenda", "dervs:diario-entradas", "dervs:gasto", "dervs:voz", "dervs:cofre", "dervs:codex",
   "dervs:plano"]);   // reload do painel com cartão pendente repõe o cartão
 const MODOS_DE_ESCUTA = new Set(["desligado", "atalho", "voz"]);
 let pastaDoCofre = null;             // pasta do cofre de notas, só neste processo (verbo "cofre")
@@ -420,6 +420,15 @@ function tratarLinhaDoPython(linha) {
         difundir("dervs:cofre", { notas: mensagem.notas });
       } else {
         console.error("electron: verbo cofre com campo faltando/invalido, ignorado");
+      }
+      break;
+    case "codex":
+      // Linha de estado do Codex: só texto curto e um estado conhecido.
+      if (["chatgpt", "chave_api", "nao_logado", "desligado", "falhou"].includes(mensagem.estado)
+          && typeof mensagem.texto === "string" && mensagem.texto.length > 0 && mensagem.texto.length <= 120) {
+        difundir("dervs:codex", { estado: mensagem.estado, texto: mensagem.texto });
+      } else {
+        console.error("electron: verbo codex com campo faltando/invalido, ignorado");
       }
       break;
     case "agenda":

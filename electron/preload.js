@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld("dervs", {
   aoGasto: aoCanal("dervs:gasto"),
   aoVoz: aoCanal("dervs:voz"),
   aoCofre: aoCanal("dervs:cofre"),
+  aoCodex: aoCanal("dervs:codex"),
   abrirCofre: () => {
     ipcRenderer.send("dervs:abrir-cofre");
   },

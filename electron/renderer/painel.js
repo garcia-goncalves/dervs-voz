@@ -195,6 +195,13 @@
     $("p-cofre-valor").textContent = c.notas === 1 ? "1 nota" : `${c.notas} notas`;
   }
 
+  // Codex: o Python manda a linha pronta ("Codex: pronto (ChatGPT)" ou o motivo); aqui só aparece.
+  function aoCodex(c) {
+    if (!c || typeof c.texto !== "string") return;
+    $("p-codex-valor").textContent = c.texto.replace(/^Codex:\s*/, "");
+    $("p-chip-codex").dataset.estado = String(c.estado || "");
+  }
+
   // O Python é dono do temporizador da reunião: o clique só PEDE, e o botão só
   // muda de cara quando o Python responde (mesma regra do microfone).
   function aoReuniao({ restanteS } = {}) {
@@ -828,6 +835,7 @@
   window.dervs.aoDiarioEntradas(aoDiarioEntradas);
   window.dervs.aoGasto(aoGasto);
   window.dervs.aoCofre(aoCofre);
+  window.dervs.aoCodex(aoCodex);
   $("p-abrir-cofre").addEventListener("click", () => window.dervs.abrirCofre());
   window.dervs.aoVoz(aoVoz);
   window.dervs.aoAcao(aoAcao);
