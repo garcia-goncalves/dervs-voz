@@ -264,6 +264,10 @@ PADRAO = {
     # pergunta ao cérebro da OpenAI. DESLIGADO por padrão: é texto pessoal indo a um terceiro, então
     # só o dono liga (`true`). `privado/` nunca vai, nem ligado.
     "cofre_no_cerebro": False,
+    # Busca por SIGNIFICADO no cofre ("dentista" acha "consulta odontológica"). DESLIGADA por padrão:
+    # liga um modelo local (~240 MB de download na 1ª vez, ~600 MB de RAM enquanto em uso) e exige
+    # `pip install -r requirements-semantica.txt`. Tudo roda no PC; nada de nota sai por causa dela.
+    "cofre_semantica": False,
 }
 
 
@@ -369,6 +373,8 @@ def _validar(conf: dict) -> dict:
         conf["cofre_pasta"] = PADRAO["cofre_pasta"]      # raiz de disco, perfil, AppData, UNC: volta ao padrão
     if not isinstance(conf.get("cofre_no_cerebro"), bool):
         conf["cofre_no_cerebro"] = PADRAO["cofre_no_cerebro"]
+    if not isinstance(conf.get("cofre_semantica"), bool):
+        conf["cofre_semantica"] = PADRAO["cofre_semantica"]
     pastas = conf.get("pastas_de_projeto")
     if not isinstance(pastas, list):
         pastas = []

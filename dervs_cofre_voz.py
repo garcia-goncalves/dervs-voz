@@ -97,7 +97,7 @@ def executar(intencao, cv, abrir_pasta=None):
     if tipo == "cofre_buscar":
         consulta = intencao["consulta"]
         cv.reindexar_se_velho()
-        achados = cv.buscar(consulta, limite=6)
+        achados = cv.buscar_hibrido(consulta, limite=6)
         publicas = [a for a in achados if not a["privado"]][:3]
         privadas = sum(1 for a in achados if a["privado"])
         if not achados:

@@ -193,11 +193,18 @@ def criar_cofre(pasta) -> Path:
 
 
 class Cofre:
-    def __init__(self, raiz):
+    def __init__(self, raiz, semantica=False, embedder=None):
         self.raiz = criar_cofre(raiz)
         self._trava = threading.Lock()
         self._ultima_varredura = float("-inf")
         self._db = self.raiz / ".indice" / "indice.sqlite"
+        # busca por significado: OPCIONAL e desligada por padrão (ver `dervs_cofre_semantica.py`)
+        self._semantica = bool(semantica)
+        self._embedder = embedder
+        self._vetores = None
+        self._trava_vetores = threading.Lock()
+        self._cache_vetores = None          # (caminhos, matriz); None = precisa recarregar do disco
+        self._fio_vetores = None
 
     # ------------------------------------------------------------ caminhos
     def _dentro(self, rel) -> Path:
@@ -388,6 +395,7 @@ class Cofre:
                 con.commit()
             finally:
                 con.close()
+        self.vetorizar_em_fundo()           # no-op sem semântica; com ela, o vetor sai numa thread
 
     # ------------------------------------------------------------ consultas
     def contagem(self) -> int:
@@ -418,6 +426,164 @@ class Cofre:
         finally:
             con.close()
 
+    # ------------------------------------------------------------ busca por significado (opcional)
+    def _emb(self):
+        """O embedder (criado na primeira vez que alguém pergunta). Nunca levanta: None = sem semântica."""
+        if not self._semantica:
+            return None
+        if self._embedder is None:
+            try:
+                import dervs_cofre_semantica as sem
+                self._embedder = sem.EmbedderFastembed(baixar=True)     # ligar a opção = aceitar o download
+            except Exception:
+                return None
+        return self._embedder
+
+    def semantica_disponivel(self) -> bool:
+        """Verdade só se a opção está ligada E o pacote e o modelo existem (ou o download está liberado)."""
+        try:
+            emb = self._emb()
+            return bool(emb is not None and emb.pronto())
+        except Exception:
+            return False
+
+    def indexar_vetores(self) -> int:
+        """Calcula o vetor das notas novas ou mudadas (mesmo critério mtime+tamanho do índice de texto)
+        e esquece os das que sumiram. Pode demorar (carrega o modelo): chame de thread de fundo, nunca
+        da da voz. Devolve quantos vetores gravou; qualquer falha devolve 0 e deixa o cofre como era."""
+        if not self.semantica_disponivel():
+            return 0
+        try:
+            import dervs_cofre_semantica as sem
+            with self._trava_vetores:
+                if self._vetores is None:
+                    self._vetores = sem.IndiceVetorial(self.raiz / ".indice" / "vetores.sqlite")
+                emb = self._emb()
+                con = self._conectar()
+                try:
+                    notas = con.execute("SELECT caminho,mtime,tamanho,privado FROM notas").fetchall()
+                finally:
+                    con.close()
+                estado = self._vetores.estado(emb.modelo)
+                atuais = {n[0] for n in notas}
+                sobrando = [c for c in self._vetores.estado_todos() if c not in atuais]
+                if sobrando:
+                    self._vetores.apagar(sobrando)
+                    self._cache_vetores = None
+                fazer = [n for n in notas if estado.get(n[0]) != (n[1], n[2])]
+                gravados = 0
+                for i in range(0, len(fazer), sem.LOTE):
+                    lote, textos = [], []
+                    for rel, mtime, tamanho, privado in fazer[i:i + sem.LOTE]:
+                        try:
+                            nota = self.ler(rel)
+                        except (ValueError, OSError):
+                            continue
+                        lote.append((rel, mtime, tamanho, privado))
+                        textos.append((nota["titulo"] + "\n" + nota["corpo"])[:sem.MAX_CHARS_NOTA])
+                    if not lote:
+                        continue
+                    vecs = emb.embutir(textos)
+                    self._vetores.gravar([(c, m, t, p, v) for (c, m, t, p), v in zip(lote, vecs)], emb.modelo)
+                    self._cache_vetores = None
+                    gravados += len(lote)
+                return gravados
+        except Exception:
+            return 0
+
+    def vetorizar_em_fundo(self):
+        """Dispara `reindexar` + `indexar_vetores` numa thread e volta na hora (a voz não espera)."""
+        if not self._semantica or (self._fio_vetores is not None and self._fio_vetores.is_alive()):
+            return None
+
+        def corpo():
+            try:
+                self.reindexar_se_velho(5.0)
+                self.indexar_vetores()
+            except Exception:
+                pass
+        self._fio_vetores = threading.Thread(target=corpo, name="dervs-cofre-vetores", daemon=True)
+        self._fio_vetores.start()
+        return self._fio_vetores
+
+    def liberar_modelo_se_ocioso(self, segundos=600.0) -> bool:
+        """Solta o modelo da memória (~600 MB) se faz `segundos` que ninguém o usa."""
+        emb = self._embedder
+        if emb is None or not emb.carregado() or time.monotonic() - getattr(emb, "ultimo_uso", 0.0) < segundos:
+            return False
+        if self._fio_vetores is not None and self._fio_vetores.is_alive():
+            return False
+        emb.liberar()
+        return True
+
+    def _ranking_semantico(self, consulta, n):
+        """[(caminho, semelhança)] das notas mais parecidas em significado; [] se não há como."""
+        try:
+            if not self.semantica_disponivel():
+                return []
+            emb = self._emb()
+            if not emb.carregado():
+                # carregar o modelo leva segundos: nunca na thread da voz. Aquece em fundo e, por
+                # ora, esta pergunta fica só com as palavras.
+                threading.Thread(target=emb.aquecer, name="dervs-cofre-aquecer", daemon=True).start()
+                return []
+            import dervs_cofre_semantica as sem
+            if self._vetores is None:
+                self._vetores = sem.IndiceVetorial(self.raiz / ".indice" / "vetores.sqlite")
+            cache = self._cache_vetores
+            if cache is None:
+                cache = self._cache_vetores = self._vetores.carregar(emb.modelo)
+            caminhos, matriz = cache
+            if matriz is None or not len(caminhos):
+                return []
+            q = emb.embutir([str(consulta)[:sem.MAX_CHARS_NOTA]])[0]
+            notas = matriz @ q
+            ordem = notas.argsort()[::-1][:n]
+            return [(caminhos[i], float(notas[i])) for i in ordem if notas[i] >= sem.LIMIAR]
+        except Exception:
+            return []
+
+    def buscar_hibrido(self, consulta, limite=5) -> list:
+        """`buscar` (palavras, FTS5) fundido por RRF com a busca por significado. Sem semântica
+        disponível devolve exatamente o que `buscar` devolveria. Cada achado traz `por`:
+        "texto", "significado" ou "ambos"."""
+        texto = self.buscar(consulta, limite=limite * 4)
+        sentido = self._ranking_semantico(consulta, limite * 4)
+        if not sentido:
+            return texto[:limite]
+        try:
+            import dervs_cofre_semantica as sem
+            por_caminho = {a["caminho"]: dict(a, por="texto") for a in texto}
+            faltam = [c for c, _ in sentido if c not in por_caminho]
+            hidratadas = self._hidratar(faltam)
+            sentido = [(c, s) for c, s in sentido if c in por_caminho or c in hidratadas]
+            for c, _ in sentido:
+                if c in por_caminho:
+                    por_caminho[c]["por"] = "ambos"
+                else:
+                    por_caminho[c] = dict(hidratadas[c], por="significado")
+            ordem = sem.fundir_rrf([a["caminho"] for a in texto], [c for c, _ in sentido])
+            return [por_caminho[c] for c in ordem][:limite]
+        except Exception:
+            return texto[:limite]
+
+    def _hidratar(self, caminhos) -> dict:
+        """{caminho: achado} para notas achadas só por significado. `privado` vem do índice de texto,
+        a mesma fonte da busca por palavras."""
+        if not caminhos:
+            return {}
+        con = self._conectar()
+        try:
+            achados = {}
+            for c in caminhos:
+                l = con.execute("SELECT n.titulo, n.privado, substr(b.corpo, 1, 160) FROM notas n "
+                                "JOIN busca b ON b.rowid = n.id WHERE n.caminho=?", (c,)).fetchone()
+                if l:
+                    achados[c] = {"caminho": c, "titulo": l[0], "privado": bool(l[1]), "trecho": l[2]}
+            return achados
+        finally:
+            con.close()
+
     def backlinks(self, titulo) -> list:
         alvo = _norm(titulo)
         con = self._conectar()
@@ -445,7 +611,7 @@ class Cofre:
         palavras = _palavras_que_importam(pergunta)
         if not palavras:
             return ""
-        publicas = [a for a in self.buscar(" ".join(palavras), limite=20) if not a["privado"]][:MAX_NOTAS_CONTEXTO]
+        publicas = [a for a in self.buscar_hibrido(" ".join(palavras), limite=20) if not a["privado"]][:MAX_NOTAS_CONTEXTO]
         restante, blocos = TETO_CONTEXTO, []
         for a in publicas:
             if restante <= 0:
@@ -499,6 +665,11 @@ def iniciar_loop_cofre(ponte, parar: threading.Event, cv, intervalo=60.0, numero
             passo += 1
             try:
                 cv.reindexar()
+            except Exception:
+                pass
+            try:
+                cv.indexar_vetores()            # no-op sem semântica; aqui já é thread de fundo
+                cv.liberar_modelo_se_ocioso()
             except Exception:
                 pass
             try:

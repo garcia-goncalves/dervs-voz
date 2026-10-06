@@ -805,7 +805,7 @@ def _ligar_cofre(motor, ponte, parar):
     try:
         conf = config.carregar()
         pasta = conf.get("cofre_pasta") or str(cofre.pasta_padrao())
-        motor.cofre = cofre.Cofre(pasta)
+        motor.cofre = cofre.Cofre(pasta, semantica=bool(conf.get("cofre_semantica", False)))
         if conf.get("cofre_no_cerebro", False):
             import dervs_brain
             dervs_brain.CONTEXTO_EXTRA = motor.cofre.contexto_para_nuvem

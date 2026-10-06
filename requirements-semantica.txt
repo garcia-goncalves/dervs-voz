@@ -1,0 +1,9 @@
+# Busca por SIGNIFICADO no cofre — OPCIONAL (fora do requirements.txt de propósito).
+#
+#     dervs-venv\Scripts\python.exe -m pip install -r requirements-semantica.txt
+#
+# Depois ponha "cofre_semantica": true no config.json e reabra o DERVS. Na primeira vez ele baixa o
+# modelo (~240 MB, paraphrase-multilingual-MiniLM-L12-v2 quantizado) para %LOCALAPPDATA%\DERVS\modelos.
+# Custo medido: ~600 MB de RAM com o modelo na memória (solto após 10 min sem uso), ~25 ms por nota.
+# Tudo roda no computador; sem este pacote o cofre funciona como sempre.
+fastembed>=0.8,<0.9
