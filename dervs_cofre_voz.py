@@ -31,7 +31,7 @@ _PROCURA = re.compile(
     r"^(?:procura|procure|busca|busque|pesquisa|pesquise|acha|ache)(?:\s+para\s+mim)?"
     r"\s+(?:na|nas|no|nos|em)\s+(?:minhas?\s+|meus?\s+)?(?:notas|anota[çc][õo]es|cofre|segundo\s+c[ée]rebro)"
     r"\s*(?:(?:sobre|por|a\s+respeito\s+de)\s+)?(?P<c>.+)$", re.IGNORECASE)
-_ABRIR = re.compile(r"^abr(?:e|ir)\s+(?:o\s+|as\s+|meu\s+|minhas?\s+)?(?:cofre|notas|segundo\s+c[ée]rebro)$", re.IGNORECASE)
+_ABRIR = re.compile(r"^abr(?:e|ir|iu)\s+(?:o\s+|as\s+|meu\s+|minhas?\s+)?(?:cofre|notas|segundo\s+c[ée]rebro)$", re.IGNORECASE)
 
 
 def _limpa(fala) -> str:

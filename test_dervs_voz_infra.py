@@ -380,3 +380,8 @@ def test_so_vai_o_que_foi_conferido(acoes, repo):
     ramo = [r for r in ramos_do_remoto(acoes.remoto) if r.startswith("dervs/voz-")][0]
     arquivos = g(acoes.remoto, "show", "--name-only", "--format=", ramo).split()
     assert arquivos == ["novo.txt"]
+
+
+def test_stt_que_ouve_cloud_no_lugar_de_claude_ainda_entende():
+    r = vi.interpretar("pergunta pro cloud da VPS OVH se o docker esta de pe", ("VPS-OVH", "Dervs-Root"))
+    assert r["tipo"] == "ssh" and r["apelido"] == "VPS-OVH" and r["claude"] is True

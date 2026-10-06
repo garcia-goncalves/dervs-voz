@@ -127,7 +127,9 @@ PADRAO = {
         "são?', 'DERVS, que dia é hoje?', 'abre o Firefox', 'lista os "
         "arquivos', 'abre o ChatGPT', 'manda no WhatsApp', 'roda o nmap no "
         "alvo'. Vocabulário comum: e-mail, WhatsApp, site, aplicativo, "
-        "ChatGPT, navegador, OSINT, subdomínio, domínio, DNS, certificado, "
+        "ChatGPT, Claude, Codex, cofre, VPS, Dervs Root, 'pergunta pro Claude "
+        "da VPS', 'pede pro Codex analisar o projeto', 'anota que', 'abre o "
+        "cofre', navegador, OSINT, subdomínio, domínio, DNS, certificado, "
         "vulnerabilidade, servidor, repositório, GitHub, Docker, Postgres, "
         "planilha, orçamento, cliente, reunião, proposta, contrato, DERVS, "
         "Parrot, Windows. Números como 2026, R$ 1.500,00 e 10%."
@@ -264,6 +266,9 @@ PADRAO = {
     # pergunta ao cérebro da OpenAI. DESLIGADO por padrão: é texto pessoal indo a um terceiro, então
     # só o dono liga (`true`). `privado/` nunca vai, nem ligado.
     "cofre_no_cerebro": False,
+    # Nomes (ou pedaços) de sessões do PuTTY que o DERVS NUNCA usa por voz, além dos projetos que
+    # "não se tocam" (veja `dervs_dp.BLOQUEADAS_PADRAO`). Ex.: ["cliente-x"].
+    "ssh_sessoes_bloqueadas": [],
     # Codex (ChatGPT Plus, `dervs_codex.py`): mais um executor de código por voz. Caminho vazio = o
     # DERVS procura o codex.exe do app a cada uso (a pasta do WindowsApps muda a cada atualização).
     # Esforço: low | medium | high (vai em `-c model_reasoning_effort=`).
@@ -377,6 +382,9 @@ def _validar(conf: dict) -> dict:
     if not isinstance(conf.get("cofre_pasta"), str) or len(conf["cofre_pasta"]) > 300 or (
             conf["cofre_pasta"] and not dervs_permissoes.raiz_valida(conf["cofre_pasta"])):
         conf["cofre_pasta"] = PADRAO["cofre_pasta"]      # raiz de disco, perfil, AppData, UNC: volta ao padrão
+    bloq = conf.get("ssh_sessoes_bloqueadas")
+    conf["ssh_sessoes_bloqueadas"] = [b.strip()[:60] for b in bloq if isinstance(b, str) and b.strip()][:40] \
+        if isinstance(bloq, list) else []
     if not isinstance(conf.get("cofre_no_cerebro"), bool):
         conf["cofre_no_cerebro"] = PADRAO["cofre_no_cerebro"]
     if not isinstance(conf.get("codex_ligado"), bool):

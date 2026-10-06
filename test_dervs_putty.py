@@ -192,3 +192,19 @@ def test_pergunta_com_pedido_destrutivo_e_recusada_pelo_classificador():
 
 def test_pergunta_espacada_e_normalizada_para_o_que_o_dono_ve():
     assert dss.comando_claude_da_vps("  oi   tudo  bem ") == "claude -p 'oi tudo bem'"
+
+
+# ---------------------------------------------------------------- projetos que o DERVS não toca (06/10)
+def test_sessoes_de_projetos_que_nao_se_tocam_ficam_fora():
+    base = {"protocolo": "ssh", "host": "1.2.3.4", "usuario": "root", "porta": 22}
+    for nome in ("TineHost-medconsultoria", "ccvp prod", "Zacareli", "sophia-site", "Camargo e Soares", "Nexa-api"):
+        entrada, motivo = dp.interpretar(nome, dict(base))
+        assert entrada is None and "não toca" in motivo, nome
+    entrada, _ = dp.interpretar("VPS-OVH", dict(base))
+    assert entrada is not None
+
+
+def test_bloqueio_extra_da_config():
+    base = {"protocolo": "ssh", "host": "1.2.3.4", "usuario": "root", "porta": 22}
+    assert dp.interpretar("cliente-x", dict(base), dp.BLOQUEADAS_PADRAO + ("cliente-x",))[0] is None
+    assert dp.interpretar("cliente-x", dict(base))[0] is not None

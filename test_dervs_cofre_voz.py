@@ -162,3 +162,7 @@ def test_abrir_variantes(fala):
 def test_senha_falada_nao_e_anotada(cv):
     fala = voz.executar({"tipo": "cofre_anotar", "texto": "a senha do wifi é bananas123", "privado": False}, cv)
     assert "segredo" in fala.lower()
+
+
+def test_abriu_do_reconhecedor_vale_como_abre():
+    assert voz.interpretar("Dervs abriu o cofre.") == {"tipo": "cofre_abrir"}

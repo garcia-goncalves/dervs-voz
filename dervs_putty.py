@@ -48,6 +48,7 @@ def ler_sessoes_do_registro() -> tuple[dict, list]:
     if winreg is None:
         return {}, []
     sessoes, puladas = {}, []
+    bloqueadas = _bloqueadas_da_config()
     try:
         raiz = winreg.OpenKey(winreg.HKEY_CURRENT_USER, RAIZ)
     except OSError:
@@ -75,7 +76,7 @@ def ler_sessoes_do_registro() -> tuple[dict, list]:
                     }
             except OSError:
                 continue
-            entrada, motivo = interpretar(nome, dados)
+            entrada, motivo = interpretar(nome, dados, bloqueadas)
             if entrada is None:
                 puladas.append((nome, motivo))
             else:
@@ -83,8 +84,29 @@ def ler_sessoes_do_registro() -> tuple[dict, list]:
     return sessoes, puladas
 
 
-def interpretar(nome: str, d: dict):
+# Projetos que o DERVS não toca (revenda TineHost, publicação manual; repos do André). Sessão do
+# PuTTY cujo NOME os cita nunca vira alvo de voz. O dono acrescenta mais em `ssh_sessoes_bloqueadas`.
+BLOQUEADAS_PADRAO = ("tinehost", "medconsultoria", "ccvp", "zacareli", "sophia", "camargo", "nexa", "aninha")
+
+
+def _bloqueada(nome: str, bloqueadas) -> bool:
+    n = str(nome).lower()
+    return any(str(b).strip().lower() in n for b in bloqueadas if str(b).strip())
+
+
+def _bloqueadas_da_config() -> tuple:
+    try:
+        import dervs_config
+        extra = dervs_config.carregar().get("ssh_sessoes_bloqueadas") or []
+    except Exception:
+        extra = []
+    return tuple(BLOQUEADAS_PADRAO) + tuple(e for e in extra if isinstance(e, str))
+
+
+def interpretar(nome: str, d: dict, bloqueadas=BLOQUEADAS_PADRAO):
     """((apelido, entrada), None) ou (None, motivo). Pura: não toca o registro."""
+    if _bloqueada(nome, bloqueadas):
+        return None, "projeto que o DERVS não toca"
     if str(d.get("protocolo", "ssh")).lower() != "ssh":
         return None, "não é SSH"
     host = d.get("host") or ""

@@ -96,11 +96,12 @@ def _servidor_ou_pergunta(t, apelidos):
 
 
 _SERVIDOR = r"(?:vps|servidor|[a-z0-9][a-z0-9 ._-]{0,40})"
+_CLAUDE = r"(?:claude|cloud|clod|claud|clode)"      # o reconhecedor de voz erra o nome ("cloud")
 
 
 def _ssh(t: str, apelidos):
     m = re.match(r"(?:pergunta|pergunte|fala|fale|pede|peca|manda|mande)\s+(?:pro|para o|pra|ao|com o)\s+"
-                 r"claude\s+(?:da|na|do|no)\s+(.+)$", t)
+                 r"%s\s+(?:da|na|do|no)\s+(.+)$" % _CLAUDE, t)
     if m:
         palavras = m.group(1).split()
         for k in (3, 2, 1):                       # o servidor são as primeiras k palavras
@@ -169,7 +170,7 @@ def _projeto(t: str):
                  r"(?:\s+no\s+(?:vs ?code|visual studio code|codigo))?$", t)
     if m:
         return {"tipo": "projeto_abrir", "nome": m.group(1)}
-    m = re.match(r"(?:pede|peca|pedir|manda|mande)\s+(?:pro|para o|ao)\s+claude\s+(.+?)\s+"
+    m = re.match(r"(?:pede|peca|pedir|manda|mande)\s+(?:pro|para o|ao)\s+" + _CLAUDE + r"\s+(.+?)\s+"
                  r"(?:no|do|na|da|em)\s+projeto\s+(?:do |da |de )?(.+)$", t)
     if m:
         return {"tipo": "projeto_claude", "pedido": m.group(1), "nome": m.group(2)}
