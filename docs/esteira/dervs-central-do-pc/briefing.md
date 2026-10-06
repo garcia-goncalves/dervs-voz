@@ -1,5 +1,7 @@
 # BRIEFING — dervs-central-do-pc
 
+Aprovado em: 2026-10-06
+
 ## pedido_original
 
 "Quero a aplicação funcionando e finalizada", "quero o painel ultra revolucionário e muito inteligente", "quero que meu pc sempre esteja sem erros e atualizado". Só o painel grande, com minimizar/diminuir/fechar e acesso fácil (bandeja do Windows). Usar o Claude Code de verdade, "exatamente igual ao que estamos usando, o mesmo Claude", com MCPs (ex.: Playwright para abrir navegador e clicar em tudo). Acesso à máquina inteira para analisar e corrigir tudo. Central do PC: manutenção, análises, saúde, melhorias, atualizações. Sobre autonomia (29/09/2026): "Quero máxima inteligência, assertividade, mas também quero segurança. Não pode apagar nada sem antes analisar tudo profundamente e me dizer o que é cada coisa que quer apagar. Sempre com minha aprovação. Mas terá autonomia para acessar tudo e fazer tudo."
@@ -19,17 +21,16 @@ O dono da máquina, leigo em terminal, que decide o produto e julga pelo que vê
 
 ## criterio_de_aceitacao
 
-1. Existe uma única janela do DERVS (o painel grande). Ela tem minimizar, diminuir/restaurar e fechar; fechar só esconde para a bandeja; o ícone da bandeja tem menu (abrir, sair) e o atalho global abre e esconde. Provado por foto só da janela e por teste da lógica de abrir/esconder.
-2. O painel roda o `claude` real do dono (CLI com `~/.claude`, MCPs e skills), pela assinatura, sem chave de API. Provado: uma pergunta feita no painel é respondida pelo Claude Code e o resultado aparece em streaming na tela; o `cerebro: "claude"` funciona por voz e por texto.
-3. O Playwright (MCP) responde dentro do painel: o dono pede "abre o site X" e o navegador abre. Provado por execução real.
-4. Nenhuma ação que apaga, desinstala, altera configuração do sistema ou instala algo roda sem antes existir um relatório de análise mostrando, item por item, o que é, onde está, tamanho, por que é seguro (ou não) tocar, e o que muda se for feito; e sem o clique de aprovação do dono naquele item. Provado por teste automatizado (a ação recusa sem aprovação registrada) e por revisão de segurança.
-5. A Central do PC mostra dados reais de: saúde e espaço do disco, erros recentes do Visualizador de Eventos, atualizações pendentes (Windows Update e winget), programas de inicialização e processos pesados, Defender e firewall, e arquivos temporários candidatos à limpeza. Provado por foto da tela e por testes dos coletores com dados simulados.
-6. O "diagnóstico do dia" resume o estado do PC em poucas frases faladas em português, só leitura, sem mudar nada. Provado por execução e teste do resumo.
-7. Toda ação sensível (analisar, propor, aprovar, executar, desfazer) fica registrada em um log local que o dono pode abrir no painel. Segredos nunca entram nesse log.
-8. `python -m pytest -q` e os testes JS continuam 100% verdes, sem microfone real, e o que funcionava (voz echo, gasto do dia, lembretes, diário, reunião 1h) segue igual. Consumo parado do app abaixo de 0,6 núcleo.
-
-9. Existe um `DERVS-Setup-<versão>.exe` gerado por um comando único. Numa conta de Windows limpa (ou máquina virtual), o assistente instala sem erro, cria atalho e entrada em "Aplicativos", abre o DERVS, pede na primeira execução o que é pessoal (chave da voz, microfone, permissões), e a desinstalação remove o programa e mantém os dados da pessoa só se ela escolher. Provado por instalação real e por teste que varre o pacote em busca de segredo (chave, senha, `.env`, config do dono): zero achados.
-10. O harness do DERVS (agentes, skills, MCPs, permissões) está em pastas versionadas do projeto, com um documento de uma página dizendo o que cada peça faz, e as regras de segurança (caminhos protegidos, aprovação item a item, log) valem igual em qualquer PC. Acesso ao GitHub usa o login da própria pessoa; acesso ao servidor **não** entra no instalador dos outros (só no PC do dono e só pelo caminho de deploy já aprovado).
+- [ ] Existe uma única janela do DERVS (o painel grande). Ela tem minimizar, diminuir/restaurar e fechar; fechar só esconde para a bandeja; o ícone da bandeja tem menu (abrir, sair) e o atalho global abre e esconde. Provado por foto só da janela e por teste da lógica de abrir/esconder.
+- [ ] O painel roda o `claude` real do dono (CLI com `~/.claude`, MCPs e skills), pela assinatura, sem chave de API. Provado: uma pergunta feita no painel é respondida pelo Claude Code e o resultado aparece em streaming na tela; o `cerebro: "claude"` funciona por voz e por texto.
+- [ ] O Playwright (MCP) responde dentro do painel: o dono pede "abre o site X" e o navegador abre. Provado por execução real.
+- [ ] Nenhuma ação que apaga, desinstala, altera configuração do sistema ou instala algo roda sem antes existir um relatório de análise mostrando, item por item, o que é, onde está, tamanho, por que é seguro (ou não) tocar, e o que muda se for feito (…ver detalhe)
+- [ ] A Central do PC mostra dados reais de: saúde e espaço do disco, erros recentes do Visualizador de Eventos, atualizações pendentes (Windows Update e winget), programas de inicialização e processos pesados, Defender e firewall, e arquivos temporários candidatos à limpeza (…ver detalhe)
+- [ ] O "diagnóstico do dia" resume o estado do PC em poucas frases faladas em português, só leitura, sem mudar nada. Provado por execução e teste do resumo.
+- [ ] Toda ação sensível (analisar, propor, aprovar, executar, desfazer) fica registrada em um log local que o dono pode abrir no painel. Segredos nunca entram nesse log.
+- [ ] `python -m pytest -q` e os testes JS continuam 100% verdes, sem microfone real, e o que funcionava (voz echo, gasto do dia, lembretes, diário, reunião 1h) segue igual. Consumo parado do app abaixo de 0,6 núcleo.
+- [ ] Existe um `DERVS-Setup-<versão>.exe` gerado por um comando único. Numa conta de Windows limpa (ou máquina virtual), o assistente instala sem erro, cria atalho e entrada em "Aplicativos", abre o DERVS, pede na primeira execução o que é pessoal (chave da voz, microfone (…ver detalhe)
+- [ ] O harness do DERVS (agentes, skills, MCPs, permissões) está em pastas versionadas do projeto, com um documento de uma página dizendo o que cada peça faz, e as regras de segurança (caminhos protegidos, aprovação item a item, log) valem igual em qualquer PC (…ver detalhe)
 
 ## fora_de_escopo
 
@@ -42,3 +43,9 @@ ALTO. Acesso à máquina inteira somado a comando por voz e por Claude Code: apa
 ## plano_de_voo
 
 Fases 1, 2 (enxuta), 3 (design do painel único), 4, 5, 6 (com portão de risco), 7. Entrega em 4 ondas, cada uma testada e enviada ao GitHub antes da próxima: A) painel único + bandeja; B) Claude Code real dentro do app (streaming, MCPs, Playwright); C) motor de aprovação e trava de análise-antes-de-agir; D) Central do PC (coletores, análise, limpeza reversível, diagnóstico do dia por voz). Modo enxuto na descoberta: um despacho com as quatro perguntas (opus, por causa do risco). Executores em worktree (sonnet), revisores python, typescript e security (obrigatório, por causa do risco). Ondas E (harness próprio versionado) e F (instalador Windows com assinatura de código decidida com o dono) somam-se às quatro. Despachos previstos: 18 a 24.
+
+## detalhe_dos_criterios
+
+Texto completo dos critérios encurtados acima (a lista tem teto de 300 caracteres por linha):
+
+9. Existe um `DERVS-Setup-<versão>.exe` gerado por um comando único. Numa conta de Windows limpa (ou máquina virtual), o assistente instala sem erro, cria atalho e entrada em "Aplicativos", abre o DERVS, pede na primeira execução o que é pessoal (chave da voz, microfone, permissões) (…ver detalhe)

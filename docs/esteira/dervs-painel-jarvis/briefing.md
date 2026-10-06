@@ -1,5 +1,7 @@
 # BRIEFING — dervs-painel-jarvis
 
+Aprovado em: 2026-10-06
+
 ## pedido_original
 
 "Tá tudo bugado e travando. A voz é horrivel. Sotaque ridiculo. Quero sotaque brasileiro... quero voz real. Não quero que pareça robo... quero um painel incrível do dervs... como se fosse o JARVIS bem completo e revolucionário..." — e, à proposta de painel grande com 3 colunas e gasto do dia: "sim faça tudo".
@@ -14,12 +16,12 @@ O dono da máquina, leigo em terminal, que julga tudo pelo que vê na tela. Não
 
 ## criterio_de_aceitacao
 
-1. Ctrl+Alt+D (ou botão no widget) abre a janela grande; de novo, esconde. Foto só da janela mostra reator, coluna de sistema, coluna de agenda/diário, faixa de conversa e barra de status.
-2. CPU, RAM, disco e rede mostram valores reais com gráfico de histórico (últimos ~60 s), atualizando sozinhos.
-3. A agenda mostra os lembretes reais de `dervs_lembretes` e o diário mostra as entradas reais de `dervs_diario`; sem itens, mostra estado vazio com texto claro.
-4. A barra de status mostra microfone, voz (nuvem ou local), internet e o gasto do dia em dólar, e o gasto sobe quando o DERVS fala ou transcreve (coberto por teste).
-5. O reator reage à amplitude da voz e a animação cai para no máximo 10 quadros por segundo com a janela escondida ou sem foco; parado, o DERVS inteiro fica abaixo de 0,6 núcleo de CPU (medido).
-6. `python -m pytest -q` continua 100% verde, sem microfone real, e o que já funcionava (widget, cartão de plano, cartão de erro, reunião 1h) segue igual.
+- [ ] Ctrl+Alt+D (ou botão no widget) abre a janela grande; de novo, esconde. Foto só da janela mostra reator, coluna de sistema, coluna de agenda/diário, faixa de conversa e barra de status.
+- [ ] CPU, RAM, disco e rede mostram valores reais com gráfico de histórico (últimos ~60 s), atualizando sozinhos.
+- [ ] A agenda mostra os lembretes reais de `dervs_lembretes` e o diário mostra as entradas reais de `dervs_diario`; sem itens, mostra estado vazio com texto claro.
+- [ ] A barra de status mostra microfone, voz (nuvem ou local), internet e o gasto do dia em dólar, e o gasto sobe quando o DERVS fala ou transcreve (coberto por teste).
+- [ ] O reator reage à amplitude da voz e a animação cai para no máximo 10 quadros por segundo com a janela escondida ou sem foco; parado, o DERVS inteiro fica abaixo de 0,6 núcleo de CPU (medido).
+- [ ] `python -m pytest -q` continua 100% verde, sem microfone real, e o que já funcionava (widget, cartão de plano, cartão de erro, reunião 1h) segue igual.
 
 ## fora_de_escopo
 

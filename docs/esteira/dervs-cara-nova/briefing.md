@@ -1,3 +1,5 @@
+Aprovado em: 2026-10-06
+
 ## pedido_original
 "continue de onde vc parou... quero que refatore a CARA do Dervs... vi sobre o HERMES AGENTE
 e sobre o LIVEKIT... gostaria de saber se podemos usar eles. Eles são opensource... estou até
@@ -31,25 +33,14 @@ dia. Quer uma experiência visual "surreal, bonita, futurista" — o julgamento 
 dele, por isso a fase de design (painel de direções visuais) é obrigatória aqui.
 
 ## criterio_de_aceitacao
-- A janela nova abre pelos mesmos atalhos de hoje (Área de Trabalho e menu Iniciar) e
-  substitui a janela/selo PyQt6 atual — não sobra duas interfaces concorrentes.
-- Só um Dervs roda por vez: abrir de novo traz a janela existente para frente, em vez de abrir
-  outra (mesmo comportamento que já existe hoje, recriado no Electron).
-- A onda visual muda de forma visivelmente ligada ao volume real do áudio — provável com um
-  teste automatizado que injeta um trecho de áudio de amplitude conhecida e confere que o
-  valor lido pela interface mudou de acordo, mais uma checagem visual do dono.
-- As funcionalidades de hoje continuam funcionando sem regressão: porteiro, transcrição,
-  cérebro, execução de comando com os trilhos de risco, atalho de transcrever arquivo,
-  registro de queda. Os testes atuais (543 verdes) continuam verdes, mais os testes novos da
-  interface.
-- Nenhuma credencial (chave da OpenAI, senha do VPS, token do GitHub) aparece na interface
-  nova, em log ou em qualquer arquivo do repositório.
-- Existe `docs/esteira/dervs-cara-nova/arquitetura-agente.md` comparando Hermes Agent, LiveKit,
-  Open Claw e OpenAI API vs IA open source no VPS — com custo, latência, e uma recomendação
-  clara de caminho seguro para controle futuro de navegador/PC/servidor/GitHub/VS Code, sem
-  liberar controle irrestrito.
-- O dono consegue ver a onda reagindo à própria voz numa demonstração ao vivo antes de a
-  entrega ser dada como pronta.
+
+- [ ] A janela nova abre pelos mesmos atalhos de hoje (Área de Trabalho e menu Iniciar) e substitui a janela/selo PyQt6 atual — não sobra duas interfaces concorrentes.
+- [ ] Só um Dervs roda por vez: abrir de novo traz a janela existente para frente, em vez de abrir outra (mesmo comportamento que já existe hoje, recriado no Electron).
+- [ ] A onda visual muda de forma visivelmente ligada ao volume real do áudio — provável com um teste automatizado que injeta um trecho de áudio de amplitude conhecida e confere que o valor lido pela interface mudou de acordo, mais uma checagem visual do dono.
+- [ ] As funcionalidades de hoje continuam funcionando sem regressão: porteiro, transcrição, cérebro, execução de comando com os trilhos de risco, atalho de transcrever arquivo, registro de queda. Os testes atuais (543 verdes) continuam verdes, mais os testes novos da interface.
+- [ ] Nenhuma credencial (chave da OpenAI, senha do VPS, token do GitHub) aparece na interface nova, em log ou em qualquer arquivo do repositório.
+- [ ] Existe `docs/esteira/dervs-cara-nova/arquitetura-agente.md` comparando Hermes Agent, LiveKit, Open Claw e OpenAI API vs IA open source no VPS — com custo, latência, e uma recomendação clara de caminho seguro para controle futuro de navegador/PC/servidor/GitHub/VS Code (…ver detalhe)
+- [ ] O dono consegue ver a onda reagindo à própria voz numa demonstração ao vivo antes de a entrega ser dada como pronta.
 
 ## fora_de_escopo
 Implementar de fato o controle de navegador, PC, servidor, GitHub ou VS Code por um agente

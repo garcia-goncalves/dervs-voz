@@ -1,5 +1,7 @@
 # Briefing — DERVS no Windows, em tempo real
 
+Aprovado em: 2026-10-06
+
 ## pedido_original
 
 > Comece e faça tudo pra funcionar perfeitamente o DERVS no meu Windows. Quero ele bem
@@ -33,34 +35,17 @@ aplica-se só à manutenção futura do próprio repositório.
 
 ## criterio_de_aceitacao
 
-Cada item é verificável por comando, por teste ou por escuta direta.
-
-1. `dervs-venv\Scripts\python.exe -m pytest -q` roda **116 de 116 testes verdes** na
-   máquina Windows do dono (hoje: 112 verdes, 4 vermelhos).
-2. `python -c "import dervs_atalhos as a; print(a.tentar('abre o chrome'))"` devolve um
-   plano com um comando que **existe no Windows** (não `google-chrome`).
-3. Existe um teste automatizado que prova que **nenhum áudio sai da máquina antes da
-   palavra de acordar**: o portão de despertar é avaliado sobre transcrição **local**, e
-   a função que chama a nuvem só é acionada depois que o portão abre. Provado com dublê
-   (mock) que falha o teste se a ordem inverter.
-4. Medição gravada em `docs/esteira/windows-tempo-real/verificacao.md`, feita nesta
-   máquina, com número real (não estimativa) para: (a) tempo do portão local de
-   despertar, (b) tempo da transcrição na nuvem, (c) tempo do cérebro, (d) tempo até o
-   primeiro som da voz. A soma dos quatro é o "tempo até responder".
-5. O dono fala "DERVS" e "OK DERVS" ao microfone e o programa acorda; fala 10 frases
-   comuns sem o nome e o programa **não** acorda nenhuma vez.
-6. Existe um liga/desliga visível: um clique (ou um atalho de teclado) põe o DERVS em
-   escuta contínua e outro clique o cala. O estado é visível na tela sem abrir menu.
-7. A voz sai pelos alto-falantes no Windows sem `aplay`/`paplay`/`pw-play`, e o dono
-   escolhe entre pelo menos 3 amostras de voz geradas nesta máquina, com velocidade
-   ajustável por configuração.
-8. `python -c "import dervs_config as c; print(c.CONFIG_PATH)"` aponta para uma pasta do
-   Windows (`%APPDATA%`), não para `~/.config`.
-9. Um comando destrutivo típico do Windows (ex.: `Remove-Item -Recurse -Force C:\`,
-   `format`, `del /f /s /q`) é classificado como **destrutivo** por `dervs_safety`, com
-   teste que prova.
-10. Um documento em português explica ao dono, sem jargão, como ligar, desligar, trocar
-    a voz e quanto custa por mês.
+- [ ] Cada item é verificável por comando, por teste ou por escuta direta.
+- [ ] `dervs-venv\Scripts\python.exe -m pytest -q` roda **116 de 116 testes verdes** na máquina Windows do dono (hoje: 112 verdes, 4 vermelhos).
+- [ ] `python -c "import dervs_atalhos as a; print(a.tentar('abre o chrome'))"` devolve um plano com um comando que **existe no Windows** (não `google-chrome`).
+- [ ] Existe um teste automatizado que prova que **nenhum áudio sai da máquina antes da palavra de acordar**: o portão de despertar é avaliado sobre transcrição **local**, e a função que chama a nuvem só é acionada depois que o portão abre. Provado com dublê (…ver detalhe)
+- [ ] Medição gravada em `docs/esteira/windows-tempo-real/verificacao.md`, feita nesta máquina, com número real (não estimativa) para: (a) tempo do portão local de despertar, (b) tempo da transcrição na nuvem, (c) tempo do cérebro, (d) tempo até o primeiro som da voz (…ver detalhe)
+- [ ] O dono fala "DERVS" e "OK DERVS" ao microfone e o programa acorda; fala 10 frases comuns sem o nome e o programa **não** acorda nenhuma vez.
+- [ ] Existe um liga/desliga visível: um clique (ou um atalho de teclado) põe o DERVS em escuta contínua e outro clique o cala. O estado é visível na tela sem abrir menu.
+- [ ] A voz sai pelos alto-falantes no Windows sem `aplay`/`paplay`/`pw-play`, e o dono escolhe entre pelo menos 3 amostras de voz geradas nesta máquina, com velocidade ajustável por configuração.
+- [ ] `python -c "import dervs_config as c; print(c.CONFIG_PATH)"` aponta para uma pasta do Windows (`%APPDATA%`), não para `~/.config`.
+- [ ] Um comando destrutivo típico do Windows (ex.: `Remove-Item -Recurse -Force C:\`, `format`, `del /f /s /q`) é classificado como **destrutivo** por `dervs_safety`, com teste que prova.
+- [ ] Um documento em português explica ao dono, sem jargão, como ligar, desligar, trocar a voz e quanto custa por mês.
 
 ## fora_de_escopo
 

@@ -1,5 +1,7 @@
 # BRIEFING — dervs-painel-completo
 
+Aprovado em: 2026-10-06
+
 ## pedido_original
 
 Mensagem 1 (17/09/2026): "O DERVS Está bugado/quebrado/parado. Corrija tudo e garanta que
@@ -47,19 +49,12 @@ Um usuário só: o dono desta máquina Windows, leigo em terminal, que abre o DE
 
 ## criterio_de_aceitacao
 
-1. Com o DERVS aberto e outra janela (ex.: o navegador) em primeiro plano, a janela do DERVS
-   continua visível por cima — não fica mais "escondida" sem o dono saber que está viva.
-2. A janela mostra, sem precisar de voz nem clique: hora atual ao vivo, uso real de CPU, uso
-   real de memória e espaço livre em disco desta máquina — atualizando sozinho.
-3. O fundo é translúcido/"espelhado" (efeito vidro fosco), não mais um retângulo opaco quase
-   preto — comprovado com uma foto de tela mostrando o desktop por trás do painel.
-4. Existe um botão visível, clicável, rotulado para abrir o DERVS App — clicar nele abre
-   `http://localhost:4777` no navegador padrão.
-5. Nada do que já funcionava quebra: o núcleo com anéis continua reagindo a ouvindo/pensando/
-   falando/erro, o cartão de plano com Confirmar/Cancelar continua funcionando, a suíte de
-   testes (`python -m pytest -q`, hoje 606 verdes) continua 100% verde.
-6. Eu mesmo testei tudo isso ao vivo (screenshot da janela real, clique simulado nos elementos
-   novos) antes de dizer que terminei — não só "deveria funcionar".
+- [ ] Com o DERVS aberto e outra janela (ex.: o navegador) em primeiro plano, a janela do DERVS continua visível por cima — não fica mais "escondida" sem o dono saber que está viva.
+- [ ] A janela mostra, sem precisar de voz nem clique: hora atual ao vivo, uso real de CPU, uso real de memória e espaço livre em disco desta máquina — atualizando sozinho.
+- [ ] O fundo é translúcido/"espelhado" (efeito vidro fosco), não mais um retângulo opaco quase preto — comprovado com uma foto de tela mostrando o desktop por trás do painel.
+- [ ] Existe um botão visível, clicável, rotulado para abrir o DERVS App — clicar nele abre `http://localhost:4777` no navegador padrão.
+- [ ] Nada do que já funcionava quebra: o núcleo com anéis continua reagindo a ouvindo/pensando/ falando/erro, o cartão de plano com Confirmar/Cancelar continua funcionando, a suíte de testes (`python -m pytest -q`, hoje 606 verdes) continua 100% verde.
+- [ ] Eu mesmo testei tudo isso ao vivo (screenshot da janela real, clique simulado nos elementos novos) antes de dizer que terminei — não só "deveria funcionar".
 
 ## fora_de_escopo
 

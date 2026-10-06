@@ -1,5 +1,7 @@
 # BRIEFING — dervs-integracao-total (Fatia B, lado do DERVS-VOZ)
 
+Aprovado em: 2026-10-06
+
 ## pedido_original
 
 "Continue de onde você parou e faça tudo. Preciso da aplicação 100% funcionando e sem erros. Preciso que o DERVS-VOZ (você) esteja conectado e integrado a aplicação web DERVS. O Dervs já está aberto em outro terminal/VSCODE. Vocês podem interagir... e quero que vcs mesmo façam tudo o que for necessário para funcionar. Preciso que a aplicação DERVS e o Dervs voz analisem todos os projetos e monitore eles 24h por dia. Faça manutenção e ajustes em tudo. Desenvolva e programe/crie. Preciso que o DERVS-VOZ / DERVS possa utilizar tanto o Claude Code como modelo de IA, mas tbm quero que tenha opção de usar o HERMES AGENT e o JEV. Quero que tenhamos nosso proprio terminal SSH para comandos e desenvolvimento. Precisa ser tudo bem inteligente e integrado." Depois: "segue com a onda 1 (sempre esteja conversando com o DERVS) e vice versa. Estejam no mesmo contexto e trabalhe em equipe."
@@ -14,12 +16,12 @@ O dono, leigo em terminal, que fala com o DERVS-VOZ e olha o painel web de manh�
 
 ## criterio_de_aceitacao
 
-1. Existe `dervs_ponte_web.py`, que só faz conexão de saída (não abre porta), lê o token de `~/.dervs/agente.json` (ou de `DERVS_AGENTE_ARQUIVO`), nunca o escreve em log nem o mostra. Provado por teste que examina log e representação do objeto, e por teste de que o módulo não importa `socket.bind`/servidor.
-2. A ponte manda `POST /agente/voz/estado` com o formato de `contrato-ponte.md` e busca `GET /agente/voz/recados`; devolve `POST /agente/voz/resultado`. Provado por teste contra servidor HTTP de mentira em thread.
-3. Recado de nível `leitura` é executado sozinho; nível `muda_estado` vira proposta no painel do DERVS-VOZ e só anda com clique local; o que o porteiro e os caminhos protegidos recusam volta com `estado=recusado`. Id repetido é ignorado. Provado por testes.
-4. Sem token, sem rede ou com o painel web fora do ar, a ponte diz o motivo em português e o DERVS-VOZ segue funcionando (nunca derruba a voz). Provado por teste.
-5. Prova ponta a ponta: o servidor real do DERVS (`servir.py`, local) e o DERVS-VOZ trocam estado, recado e resultado. Feito em conjunto com a sessão do DERVS web quando a rota dela existir.
-6. A suíte inteira continua verde (`python -m pytest -q` no `dervs-venv`), sem abrir microfone real.
+- [ ] Existe `dervs_ponte_web.py`, que só faz conexão de saída (não abre porta), lê o token de `~/.dervs/agente.json` (ou de `DERVS_AGENTE_ARQUIVO`), nunca o escreve em log nem o mostra. Provado por teste que examina log e representação do objeto (…ver detalhe)
+- [ ] A ponte manda `POST /agente/voz/estado` com o formato de `contrato-ponte.md` e busca `GET /agente/voz/recados`; devolve `POST /agente/voz/resultado`. Provado por teste contra servidor HTTP de mentira em thread.
+- [ ] Recado de nível `leitura` é executado sozinho; nível `muda_estado` vira proposta no painel do DERVS-VOZ e só anda com clique local; o que o porteiro e os caminhos protegidos recusam volta com `estado=recusado`. Id repetido é ignorado. Provado por testes.
+- [ ] Sem token, sem rede ou com o painel web fora do ar, a ponte diz o motivo em português e o DERVS-VOZ segue funcionando (nunca derruba a voz). Provado por teste.
+- [ ] Prova ponta a ponta: o servidor real do DERVS (`servir.py`, local) e o DERVS-VOZ trocam estado, recado e resultado. Feito em conjunto com a sessão do DERVS web quando a rota dela existir.
+- [ ] A suíte inteira continua verde (`python -m pytest -q` no `dervs-venv`), sem abrir microfone real.
 
 ## fora_de_escopo
 
