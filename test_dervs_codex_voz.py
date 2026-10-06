@@ -392,9 +392,9 @@ def test_git_do_dervs_roda_sem_hook_sem_fsmonitor_e_com_ambiente_enxuto(monkeypa
         visto.update(argv=argv, env=kw["env"])
         return subprocess.CompletedProcess(argv, 0, "", "")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "x")
-    cv._git_seguro("C:\p", "status", rodar=rodar)
+    cv._git_seguro(r"C:\p", "status", rodar=rodar)
     a = visto["argv"]
-    assert a[:3] == ["git", "-C", "C:\p"] and "core.hooksPath=NUL" in a and "core.fsmonitor=false" in a
+    assert a[:3] == ["git", "-C", r"C:\p"] and "core.hooksPath=NUL" in a and "core.fsmonitor=false" in a
     assert "AWS_SECRET_ACCESS_KEY" not in visto["env"] and visto["env"]["GIT_CONFIG_COUNT"] == "3"
 
 
