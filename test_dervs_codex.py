@@ -6,6 +6,7 @@ Rodar: python -m pytest test_dervs_codex.py -q
 """
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -87,11 +88,11 @@ def test_sem_glob_usa_o_caminho_que_o_windows_informa(tmp_path):
 
 
 def test_cai_no_path_por_ultimo(tmp_path):
-    no_path = tmp_path / "bin" / "codex.cmd"
+    no_path = tmp_path / "bin" / "codex.exe"
     no_path.parent.mkdir()
     no_path.write_text("x")
     achado, motivo = cx.localizar("", padrao_pacotes=_padrao(tmp_path), appx=_sem_appx,
-                                  onde=lambda n: str(no_path) if n == "codex.cmd" else None)
+                                  onde=lambda n: str(no_path) if n == "codex.exe" else None)
     assert achado == str(no_path) and motivo == "PATH"
 
 
@@ -416,12 +417,17 @@ def test_electron_conhece_o_verbo_codex():
 
 @pytest.mark.skipif(os.environ.get("DERVS_TESTE_CODEX_REAL") != "1",
                     reason="chama o Codex de verdade (usa a assinatura); ligue com DERVS_TESTE_CODEX_REAL=1")
-def test_real_responda_pong(tmp_path):
+def test_real_somente_leitura_nao_grava_e_nao_tem_ferramenta_externa(tmp_path):
     c = cx.Codex(config_fn=lambda: {"codex_ligado": True, "codex_caminho": "", "codex_esforco": "low"})
     exe, motivo = cx.localizar("")
     assert exe, motivo
     assert cx.status(exe)["estado"] == "chatgpt"
+    alvo = tmp_path / "escrito.txt"
     inicio = time.monotonic()
-    r = c.perguntar("responda pong", str(tmp_path), "leitura", timeout=120)
+    r = c.perguntar("Tente gravar um arquivo chamado escrito.txt nesta pasta com o texto oi. Depois diga, em "
+                    "uma frase, se você tem alguma ferramenta MCP, plugin, conector, busca na web ou navegador.",
+                    str(tmp_path), "leitura", timeout=180)
     print(f"\ncodex real respondeu em {time.monotonic() - inicio:.1f} s: {r}")
-    assert r["ok"] and "pong" in r["texto"].lower()
+    assert r["ok"], r
+    assert not alvo.exists()                               # o sandbox somente-leitura barrou a gravação
+    assert re.search(r"(?i)nenhum|n[aã]o", r["texto"])     # ele mesmo diz que não tem ferramenta externa

@@ -280,13 +280,23 @@ class Motor(dervs.PopUp):
             self.entrada.clear()
             cdx.parar()
             return True
+        infra = self.infra_voz
+        infra_espera = infra is not None and infra.tem_pendencia()
         if acoes.tem_pendencia():
             resposta = voz_infra.resposta_de_envio(texto)
+            if resposta == "sim" and infra_espera:
+                # o "confirma" nunca consome o pedido de dois módulos de uma vez
+                self._diz("dono", texto)
+                self.entrada.clear()
+                self._claude_fala.emit("Há dois pedidos esperando; diga cancela e repita o que quer.")
+                return True
             if resposta is None:
                 self._claude_fala.emit(acoes.responder_pendencia(False))   # falou outra coisa: o pedido caiu
             else:
                 self._diz("dono", texto)
                 self.entrada.clear()
+                if infra_espera:                                           # "cancela" vale para os dois
+                    infra.responder_pendencia(False)
                 self._falar_de_thread(lambda: acoes.responder_pendencia(resposta == "sim"))
                 return True
         try:
@@ -295,6 +305,11 @@ class Motor(dervs.PopUp):
             return False
         if intencao is None:
             return False
+        if infra_espera and intencao["tipo"] != "falar":
+            self._diz("dono", texto)
+            self.entrada.clear()
+            self._claude_fala.emit("Há um pedido esperando o seu confirma. Diga cancela e repita o pedido ao Codex.")
+            return True
         self._diz("dono", texto)
         self.entrada.clear()
         self._falar_de_thread(lambda: acoes.executar(intencao))

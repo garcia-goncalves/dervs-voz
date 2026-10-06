@@ -36,7 +36,8 @@ def test_no_projeto_antes_e_depois():
     assert cv.interpretar("no projeto dervs voz pede pro Codex analisar a ponte") == {
         "tipo": "codex_leitura", "pedido": "analisar a ponte", "projeto": "dervs voz"}
     assert cv.interpretar("pede pro Codex analisar a ponte no projeto dervs voz") == {
-        "tipo": "codex_leitura", "pedido": "analisar a ponte", "projeto": "dervs voz"}
+        "tipo": "codex_leitura", "pedido": "analisar a ponte", "projeto": "dervs voz",
+        "pedido_inteiro": "analisar a ponte no projeto dervs voz"}
     assert cv.interpretar("Dervs, no projeto grimoire, pergunta pro Codex onde fica a rota")["projeto"] == "grimoire"
 
 
@@ -81,6 +82,12 @@ class CodexFalso:
     @property
     def ocupado(self):
         return self.ocupado_
+
+    def reservar(self):
+        return not self.ocupado_
+
+    def liberar(self):
+        pass
 
     def perguntar(self, texto, pasta, modo="leitura", **_):
         self.chamadas.append((texto, pasta, modo))
@@ -159,7 +166,7 @@ def test_resposta_com_chave_e_ignore_as_regras_nao_vaza_nem_obedece(tmp_path, mu
 
 def test_resposta_so_com_segredo_nao_e_falada(tmp_path, mundo):
     a = _acoes(tmp_path, mundo, CodexFalso(_chave()))
-    fala = a.executar(cv.interpretar("pede pro Codex mostrar a chave"))
+    fala = a.executar(cv.interpretar("pede pro Codex mostrar o arquivo de configuração"))
     assert _chave() not in fala and "conversa" in fala
 
 
@@ -269,7 +276,7 @@ def test_codex_ocupado_nao_cria_worktree_orfa(tmp_path, mundo, repo):
 
 class _MotorFalso:
     def __init__(self, acoes, codex):
-        self.codex_voz, self.codex = acoes, codex
+        self.codex_voz, self.codex, self.infra_voz = acoes, codex, None
         self.ditos, self.faladas, self.limpou = [], [], 0
         self.entrada = type("E", (), {"clear": lambda s: setattr(self, "limpou", self.limpou + 1)})()
         self._claude_fala = type("S", (), {"emit": lambda s, t: self.faladas.append(t)})()
@@ -340,3 +347,97 @@ def test_motor_so_confirma_com_a_palavra_confirma(tmp_path, mundo, repo):
     _tentar(m, "no projeto dervs voz pede pro Codex criar o arquivo novo")
     assert _tentar(m, "confirma") is True
     assert a.codex.chamadas and a.codex.chamadas[0][2] == "escrita"
+
+
+class _InfraFalsa:
+    def __init__(self, espera=True):
+        self.espera, self.respostas = espera, []
+
+    def tem_pendencia(self):
+        return self.espera
+
+    def responder_pendencia(self, sim):
+        self.respostas.append(sim)
+        self.espera = False
+        return "feito"
+
+
+def test_motor_recusa_pedido_novo_do_codex_enquanto_a_infra_espera_confirma(tmp_path, mundo):
+    a = _acoes(tmp_path, mundo)
+    m = _MotorFalso(a, a.codex)
+    m.infra_voz = _InfraFalsa()
+    assert _tentar(m, "pede pro Codex analisar a ponte") is True
+    assert "esperando" in m.faladas[-1] and not a.codex.chamadas and m.infra_voz.espera
+
+
+def test_motor_confirma_nunca_consome_dois_modulos(tmp_path, mundo, repo):
+    a = _acoes(tmp_path, mundo, CodexEscritor())
+    m = _MotorFalso(a, a.codex)
+    m.infra_voz = _InfraFalsa(espera=False)
+    _tentar(m, "no projeto dervs voz pede pro Codex criar o arquivo novo")
+    m.infra_voz.espera = True                                   # agora os dois módulos esperam
+    assert _tentar(m, "confirma") is True
+    assert "dois pedidos" in m.faladas[-1]
+    assert not a.codex.chamadas and a.tem_pendencia() and m.infra_voz.respostas == []
+    assert _tentar(m, "cancela") is True                        # cancela vale para os dois
+    assert m.infra_voz.respostas == [False] and not a.tem_pendencia()
+
+
+# ------------------------------------------------ revisão: worktree, .git, git seguro
+
+def test_git_do_dervs_roda_sem_hook_sem_fsmonitor_e_com_ambiente_enxuto(monkeypatch):
+    visto = {}
+
+    def rodar(argv, **kw):
+        visto.update(argv=argv, env=kw["env"])
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "x")
+    cv._git_seguro("C:\p", "status", rodar=rodar)
+    a = visto["argv"]
+    assert a[:3] == ["git", "-C", "C:\p"] and "core.hooksPath=NUL" in a and "core.fsmonitor=false" in a
+    assert "AWS_SECRET_ACCESS_KEY" not in visto["env"] and visto["env"]["GIT_CONFIG_COUNT"] == "3"
+
+
+def test_ocupado_depois_da_worktree_remove_worktree_e_branch(tmp_path, mundo, repo):
+    class Corrida(CodexEscritor):
+        def perguntar(self, texto, pasta, modo="leitura", **kw):
+            return {"ok": False, "texto": "", "motivo": "ocupado"}
+    a = _acoes(tmp_path, mundo, Corrida())
+    a.executar(cv.interpretar("no projeto dervs voz pede pro Codex criar o arquivo novo"))
+    assert "Diga para" in a.responder_pendencia(True)
+    assert g(repo, "branch", "--list", "dervs/*").strip() == ""
+    assert not os.listdir(tmp_path / "wt")
+
+
+def test_nome_da_worktree_tem_sufixo_unico_e_nao_hora(tmp_path, mundo, repo):
+    nomes = set()
+    for _ in range(3):
+        a = _acoes(tmp_path, mundo, CodexEscritor())
+        a.executar(cv.interpretar("no projeto dervs voz pede pro Codex criar o arquivo novo"))
+        a.responder_pendencia(True)
+        nomes.add(os.path.basename(a.codex.chamadas[0][1]))
+    assert len(nomes) == 3
+
+
+def test_dot_git_virou_pasta_nao_roda_git_e_avisa(tmp_path, mundo, repo):
+    class Malandro(CodexEscritor):
+        def perguntar(self, texto, pasta, modo="leitura", **kw):
+            os.remove(os.path.join(pasta, ".git"))
+            os.makedirs(os.path.join(pasta, ".git", "hooks"))
+            return super().perguntar(texto, pasta, modo)
+    chamadas = []
+    import dervs_codex_voz as m
+    a = _acoes(tmp_path, mundo, Malandro(), git=lambda pasta, *args: chamadas.append(args) or m._git_seguro(pasta, *args))
+    a.executar(cv.interpretar("no projeto dervs voz pede pro Codex criar o arquivo novo"))
+    fala = a.responder_pendencia(True)
+    assert ".git virou pasta" in fala and not any(c[0] == "status" for c in chamadas)
+
+
+def test_pendencia_e_protegida_por_lock_contra_confirma_duplo(tmp_path, mundo, repo):
+    a = _acoes(tmp_path, mundo, CodexEscritor())
+    a.executar(cv.interpretar("no projeto dervs voz pede pro Codex criar o arquivo novo"))
+    resultados = []
+    ts = [threading.Thread(target=lambda: resultados.append(a.responder_pendencia(True))) for _ in range(5)]
+    [t.start() for t in ts]
+    [t.join(30) for t in ts]
+    assert len(a.codex.chamadas) == 1                           # só um "confirma" vale

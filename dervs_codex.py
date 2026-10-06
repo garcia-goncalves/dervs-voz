@@ -31,14 +31,22 @@ import dervs_cofre as cofre
 
 TEMPO_LIMITE_S = 600
 ESFORCOS = ("low", "medium", "high")
-NOMES_VALIDOS = ("codex.exe", "codex.cmd")
+NOMES_VALIDOS = ("codex.exe",)          # .cmd não: cmd.exe interpreta argumento (BatBadBut)
+LIMITE_BYTES = 65536
 PADRAO_PACOTES = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "WindowsApps",
                               "OpenAI.Codex_*", "app", "resources", "codex.exe")
 _PROIBIDOS = ("--dangerously-bypass-approvals-and-sandbox", "--approve-for-me", "danger-full-access",
               "--dangerously-bypass-hook-trust")
-# variáveis que dariam ao Codex dinheiro (chave de API) ou credencial de GitHub
-_VARIAVEIS_RETIRADAS = ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_ORG_ID", "GH_TOKEN", "GITHUB_TOKEN",
-                        "GH_ENTERPRISE_TOKEN", "GITLAB_TOKEN", "SSH_AUTH_SOCK", "SSH_ASKPASS")
+# LISTA BRANCA do ambiente: só o que o Windows e o Codex precisam. Segredo do dono (chaves de API,
+# AWS_*, AZURE_*, GIT_SSH_COMMAND, tokens) nunca chega ao processo.
+_AMBIENTE_EXATO = {"PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE",
+                   "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "USERNAME",
+                   "USERDOMAIN", "OS", "NUMBER_OF_PROCESSORS", "CODEX_HOME", "LANG", "PROGRAMDATA"}
+_AMBIENTE_PREFIXO = ("PROGRAMFILES", "COMMONPROGRAMFILES", "PROCESSOR_", "LC_")
+# o Codex sai de qualquer feature que o app tenha: ferramenta externa roda fora do sandbox
+_FEATURES_DESLIGADAS = ("apps", "plugins", "plugin_sharing", "browser_use", "browser_use_external",
+                        "browser_use_full_cdp_access", "computer_use", "in_app_browser", "hooks",
+                        "image_generation")
 _SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 PREAMBULO = ("Responda em português do Brasil, direto ao ponto, em poucas frases curtas e sem "
@@ -80,6 +88,8 @@ def localizar(caminho_config: str = "", *, padrao_pacotes: str = PADRAO_PACOTES,
     `(None, motivo em português)`. Caminho da config inválido NÃO cai em outro: o dono é avisado."""
     if caminho_config and str(caminho_config).strip():
         c = str(caminho_config).strip().strip('"')
+        if c.startswith("\\\\") or c.startswith("//"):
+            return None, "O caminho do Codex não pode estar na rede."
         if _nome_ok(c):
             return c, "caminho da configuração"
         return None, "O caminho do Codex na configuração não existe ou não é um codex.exe."
@@ -94,10 +104,9 @@ def localizar(caminho_config: str = "", *, padrao_pacotes: str = PADRAO_PACOTES,
         c = os.path.join(pasta, "app", "resources", "codex.exe")
         if _nome_ok(c):
             return c, "app do Codex"
-    for nome in NOMES_VALIDOS:
-        c = onde(nome)
-        if c and _nome_ok(c):
-            return c, "PATH"
+    c = onde("codex.exe")
+    if c and _nome_ok(c) and not c.startswith("\\\\"):
+        return c, "PATH"
     return None, "Não achei o Codex neste computador. Instale o app Codex da OpenAI e entre com o ChatGPT."
 
 
@@ -119,6 +128,12 @@ def _matar_arvore(proc):
         pass
 
 
+def _truncar(texto: str) -> str:
+    if len(texto) <= LIMITE_BYTES:
+        return texto
+    return texto[:LIMITE_BYTES] + "\n[... resposta cortada: passou do limite]"
+
+
 def executar_processo(argv, entrada, timeout, env=None, ao_iniciar=None, cwd=None):
     """Roda `argv` sem shell, com `entrada` no stdin. Devolve `(código, stdout, stderr)`.
     Estourou o tempo: mata a árvore e levanta `TimeoutError`."""
@@ -135,7 +150,7 @@ def executar_processo(argv, entrada, timeout, env=None, ao_iniciar=None, cwd=Non
         except Exception:
             pass
         raise TimeoutError("tempo limite do Codex")
-    return (proc.returncode, saida.decode("utf-8", "replace"), erro.decode("utf-8", "replace"))
+    return (proc.returncode, _truncar(saida.decode("utf-8", "replace")), _truncar(erro.decode("utf-8", "replace")))
 
 
 # ------------------------------------------------------------ login
@@ -166,15 +181,22 @@ def status(exe, executor=executar_processo) -> dict:
 # ------------------------------------------------------------ montar a chamada
 
 def _ambiente(sem_git: bool, base=None) -> dict:
-    env = dict(os.environ if base is None else base)
-    for k in list(env):
-        if k.upper() in _VARIAVEIS_RETIRADAS:
-            env.pop(k, None)
-    if sem_git:                      # escrita: nenhuma credencial de git ao alcance
-        env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "GCM_INTERACTIVE": "never",
-                    "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper",
-                    "GIT_CONFIG_VALUE_0": ""})
+    """Só a lista branca. Na escrita, o git do Codex (e o nosso) não tem credencial, hook nem fsmonitor
+    (a worktree compartilha `.git/hooks` do repositório principal: um hook plantado rodaria no `git status`)."""
+    origem = os.environ if base is None else base
+    env = {k: v for k, v in origem.items()
+           if k.upper() in _AMBIENTE_EXATO or k.upper().startswith(_AMBIENTE_PREFIXO)}
+    if sem_git:
+        env.update(ambiente_git_seguro())
     return env
+
+
+def ambiente_git_seguro() -> dict:
+    return {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "GCM_INTERACTIVE": "never",
+            "GIT_CONFIG_COUNT": "3",
+            "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": "",
+            "GIT_CONFIG_KEY_1": "core.hooksPath", "GIT_CONFIG_VALUE_1": "NUL",
+            "GIT_CONFIG_KEY_2": "core.fsmonitor", "GIT_CONFIG_VALUE_2": "false"}
 
 
 def montar_argv(exe, pasta, arquivo_saida, modo="leitura", esforco="medium") -> list:
@@ -183,9 +205,15 @@ def montar_argv(exe, pasta, arquivo_saida, modo="leitura", esforco="medium") -> 
         raise ValueError("modo do Codex inválido")
     if esforco not in ESFORCOS:
         esforco = "medium"
-    argv = [exe, "exec", "-s", "read-only" if modo == "leitura" else "workspace-write",
-            "--ephemeral", "--skip-git-repo-check", "-C", pasta,
-            "-c", f"model_reasoning_effort={esforco}"]
+    # --ignore-user-config + features desligadas: o ~/.codex/config.toml do dono liga MCP, plugins e
+    # navegador, e a conta ChatGPT injeta conectores (GitHub, busca, sites) que rodam FORA do sandbox
+    argv = [exe, "exec", "--ignore-user-config", "-c", 'windows.sandbox="elevated"',
+            "-c", 'web_search="disabled"']
+    for f in _FEATURES_DESLIGADAS:
+        argv += ["--disable", f]
+    argv += ["-s", "read-only" if modo == "leitura" else "workspace-write",
+             "--ephemeral", "--skip-git-repo-check", "-C", pasta,
+             "-c", f"model_reasoning_effort={esforco}"]
     if modo == "escrita":            # sem rede: nem `git push`, nem baixar nada
         argv += ["-c", "sandbox_workspace_write.network_access=false"]
     argv += ["--output-last-message", arquivo_saida, "-"]
@@ -196,10 +224,15 @@ def montar_argv(exe, pasta, arquivo_saida, modo="leitura", esforco="medium") -> 
 
 # ------------------------------------------------------------ a resposta é DADO
 
+_BLOCO_PEM = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)",
+                        re.DOTALL)
+
+
 def filtrar_saida(texto) -> str:
     """Linha a linha: a que parece segredo vira um aviso. O resto passa."""
+    texto = _BLOCO_PEM.sub("[bloco removido: chave privada]", str(texto or ""))
     linhas = []
-    for linha in str(texto or "").splitlines():
+    for linha in texto.splitlines():
         linhas.append("[linha removida: parecia um segredo]" if cofre.parece_segredo(linha) else linha)
     return "\n".join(linhas).strip()
 
@@ -214,7 +247,7 @@ def fala_curta(texto) -> str:
     """No máximo duas frases, sem markdown, e nunca com segredo."""
     import dervs_claude_code as claude_code
     fala = claude_code.resumir_para_fala(filtrar_saida(texto))
-    return "" if cofre.parece_segredo(fala) or "[linha removida" in fala else fala
+    return "" if cofre.parece_segredo(fala) or "[linha removida" in fala or "[bloco removido" in fala else fala
 
 
 # ------------------------------------------------------------ o Codex
@@ -222,13 +255,18 @@ def fala_curta(texto) -> str:
 class Codex:
     """Um Codex por vez. Tudo de fora (executor, localização, config) é injetável para o teste."""
 
+    NEGATIVO_S = 60.0
+
     def __init__(self, *, config_fn=lambda: {}, localizar_fn=localizar, executor=executar_processo,
-                 pasta_temp=None):
+                 pasta_temp=None, relogio=time.monotonic):
         self._config = config_fn
         self._localizar = localizar_fn
         self._executor = executor
         self._pasta_temp = pasta_temp
+        self._relogio = relogio
         self._trava = threading.Lock()
+        self._trava_cache = threading.Lock()
+        self._cache = None                 # (caminho_config, caminho|None, motivo, quando) — só em memória
         self._proc = None
         self._ocupado = False
         self._cancelado = False
@@ -241,14 +279,41 @@ class Codex:
     def ligado(self) -> bool:
         return bool(self._config().get("codex_ligado", True))
 
+    def _achar(self) -> tuple:
+        """`(caminho, motivo)` com cache em memória: reusa enquanto o arquivo existir (evita abrir o
+        PowerShell a cada pergunta); o resultado negativo vale 60 s. Nunca grava em disco."""
+        conf = str(self._config().get("codex_caminho", "") or "")
+        with self._trava_cache:
+            c = self._cache
+            if c and c[0] == conf:
+                if c[1] and os.path.isfile(c[1]):
+                    return c[1], c[2]
+                if not c[1] and self._relogio() - c[3] < self.NEGATIVO_S:
+                    return None, c[2]
+            caminho, motivo = self._localizar(conf)
+            self._cache = (conf, caminho, motivo, self._relogio())
+            return caminho, motivo
+
     def estado(self) -> dict:
         """Linha para o painel: pronto (ChatGPT) ou o motivo de não estar."""
         if not self.ligado:
             return {"estado": "desligado", "texto": "Codex: desligado na configuração"}
-        exe, motivo = self._localizar(self._config().get("codex_caminho", ""))
+        exe, motivo = self._achar()
         if not exe:
             return {"estado": "falhou", "texto": "Codex: não instalado"}
         return status(exe, self._executor)
+
+    def reservar(self) -> bool:
+        """Toma o slot do Codex ANTES de preparar a cópia isolada. False se já está ocupado."""
+        with self._trava:
+            if self._ocupado:
+                return False
+            self._ocupado, self._cancelado, self._proc = True, False, None
+            return True
+
+    def liberar(self):
+        with self._trava:
+            self._ocupado, self._proc = False, None
 
     def parar(self) -> bool:
         """Interrompe o Codex em andamento. True se havia algo rodando."""
@@ -265,21 +330,19 @@ class Codex:
         with self._trava:
             self._proc = proc
             cancelado = self._cancelado
-        if cancelado:
+        if cancelado:                      # "para" veio antes de o processo nascer
             _matar_arvore(proc)
 
-    def perguntar(self, texto, pasta, modo="leitura", *, timeout=TEMPO_LIMITE_S) -> dict:
-        """`{"ok", "texto", "motivo"}`. Nunca levanta. `texto` já vem filtrado de segredo."""
-        with self._trava:
-            if self._ocupado:
-                return {"ok": False, "texto": "", "motivo": "ocupado"}
-            self._ocupado, self._cancelado, self._proc = True, False, None
+    def perguntar(self, texto, pasta, modo="leitura", *, timeout=TEMPO_LIMITE_S, reservado=False) -> dict:
+        """`{"ok", "texto", "motivo"}`. Nunca levanta. `reservado=True`: o chamador já tomou o slot."""
+        if not reservado and not self.reservar():
+            return {"ok": False, "texto": "", "motivo": "ocupado"}
         arquivo = None
         try:
             if not self.ligado:
                 return {"ok": False, "texto": "", "motivo": "O Codex está desligado na configuração."}
             conf = self._config()
-            exe, motivo = self._localizar(conf.get("codex_caminho", ""))
+            exe, motivo = self._achar()
             if not exe:
                 return {"ok": False, "texto": "", "motivo": motivo}
             if not pasta or not os.path.isdir(pasta):
@@ -298,15 +361,18 @@ class Codex:
                 return {"ok": False, "texto": "", "motivo": "Parei o Codex."}
             try:
                 with open(arquivo, encoding="utf-8", errors="replace") as f:
-                    resposta = f.read().strip()
+                    resposta = f.read(LIMITE_BYTES + 1).strip()
             except OSError:
                 resposta = ""
             if codigo != 0 and not resposta:
+                if re.search(r"(?i)feature|unknown|unrecognized|--disable|ignore-user-config", erro or ""):
+                    return {"ok": False, "texto": "", "motivo": "O Codex recusou uma opção de segurança "
+                            "(talvez o app tenha mudado). Não rodei sem ela."}
                 return {"ok": False, "texto": "", "motivo": "O Codex terminou com erro."}
             resposta = resposta or (saida or "").strip()
             if not resposta:
                 return {"ok": False, "texto": "", "motivo": "O Codex não devolveu resposta."}
-            return {"ok": True, "texto": filtrar_saida(resposta), "motivo": ""}
+            return {"ok": True, "texto": filtrar_saida(_truncar(resposta)), "motivo": ""}
         except Exception as erro:
             return {"ok": False, "texto": "", "motivo": f"Algo falhou por dentro ({type(erro).__name__})."}
         finally:
@@ -315,8 +381,7 @@ class Codex:
                     os.remove(arquivo)
                 except OSError:
                     pass
-            with self._trava:
-                self._ocupado, self._proc = False, None
+            self.liberar()
 
 
 def iniciar_loop_codex(ponte, parar: threading.Event, codex: Codex, intervalo=300.0):
