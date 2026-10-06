@@ -260,6 +260,10 @@ PADRAO = {
     # Cofre de notas (segundo cérebro, `dervs_cofre.py`). Vazio = a pasta DERVS-Cofre em
     # Documentos. O conteúdo nunca sai do computador sem o dono pedir; `privado/` jamais.
     "cofre_pasta": "",
+    # Notas NÃO privadas que casam com a fala do dono (no máximo 3, 1.500 caracteres) acompanham a
+    # pergunta ao cérebro da OpenAI. DESLIGADO por padrão: é texto pessoal indo a um terceiro, então
+    # só o dono liga (`true`). `privado/` nunca vai, nem ligado.
+    "cofre_no_cerebro": False,
 }
 
 
@@ -363,6 +367,8 @@ def _validar(conf: dict) -> dict:
     if not isinstance(conf.get("cofre_pasta"), str) or len(conf["cofre_pasta"]) > 300 or (
             conf["cofre_pasta"] and not dervs_permissoes.raiz_valida(conf["cofre_pasta"])):
         conf["cofre_pasta"] = PADRAO["cofre_pasta"]      # raiz de disco, perfil, AppData, UNC: volta ao padrão
+    if not isinstance(conf.get("cofre_no_cerebro"), bool):
+        conf["cofre_no_cerebro"] = PADRAO["cofre_no_cerebro"]
     pastas = conf.get("pastas_de_projeto")
     if not isinstance(pastas, list):
         pastas = []

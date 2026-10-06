@@ -55,6 +55,47 @@ _SEGREDO = re.compile(
     re.IGNORECASE)
 
 
+_BANAIS = frozenset("""
+    para como quando onde porque qual quais quem sobre entre depois antes ainda sempre tambem apenas muito
+    pouco todos todas cada isso isto aquilo esse essa esses essas aquele aquela mais menos tudo nada algo
+    fazer faca fazer pode posso quero preciso vamos vai vou foi ser estar estou esta estao tenho tinha tem
+    sei sabe disse decidi anotei falei queria gostaria favor abre abra abrir fecha fechar mostra mostre
+    horas hora dervs oi ola obrigado obrigada bom boa dia tarde noite
+""".split())
+
+
+def _palavras_que_importam(pergunta) -> list:
+    """Palavras de uma fala que valem uma busca no cofre: sem acento, 4+ letras, fora o vocabulário
+    de comando e de conversa ("abre", "horas", "sobre"). Vazio = a fala não pede memória nenhuma."""
+    vistas = []
+    for p in re.findall(r"\w+", _sem_acento(str(pergunta or "")).lower()):
+        if len(p) >= 4 and p not in _BANAIS and p not in vistas:
+            vistas.append(p)
+    return vistas[:8]
+
+
+_ROTULO_DE_SEGREDO = re.compile(r"\b(?:senha|password|token|chave|pin|segredo)\b[^\n]{0,40}[:=\-–]?\s*$", re.IGNORECASE)
+
+
+def _sem_segredo(corpo: str) -> list:
+    """Linhas do corpo sem as que parecem segredo; linha que termina num rótulo ("senha do wifi:")
+    leva junto a linha de baixo, onde o valor costuma estar."""
+    saida, pular = [], False
+    for ln in corpo.splitlines():
+        if pular:
+            pular = False
+            continue
+        if not ln.strip():
+            continue
+        if parece_segredo(ln):
+            continue
+        if _ROTULO_DE_SEGREDO.search(ln):
+            pular = True
+            continue
+        saida.append(ln)
+    return saida
+
+
 def parece_segredo(texto) -> bool:
     return bool(_SEGREDO.search(str(texto or "")))
 
@@ -83,7 +124,7 @@ def _partir(texto: str):
     meta = {}
     if texto.startswith("---"):
         linhas = texto.split("\n")
-        for i in range(1, min(len(linhas), 40)):
+        for i in range(1, min(len(linhas), 200)):
             if linhas[i].strip() == "---":
                 for ln in linhas[1:i]:
                     if ":" in ln:
@@ -98,7 +139,7 @@ def _partir(texto: str):
 def _marcada_privada(rel: str, meta: dict, corpo: str) -> bool:
     """Falha FECHADA: pasta `privado/` (qualquer caixa), etiqueta `#privado`, `tags:`/`etiquetas:`
     (lista, colchetes ou aspas) ou a palavra privado/privada em qualquer linha do cabeçalho."""
-    if rel.split("/")[0].lower() == PASTA_PRIVADA:
+    if any(p.lower() == PASTA_PRIVADA for p in rel.split("/")[:-1]):
         return True
     if any(e.lower() == PASTA_PRIVADA for e in _etiquetas(meta, corpo)):
         return True
@@ -401,7 +442,10 @@ class Cofre:
     def contexto_para_nuvem(self, pergunta) -> str:
         """Trecho do cofre para acompanhar UMA pergunta ao cérebro de fora. Nunca nota privada,
         nunca linha com cara de segredo, no máximo 3 notas e `TETO_CONTEXTO` caracteres."""
-        publicas = [a for a in self.buscar(pergunta, limite=20) if not a["privado"]][:MAX_NOTAS_CONTEXTO]
+        palavras = _palavras_que_importam(pergunta)
+        if not palavras:
+            return ""
+        publicas = [a for a in self.buscar(" ".join(palavras), limite=20) if not a["privado"]][:MAX_NOTAS_CONTEXTO]
         restante, blocos = TETO_CONTEXTO, []
         for a in publicas:
             if restante <= 0:
@@ -412,9 +456,11 @@ class Cofre:
                 continue
             if nota["privado"]:
                 continue                    # o índice pode estar atrasado: confere na nota de verdade
-            linhas = [ln for ln in nota["corpo"].splitlines() if ln.strip() and not parece_segredo(ln)]
+            linhas = _sem_segredo(nota["corpo"])
             texto = "\n".join(linhas).replace("<", "‹")[:restante]
             if not texto:
+                continue
+            if parece_segredo(nota["titulo"]):
                 continue
             titulo = re.sub(r'["<>]', "", nota["titulo"])[:80]
             blocos.append(f'<nota titulo="{titulo}">\n{texto}\n</nota>')

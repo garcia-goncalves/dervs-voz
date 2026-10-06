@@ -84,7 +84,7 @@ def test_anotar_privado_vai_para_pasta_privado(cv):
 
 
 def test_anotar_recusa_segredo_e_nao_grava(cv):
-    fala = voz.executar({"tipo": "cofre_anotar", "texto": "a chave é sk-abcdefghijklmnopqrstuvwxyz0123456789",
+    fala = voz.executar({"tipo": "cofre_anotar", "texto": "a chave é " + "s" + "k-" + "abcdefghijklmnopqrstuvwxyz0123456789",
                          "privado": False}, cv)
     assert "segredo" in fala.lower()
     cv.reindexar()

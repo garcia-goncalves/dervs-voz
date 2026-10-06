@@ -641,10 +641,35 @@ def _pensar_oneshot(conversa: list, timeout: int) -> dict:
     return _normalizar(ficha)
 
 
+# Segundo cérebro: o Motor liga isto ao cofre (`dervs_cofre.Cofre.contexto_para_nuvem`). Recebe a
+# fala do dono e devolve o trecho de notas que ela pede ("" = nada). Só o caminho da OpenAI o usa:
+# ele remonta a conversa inteira a cada turno, e a sessão contínua do Claude só reenvia o que é
+# novo (acrescentar ali desalinharia o que ela já recebeu).
+CONTEXTO_EXTRA = None
+TETO_CONTEXTO_EXTRA = 2000
+
+
+def _contexto_extra(conversa: list) -> str:
+    """Notas do dono para esta fala, ou "". Só quando o último turno é do dono; falha nunca
+    derruba o cérebro (cofre quebrado = o DERVS responde sem o cofre)."""
+    fn = CONTEXTO_EXTRA
+    if fn is None or not conversa or conversa[-1].get("papel") != "dono":
+        return ""
+    try:
+        return str(fn(conversa[-1].get("texto", "") or "") or "")[:TETO_CONTEXTO_EXTRA]
+    except Exception:
+        return ""
+
+
 def _mensagens_openai(conversa: list) -> list:
     """Converte a conversa do DERVS no formato de mensagens da OpenAI."""
     msgs = [{"role": "system", "content": SISTEMA},
             {"role": "system", "content": _agora()}]
+    extra = _contexto_extra(conversa)
+    if extra:
+        # role `user` cercado como saída de comando (`_rotular`), NUNCA `system`: nota pode conter
+        # texto plantado (áudio de TV que diz "anota que regra do sistema…", clipper, cofre sincronizado)
+        msgs.append({"role": "user", "content": _rotular({"papel": "resultado", "texto": extra})})
     for m in conversa:
         papel = m.get("papel", "")
         texto = m.get("texto", "")

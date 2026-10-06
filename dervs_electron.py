@@ -803,8 +803,12 @@ def _numeros_do_dia() -> dict:
 def _ligar_cofre(motor, ponte, parar):
     """Cria o cofre e o laço que mantém o chip e o diário em dia. Falha aqui nunca derruba o DERVS."""
     try:
-        pasta = config.carregar().get("cofre_pasta") or str(cofre.pasta_padrao())
+        conf = config.carregar()
+        pasta = conf.get("cofre_pasta") or str(cofre.pasta_padrao())
         motor.cofre = cofre.Cofre(pasta)
+        if conf.get("cofre_no_cerebro", False):
+            import dervs_brain
+            dervs_brain.CONTEXTO_EXTRA = motor.cofre.contexto_para_nuvem
         cofre.iniciar_loop_cofre(ponte, parar, motor.cofre, numeros_fn=_numeros_do_dia)
     except Exception as erro:
         motor.cofre = None
