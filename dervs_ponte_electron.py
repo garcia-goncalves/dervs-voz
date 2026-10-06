@@ -70,6 +70,10 @@ Verbos Python → Electron (só estes):
             notas o cofre tem e onde ele mora (a pasta fica só no processo principal, para o
             botão "abrir"; o renderer só vê a contagem). Só depois do `pronto`; igual ao último
             não é reenviado.
+  codex   {"estado", "texto"} — extensão do protocolo (Codex, 06/10/2026): a linha de estado do
+            Codex no painel ("Codex: pronto (ChatGPT)" ou o motivo de não estar). `estado` é um de
+            chatgpt | chave_api | nao_logado | desligado | falhou. Só depois do `pronto`; igual ao
+            último não é reenviado.
   agenda  {"itens": [{"quando", "quando_txt", "texto"}]} — lembretes pendentes
             reais (`dervs_lembretes.Agenda`). Lista vazia é mensagem válida.
   diario_entradas {"entradas": [{"hora", "acordou", "palavras", "duracao_s"}]}
@@ -783,6 +787,12 @@ class PonteElectron:
         except (TypeError, ValueError):
             n = 0
         self._enviar_se_mudou({"verbo": "cofre", "notas": n, "pasta": str(pasta)[:500]})
+
+    def enviar_codex(self, estado, texto):
+        """Linha de estado do Codex (ver `dervs_codex.py`)."""
+        if estado not in ("chatgpt", "chave_api", "nao_logado", "desligado", "falhou"):
+            estado = "falhou"
+        self._enviar_se_mudou({"verbo": "codex", "estado": estado, "texto": str(texto)[:120]})
 
     def enviar_agenda(self, itens):
         """Lembretes pendentes: `[{"quando", "quando_txt", "texto"}]`."""

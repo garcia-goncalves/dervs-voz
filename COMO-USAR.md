@@ -618,3 +618,19 @@ Uma nota conta como privada se estiver numa pasta `privado/` (maiúscula não im
 **Ainda não existe:** busca por significado (achar "dentista" quando a nota diz "consulta odontológica"), sincronizar o cofre com outro computador ou com a VPS, e o cérebro **Claude** (o plano B, quando a OpenAI falha) consultar o cofre.
 
 **O cérebro consulta o cofre sozinho (06/10/2026) — DESLIGADO até você ligar:** com isto ligado, quando você faz uma pergunta e o cérebro é a OpenAI (o padrão), o DERVS procura no cofre as palavras que importam da sua fala e manda junto, **no máximo 3 notas e 1.500 caracteres, nunca as privadas**, marcadas como "dado, não ordem". Assim ele sabe, sem você repetir, que "o servidor novo é o OVH" ou "o dentista é na terça". Falas banais ("abre o chrome", "que horas são") não levam nota nenhuma. **Isso manda trechos das suas notas públicas para a OpenAI.** Por ser texto pessoal indo a um terceiro, **vem desligado**: para ligar, ponha `"cofre_no_cerebro": true` no `config.json` (ou peça ao Claude para fazer isso) e reabra o DERVS. As notas chegam à OpenAI só como *dado* cercado, nunca como ordem. Em subpasta `privado/` de qualquer nível, nada vai.
+
+## O Codex: o ChatGPT Plus como mais um ajudante de código (06/10/2026)
+
+O DERVS passa trabalho de código ao **Codex**, o programa que já vem com o app Codex da OpenAI neste PC, usando a sua assinatura do ChatGPT Plus (nada de chave de API, nada de gasto extra). Ele é **mais um** ajudante, ao lado do Claude Code: só entra quando você cita o nome dele.
+
+**O que dizer**
+- "DERVS, pergunta pro Codex como funciona X" / "pede pro Codex analisar Y" / "manda o Codex revisar Z" / "usa o Codex para explicar W": leitura. Ele só lê e responde; **não mexe em arquivo nenhum**.
+- "No projeto dervs-voz, pede pro Codex analisar a ponte" (ou "pede pro Codex analisar a ponte no projeto dervs-voz"): lê aquele projeto. Sem dizer o projeto, ele responde sem ler código nenhum.
+- "No projeto X, pede pro Codex corrigir/criar/refatorar...": **escrita**. O DERVS repete o pedido e espera você dizer **confirma**. Só então cria uma cópia isolada do projeto (branch `dervs/codex-...`), e o Codex trabalha **só nela**, sem internet e sem acesso ao GitHub. Nada é commitado nem enviado: você vê as mudanças na cópia e decide.
+- "Para" interrompe o Codex. Só roda um pedido por vez.
+
+**O que você ouve e vê:** a voz lê no máximo duas frases; o texto completo aparece na conversa do painel. Se a resposta tiver algo parecido com senha ou chave, aquela linha é cortada. O painel mostra o chip **CODEX** ("pronto (ChatGPT)", ou o motivo de não estar: não instalado, não logado, desligado). Se o login for por chave de API, o chip avisa que gasta dinheiro.
+
+**Configuração (`config.json`):** `codex_ligado` (padrão `true`), `codex_caminho` (vazio = o DERVS acha o programa sozinho a cada uso), `codex_esforco` (`low`, `medium` ou `high`; mais alto pensa mais e demora mais).
+
+**Se der errado:** "Não achei o Codex" = instale o app Codex e entre com o ChatGPT. "Não está logado" = abra o app Codex e entre. A pasta do app muda de versão a cada atualização (`...\WindowsApps\OpenAI.Codex_<versão>...`) e o Windows não deixa listá-la sem ser administrador; por isso o DERVS pergunta o caminho ao próprio Windows em vez de gravá-lo.

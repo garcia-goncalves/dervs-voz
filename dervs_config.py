@@ -264,6 +264,12 @@ PADRAO = {
     # pergunta ao cérebro da OpenAI. DESLIGADO por padrão: é texto pessoal indo a um terceiro, então
     # só o dono liga (`true`). `privado/` nunca vai, nem ligado.
     "cofre_no_cerebro": False,
+    # Codex (ChatGPT Plus, `dervs_codex.py`): mais um executor de código por voz. Caminho vazio = o
+    # DERVS procura o codex.exe do app a cada uso (a pasta do WindowsApps muda a cada atualização).
+    # Esforço: low | medium | high (vai em `-c model_reasoning_effort=`).
+    "codex_ligado": True,
+    "codex_caminho": "",
+    "codex_esforco": "medium",
 }
 
 
@@ -369,6 +375,12 @@ def _validar(conf: dict) -> dict:
         conf["cofre_pasta"] = PADRAO["cofre_pasta"]      # raiz de disco, perfil, AppData, UNC: volta ao padrão
     if not isinstance(conf.get("cofre_no_cerebro"), bool):
         conf["cofre_no_cerebro"] = PADRAO["cofre_no_cerebro"]
+    if not isinstance(conf.get("codex_ligado"), bool):
+        conf["codex_ligado"] = PADRAO["codex_ligado"]
+    if not isinstance(conf.get("codex_caminho"), str) or len(conf["codex_caminho"]) > 300:
+        conf["codex_caminho"] = PADRAO["codex_caminho"]
+    if conf.get("codex_esforco") not in ("low", "medium", "high"):
+        conf["codex_esforco"] = PADRAO["codex_esforco"]
     pastas = conf.get("pastas_de_projeto")
     if not isinstance(pastas, list):
         pastas = []

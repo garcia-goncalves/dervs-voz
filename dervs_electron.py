@@ -37,6 +37,8 @@ import dervs_central_painel as central_painel
 import dervs_claude_code as claude_code
 import dervs_cofre as cofre
 import dervs_cofre_voz as cofre_voz
+import dervs_codex as codex_mod
+import dervs_codex_voz as codex_voz
 import dervs_config as config
 import dervs_roteador as roteador
 import dervs_voz_infra as voz_infra
@@ -151,6 +153,7 @@ class Motor(dervs.PopUp):
     # A sessão do Claude Code responde de OUTRA thread (a do laço asyncio); o
     # chat e a voz são da thread da tela — o sinal enfileirado faz a travessia.
     _claude_fala = QtCore.pyqtSignal(str)
+    _codex_texto = QtCore.pyqtSignal(str)         # texto completo do Codex: só na conversa, sem voz
     # A resposta do cartão de plano também chega na thread leitora da ponte, e
     # tratá-la mexe em widget e QThread (confirmar_passo, cancelar_plano...).
     _resposta_plano = QtCore.pyqtSignal(str, bool, object)
@@ -180,6 +183,8 @@ class Motor(dervs.PopUp):
         # O Claude Code (onda B). Só cria o objeto: o laço e o `claude` só sobem
         # na primeira pergunta. O perfil vem da config (`claude_perfil`).
         self.cofre = None            # `dervs_cofre.Cofre`: ligado em `main` (segundo cérebro)
+        self.codex = None            # `dervs_codex.Codex`: ligado em `main`
+        self.codex_voz = None        # `AcoesCodex`: idem
         self.infra_voz = None        # `AcoesVoz`: ligado em `main`, depois da tela Integração
         self.infra_apelidos = lambda: []
         self.aprovacao = None        # o Motor da onda C: só a ponte do painel o vê
@@ -204,6 +209,7 @@ class Motor(dervs.PopUp):
         self._pedido_reuniao.connect(self._reuniao_na_tela)
         self._pedido_modo.connect(self.definir_modo_escuta)
         self._claude_fala.connect(self._claude_falar_na_tela)
+        self._codex_texto.connect(lambda texto: self._diz("resultado", texto))
         self._resposta_plano.connect(self._plano_na_tela)
 
     def _plano_na_tela(self, resposta, autorizado, cartao_id):
@@ -218,6 +224,8 @@ class Motor(dervs.PopUp):
         texto = self.entrada.toPlainText().strip()
         if texto and self._tarefa is None and not self._aguardando_ok:
             if self._tentar_cofre_voz(texto):
+                return
+            if self._tentar_codex_voz(texto):
                 return
             if self._tentar_infra_voz(texto):
                 return
@@ -259,6 +267,37 @@ class Motor(dervs.PopUp):
         self._diz("dono", texto)
         self.entrada.clear()
         self._falar_de_thread(lambda: cofre_voz.executar(intencao, cv, abrir_pasta=_abrir_pasta))
+        return True
+
+    def _tentar_codex_voz(self, texto) -> bool:
+        """O Codex por voz ("pede pro Codex…"), o "para" que o interrompe e o "confirma" da escrita.
+        True quando a fala foi atendida aqui; qualquer outra segue para a infra, o roteador e o cérebro."""
+        acoes, cdx = self.codex_voz, self.codex
+        if acoes is None or cdx is None:
+            return False
+        if cdx.ocupado and claude_code.eh_comando_parar(texto):
+            self._diz("dono", texto)
+            self.entrada.clear()
+            cdx.parar()
+            return True
+        if acoes.tem_pendencia():
+            resposta = voz_infra.resposta_de_envio(texto)
+            if resposta is None:
+                self._claude_fala.emit(acoes.responder_pendencia(False))   # falou outra coisa: o pedido caiu
+            else:
+                self._diz("dono", texto)
+                self.entrada.clear()
+                self._falar_de_thread(lambda: acoes.responder_pendencia(resposta == "sim"))
+                return True
+        try:
+            intencao = codex_voz.interpretar(texto)
+        except Exception:
+            return False
+        if intencao is None:
+            return False
+        self._diz("dono", texto)
+        self.entrada.clear()
+        self._falar_de_thread(lambda: acoes.executar(intencao))
         return True
 
     def _tentar_infra_voz(self, texto) -> bool:
@@ -765,6 +804,9 @@ def _encerrar(motor: Motor, ponte: PonteElectron, posse, parar_sistema: threadin
     sessao_claude = getattr(motor, "claude", None)
     if sessao_claude is not None:
         sessao_claude.encerrar()         # não deixa `claude` órfão
+    codex_ativo = getattr(motor, "codex", None)
+    if codex_ativo is not None:
+        codex_ativo.parar()              # não deixa `codex.exe` órfão
     dervs.encerrar_tudo(motor)
     ponte.fechar()
     posse.soltar()
@@ -813,6 +855,20 @@ def _ligar_cofre(motor, ponte, parar):
     except Exception as erro:
         motor.cofre = None
         _avisar("cofre de notas desligado: %s" % type(erro).__name__)
+
+
+def _ligar_codex(motor, ponte, parar):
+    """Cria o Codex, as ações por voz e o laço que mantém a linha de estado do painel em dia. Falha aqui
+    nunca derruba o DERVS."""
+    try:
+        motor.codex = codex_mod.Codex(config_fn=config.carregar)
+        motor.codex_voz = codex_voz.AcoesCodex(
+            codex=motor.codex, raizes_fn=_raizes_de_projeto,
+            mostrar_texto=lambda texto: motor._codex_texto.emit(texto))
+        codex_mod.iniciar_loop_codex(ponte, parar, motor.codex)
+    except Exception as erro:
+        motor.codex = motor.codex_voz = None
+        _avisar("Codex desligado: %s" % type(erro).__name__)
 
 
 def _raizes_de_projeto() -> list:
@@ -927,6 +983,7 @@ def main():
     # Cartão do diário do porteiro (HOJE: N ouvidas · M acordei), a cada ~30 s.
     diario.iniciar_loop_diario(ponte, parar_sistema)
     _ligar_cofre(motor, ponte, parar_sistema)
+    _ligar_codex(motor, ponte, parar_sistema)
     # Dados do painel grande: agenda, entradas do diário, gasto do dia e voz.
     painel.iniciar_loop_painel(ponte, parar_sistema, voz=motor.voz)
     # Central do PC: análise diária com o PC ocioso (só lê e avisa).
