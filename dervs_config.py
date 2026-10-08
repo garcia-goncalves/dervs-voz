@@ -275,6 +275,9 @@ PADRAO = {
     "codex_ligado": True,
     "codex_caminho": "",
     "codex_esforco": "medium",
+    # Reserva: pedido de ANÁLISE feito com o Claude ocupado vai ao Codex (só leitura, com aviso
+    # falado). Pedido de mexer em código nunca é desviado. `false` = o DERVS só diz que está ocupado.
+    "codex_reserva": True,
     # Busca por SIGNIFICADO no cofre ("dentista" acha "consulta odontológica"). DESLIGADA por padrão:
     # liga um modelo local (~240 MB de download na 1ª vez, ~600 MB de RAM enquanto em uso) e exige
     # `pip install -r requirements-semantica.txt`. Tudo roda no PC; nada de nota sai por causa dela.
@@ -393,6 +396,8 @@ def _validar(conf: dict) -> dict:
         conf["codex_caminho"] = PADRAO["codex_caminho"]
     if conf.get("codex_esforco") not in ("low", "medium", "high"):
         conf["codex_esforco"] = PADRAO["codex_esforco"]
+    if not isinstance(conf.get("codex_reserva"), bool):
+        conf["codex_reserva"] = PADRAO["codex_reserva"]
     if not isinstance(conf.get("cofre_semantica"), bool):
         conf["cofre_semantica"] = PADRAO["cofre_semantica"]
     pastas = conf.get("pastas_de_projeto")

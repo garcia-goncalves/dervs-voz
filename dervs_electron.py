@@ -76,6 +76,7 @@ _CASO_SEM_INTERNET = ("Sem internet agora, e o DERVS precisa dela para "
                        "conexão e tente de novo assim que voltar.")
 _APOIO_PADRAO = ("Isso costuma resolver na hora. Se insistir, feche e abra "
                   "o DERVS de novo.")
+_AINDA_TRABALHANDO = "Ainda estou trabalhando na pergunta anterior. Diga 'para' se quiser interromper."
 
 
 def _frase_do_recado(texto_interno: str):
@@ -245,10 +246,10 @@ class Motor(dervs.PopUp):
             if pedido:
                 self._diz("dono", texto)
                 self.entrada.clear()
-                if not self.claude.perguntar(pedido, origem="voz"):
-                    self._claude_falar_na_tela(
-                        "Ainda estou trabalhando na pergunta anterior. "
-                        "Diga 'para' se quiser interromper.")
+                if (not self.claude.perguntar(pedido, origem="voz")
+                        and not self._tentar_reserva_codex(rota, texto)):
+                    dica = roteador.dica_codex(rota, ligado=self.codex is not None and self.codex.ligado)
+                    self._claude_falar_na_tela(_AINDA_TRABALHANDO + dica)
                 return
         super().executar()
 
@@ -267,6 +268,31 @@ class Motor(dervs.PopUp):
         self._diz("dono", texto)
         self.entrada.clear()
         self._falar_de_thread(lambda: cofre_voz.executar(intencao, cv, abrir_pasta=_abrir_pasta))
+        return True
+
+    def _tentar_reserva_codex(self, rota, texto) -> bool:
+        """Claude ocupado + pedido de ANÁLISE: o Codex atende só para leitura, com aviso falado
+        (regras em `dervs_roteador.reserva_codex`). True quando a fala foi atendida aqui."""
+        acoes, cdx = self.codex_voz, self.codex
+        if acoes is None or cdx is None:
+            return False
+        try:
+            ligado = config.carregar().get("codex_reserva") is True
+        except Exception:
+            return False
+        intencao = roteador.reserva_codex(rota, claude_ocupado=self.claude.ocupado,
+                                          codex_pronto=cdx.ligado and not cdx.ocupado, ligado=ligado)
+        if intencao is None:
+            return False
+
+        def trabalho():
+            # achar o codex.exe pode abrir o PowerShell; reconfere o slot para não avisar à toa
+            if not cdx.instalado() or cdx.ocupado:
+                return _AINDA_TRABALHANDO
+            roteador.registrar(roteador.DECISAO_RESERVA, texto)
+            self._claude_fala.emit(roteador.AVISO_RESERVA)
+            return acoes.executar(intencao)
+        self._falar_de_thread(trabalho)
         return True
 
     def _tentar_codex_voz(self, texto) -> bool:

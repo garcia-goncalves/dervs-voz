@@ -294,6 +294,11 @@ class Codex:
             self._cache = (conf, caminho, motivo, self._relogio())
             return caminho, motivo
 
+    def instalado(self) -> bool:
+        """O `codex.exe` foi achado (com o mesmo cache de `_achar`). Pode abrir o PowerShell na
+        1ª vez: chame fora da thread da tela."""
+        return self._achar()[0] is not None
+
     def estado(self) -> dict:
         """Linha para o painel: pronto (ChatGPT) ou o motivo de não estar."""
         if not self.ligado:

@@ -350,11 +350,13 @@ def test_texto_ignore_as_regras_e_so_texto_cercado_como_dado():
 def test_config_padrao_do_codex():
     c = cfg._validar(dict(cfg.PADRAO))
     assert c["codex_ligado"] is True and c["codex_caminho"] == "" and c["codex_esforco"] == "medium"
+    assert c["codex_reserva"] is True
 
 
 @pytest.mark.parametrize("chave,torto,esperado", [
     ("codex_ligado", "sim", True), ("codex_ligado", 1, True), ("codex_esforco", "xhigh", "medium"),
     ("codex_esforco", None, "medium"), ("codex_caminho", 5, ""), ("codex_caminho", "x" * 400, ""),
+    ("codex_reserva", "não", True), ("codex_reserva", 0, True),
 ])
 def test_config_do_codex_com_valor_torto_volta_ao_padrao(chave, torto, esperado):
     c = cfg._validar({**cfg.PADRAO, chave: torto})
@@ -364,6 +366,7 @@ def test_config_do_codex_com_valor_torto_volta_ao_padrao(chave, torto, esperado)
 def test_config_do_codex_valida_e_mantida():
     c = cfg._validar({**cfg.PADRAO, "codex_ligado": False, "codex_esforco": "high", "codex_caminho": "C:\\x\\codex.exe"})
     assert (c["codex_ligado"], c["codex_esforco"], c["codex_caminho"]) == (False, "high", "C:\\x\\codex.exe")
+    assert cfg._validar({**cfg.PADRAO, "codex_reserva": False})["codex_reserva"] is False
 
 
 def test_estado_do_painel_pronto_desligado_e_nao_instalado(tmp_path):

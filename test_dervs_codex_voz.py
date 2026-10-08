@@ -441,3 +441,96 @@ def test_pendencia_e_protegida_por_lock_contra_confirma_duplo(tmp_path, mundo, r
     [t.start() for t in ts]
     [t.join(30) for t in ts]
     assert len(a.codex.chamadas) == 1                           # só um "confirma" vale
+
+
+# ------------------------------------------------ reserva: Claude ocupado, análise vai ao Codex
+
+class _CodexReserva(CodexFalso):
+    def __init__(self, instalado=True, **kw):
+        super().__init__(**kw)
+        self.instalado_ = instalado
+
+    @property
+    def ligado(self):
+        return True
+
+    def instalado(self):
+        return self.instalado_
+
+
+def _reserva(m, texto, monkeypatch, reserva=True):
+    import dervs_electron
+    import dervs_roteador
+    monkeypatch.setattr(dervs_electron.config, "carregar", lambda: {"codex_reserva": reserva})
+    registros = []
+    monkeypatch.setattr(dervs_roteador, "registrar", lambda d, f: registros.append((d["executor"], f)))
+    if not hasattr(m, "claude"):
+        m.claude = type("C", (), {"ocupado": True})()
+    feito = dervs_electron.Motor._tentar_reserva_codex(m, dervs_roteador.rotear(texto), texto)
+    return feito, registros
+
+
+def test_reserva_manda_analise_ao_codex_com_aviso_e_registro(tmp_path, mundo, monkeypatch):
+    a = _acoes(tmp_path, mundo, _CodexReserva(resposta="O login está ok. Segunda frase."))
+    m = _MotorFalso(a, a.codex)
+    feito, registros = _reserva(m, "analisa o projeto dervs-voz", monkeypatch)
+    assert feito is True
+    assert m.faladas[0] == "O Claude está ocupado; passei para o Codex, só para leitura."
+    assert "O login está ok" in m.faladas[-1]
+    assert a.codex.chamadas and a.codex.chamadas[0][2] == "leitura"
+    assert registros == [("codex", "analisa o projeto dervs-voz")]
+
+
+def test_reserva_desligada_ou_claude_citado_ou_desenvolver_nao_desvia(tmp_path, mundo, monkeypatch):
+    for texto, reserva in (("analisa o projeto dervs-voz", False),
+                           ("pede pro Claude analisar o projeto dervs-voz", True),
+                           ("conserta o bug do login", True)):
+        a = _acoes(tmp_path, mundo, _CodexReserva())
+        m = _MotorFalso(a, a.codex)
+        feito, registros = _reserva(m, texto, monkeypatch, reserva)
+        assert feito is False and not m.faladas and not a.codex.chamadas and not registros
+
+
+def test_reserva_com_codex_ocupado_nao_desvia(tmp_path, mundo, monkeypatch):
+    a = _acoes(tmp_path, mundo, _CodexReserva(ocupado=True))
+    m = _MotorFalso(a, a.codex)
+    assert _reserva(m, "analisa o projeto dervs-voz", monkeypatch)[0] is False
+
+
+def test_reserva_sem_codex_instalado_volta_a_dizer_que_esta_ocupado(tmp_path, mundo, monkeypatch):
+    a = _acoes(tmp_path, mundo, _CodexReserva(instalado=False))
+    m = _MotorFalso(a, a.codex)
+    feito, registros = _reserva(m, "analisa o projeto dervs-voz", monkeypatch)
+    assert feito is True and not a.codex.chamadas and not registros
+    assert m.faladas == ["Ainda estou trabalhando na pergunta anterior. Diga 'para' se quiser interromper."]
+
+
+def test_codex_real_instalado_usa_o_cache_do_localizador(tmp_path):
+    exe = tmp_path / "codex.exe"
+    exe.write_text("x")
+    assert cx.Codex(config_fn=lambda: {"codex_caminho": str(exe)}).instalado() is True
+    assert cx.Codex(config_fn=lambda: {}, localizar_fn=lambda c: (None, "não achei")).instalado() is False
+
+
+def test_claude_que_recusou_sem_estar_ocupado_nao_vira_desvio(tmp_path, mundo, monkeypatch):
+    # pedido longo demais ou sessão encerrada: o Claude recusa sem estar ocupado; dizer
+    # "o Claude está ocupado" seria mentira
+    a = _acoes(tmp_path, mundo, _CodexReserva())
+    m = _MotorFalso(a, a.codex)
+    m.claude = type("C", (), {"ocupado": False})()
+    feito, registros = _reserva(m, "analisa o projeto dervs-voz", monkeypatch)
+    assert feito is False and not m.faladas and not a.codex.chamadas and not registros
+
+
+def test_reserva_prende_o_codex_na_pasta_do_projeto(tmp_path, mundo, monkeypatch):
+    a = _acoes(tmp_path, mundo, _CodexReserva())
+    m = _MotorFalso(a, a.codex)
+    _reserva(m, "investiga o bug do login no projeto dervs voz", monkeypatch)
+    assert a.codex.chamadas[0][1] == str(mundo / "dervs-voz")
+
+
+def test_reserva_com_projeto_inexistente_nao_cai_na_pasta_neutra(tmp_path, mundo, monkeypatch):
+    a = _acoes(tmp_path, mundo, _CodexReserva())
+    m = _MotorFalso(a, a.codex)
+    _reserva(m, "analisa o projeto que-nao-existe", monkeypatch)
+    assert not a.codex.chamadas and "Não achei o projeto" in m.faladas[-1]

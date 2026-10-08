@@ -616,6 +616,12 @@ def frase_de_trabalho(texto: str):
     return None
 
 
+def cita_o_claude(texto: str) -> bool:
+    """O dono citou o Claude ("pede pro Claude…", "Claude, …", "analisa X com o Claude"): ele
+    escolheu quem atende, e nenhuma reserva automática troca o executor."""
+    return re.search(r"\bclaude\b", texto or "", re.IGNORECASE) is not None
+
+
 _PARAR = {"para", "parar", "pare", "para ai", "para tudo", "para com isso",
           "cancela", "cancela isso", "chega", "interrompe", "interrompe isso"}
 

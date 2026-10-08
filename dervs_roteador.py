@@ -58,7 +58,8 @@ def rotear(texto: str) -> dict:
     trabalho = dervs_claude_code.frase_de_trabalho(original)
     if trabalho:
         return {"executor": "claude_code", "intencao": "trabalho",
-                "motivo": "pedido explícito de trabalho/análise", "pedido": trabalho}
+                "motivo": "pedido explícito de trabalho/análise", "pedido": trabalho,
+                "claude_citado": dervs_claude_code.cita_o_claude(original)}
     t = _VOCATIVO.sub("", _norm(original), count=1)
     t = _PEDIDO_EDUCADO.sub("", t, count=1).strip()
     if _DESENVOLVER.match(t):
@@ -67,6 +68,41 @@ def rotear(texto: str) -> dict:
                 "pedido": original}
     return {"executor": "planejador", "intencao": "rapido",
             "motivo": "comando ou conversa curta: planejador rápido", "pedido": None}
+
+
+# --- Codex como reserva do Claude ocupado ------------------------------------------
+
+DECISAO_RESERVA = {"executor": "codex", "intencao": "trabalho",
+                   "motivo": "claude ocupado: reserva automática"}
+AVISO_RESERVA = "O Claude está ocupado; passei para o Codex, só para leitura."
+
+
+def reserva_codex(rota, *, claude_ocupado: bool, codex_pronto: bool, ligado: bool):
+    """Intenção `codex_leitura` para `dervs_codex_voz.AcoesCodex.executar`, ou None.
+    Só ANÁLISE desvia: pedido de desenvolver nunca vai ao Codex sem o dono citá-lo
+    (lá a escrita exige projeto e "confirma"), e quem chamou o Claude pelo nome
+    escolheu quem atende. E só com PROJETO na frase: sem projeto o Codex roda numa
+    pasta neutra de onde o somente-leitura enxerga o disco todo ("verifica meu PC",
+    "analisa meus documentos"), e o que ele lê vai à OpenAI sem o dono ter escolhido."""
+    if not (ligado and claude_ocupado and codex_pronto) or not isinstance(rota, dict):
+        return None
+    if (rota.get("executor") != "claude_code" or rota.get("intencao") != "trabalho"
+            or rota.get("claude_citado") or not rota.get("pedido")):
+        return None
+    import dervs_codex_voz      # aqui dentro: o roteador não carrega o Codex só para rotear
+    i = dervs_codex_voz.interpretar("pede pro Codex " + rota["pedido"])
+    if not i or i.get("tipo") != "codex_leitura" or not i.get("projeto"):
+        return None
+    # sem `pedido_inteiro`: projeto que não existir vira "não achei", nunca pergunta solta
+    return {"tipo": "codex_leitura", "pedido": i["pedido"], "projeto": i["projeto"]}
+
+
+def dica_codex(rota, *, ligado: bool) -> str:
+    """Complemento do "ainda estou trabalhando" quando o Claude ocupado recusa um
+    pedido de desenvolver: o Codex só escreve se o dono pedir, então o DERVS ensina como."""
+    if ligado and isinstance(rota, dict) and rota.get("intencao") == "desenvolver":
+        return " Ou diga: no projeto tal, pede pro Codex fazer isso."
+    return ""
 
 
 # --- registro (para o dono auditar em "Avançado") --------------------------------
@@ -96,7 +132,8 @@ def registrar(decisao: dict, fala: str) -> None:
                                 "intencao": decisao.get("intencao"),
                                 "motivo": decisao.get("motivo"),
                                 "fala": ((fala or "")[:80]
-                                         if decisao.get("executor") == "claude_code" else "")},
+                                         if decisao.get("executor") in ("claude_code", "codex")
+                                         else "")},
                                ensure_ascii=False) + "\n")
     except Exception:
         pass
