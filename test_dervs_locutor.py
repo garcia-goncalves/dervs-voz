@@ -204,6 +204,91 @@ def test_sem_modelo_nem_rede_gravar_da_erro_claro(tmp_path, monkeypatch):
         p.gravar("Ana", "dono", voz(250, 16))
 
 
+def test_download_acima_do_teto_de_tamanho_e_descartado(tmp_path, monkeypatch):
+    import hashlib
+    import io
+    conteudo = b"m" * 5000
+    monkeypatch.setattr(L.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(conteudo))
+    monkeypatch.setattr(L, "MAX_DOWNLOAD_BYTES", 1000)
+    assert L.caminho_modelo(pasta=str(tmp_path), sha256=hashlib.sha256(conteudo).hexdigest()) is None
+    assert os.listdir(tmp_path) == []
+
+
+def test_download_cortado_no_meio_devolve_none(tmp_path, monkeypatch):
+    import http.client
+
+    class Cortado:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n=-1):
+            raise http.client.IncompleteRead(b"abc", 10)
+
+    monkeypatch.setattr(L.urllib.request, "urlopen", lambda *a, **k: Cortado())
+    assert L.caminho_modelo(pasta=str(tmp_path)) is None
+    assert os.listdir(tmp_path) == []
+
+
+def test_disponivel_guarda_o_resultado_em_vez_de_refazer_o_hash(tmp_path, monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(L, "caminho_modelo", lambda *a, **k: chamadas.append(1) or "modelo.onnx")
+    p = L.Perfis(str(tmp_path))
+    assert p.disponivel() and p.disponivel() and p.disponivel()
+    assert len(chamadas) == 1
+
+
+def test_extrator_preguicoso_e_criado_uma_so_vez_com_threads(tmp_path, monkeypatch):
+    import threading
+    criados = []
+    soltar = threading.Event()
+
+    class Lento:
+        def __init__(self, modelo):
+            criados.append(1)
+            soltar.wait(0.2)                       # janela para os outros threads passarem pelo `if`
+
+        def __call__(self, audio):
+            return np.ones(4, np.float32)
+
+    monkeypatch.setattr(L, "caminho_modelo", lambda *a, **k: "modelo.onnx")
+    monkeypatch.setattr(L, "ExtratorSherpa", Lento)
+    p = L.Perfis(str(tmp_path))
+    ts = [threading.Thread(target=p._extrair, args=(voz(250, 1),)) for _ in range(6)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join(5)
+    assert len(criados) == 1
+
+
+# ------------------------------------------------------------ perfis: robustez
+
+def test_gravar_recusa_sobrescrever_perfil_existente(perfis):
+    perfis.gravar("André", "dono", voz(250, 16))
+    with pytest.raises(L.ErroLocutor, match="Já existe"):
+        perfis.gravar("Andre", "convidado", voz(900, 16))          # mesmo slug
+    assert [p.papel for p in perfis.listar()] == ["dono"]
+    p = perfis.gravar("André", "dono", voz(900, 16), substituir=True)
+    assert p.ativo is True
+
+
+def test_quem_fala_pula_voz_com_formato_errado_sem_levantar(perfis, tmp_path):
+    perfis.gravar("Ana", "dono", voz(250, 16))
+    perfis.gravar("Beto", "convidado", voz(1200, 16))
+    np.save(tmp_path / "vozes" / "beto" / "voz.npy", np.ones(5, np.float32))      # dimensão trocada
+    p, s = perfis.quem_fala(voz(250, 1.5))
+    assert p and p.nome == "Ana" and s > 0.9
+
+
+def test_quem_fala_so_com_perfil_de_formato_errado_devolve_ninguem(perfis, tmp_path):
+    perfis.gravar("Ana", "dono", voz(250, 16))
+    np.save(tmp_path / "vozes" / "ana" / "voz.npy", np.ones((2, 8), np.float32))
+    assert perfis.quem_fala(voz(250, 1.5)) == (None, 0.0)
+
+
 # ------------------------------------------------------------ config
 
 def test_config_tem_limiar_e_ligado_por_padrao():

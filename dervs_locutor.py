@@ -13,11 +13,13 @@ executado. Sem o modelo (sem rede, hash errado), `disponivel()` é falso e a
 trava de perfil fica desligada — quem chama avisa o dono.
 """
 import hashlib
+import http.client
 import json
 import os
 import re
 import shutil
 import tempfile
+import threading
 import unicodedata
 import urllib.request
 from dataclasses import dataclass
@@ -29,6 +31,7 @@ import dervs_config
 TAXA = 16000
 JANELA_S = 3.0
 MIN_FALA_S = 15.0          # fala útil mínima para cadastrar um perfil
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024     # teto do download (o modelo tem ~38 MB)
 PAPEIS = ("dono", "convidado")
 
 MODELO_NOME = "3dspeaker_eres2net_base_16k.onnx"
@@ -77,8 +80,16 @@ def caminho_modelo(baixar: bool = True, pasta: str | None = None, url: str = MOD
         os.makedirs(pasta, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=pasta, suffix=".part")
         try:
+            baixado = 0
             with os.fdopen(fd, "wb") as saida, urllib.request.urlopen(url, timeout=timeout) as r:
-                shutil.copyfileobj(r, saida)
+                while True:
+                    bloco = r.read(1 << 20)
+                    if not bloco:
+                        break
+                    baixado += len(bloco)
+                    if baixado > MAX_DOWNLOAD_BYTES:
+                        return None          # maior que o modelo esperado: descarta
+                    saida.write(bloco)
             if _sha256(tmp) != sha256:
                 return None              # arquivo diferente do esperado: descarta
             os.replace(tmp, destino)     # atômico: nunca fica meio arquivo no lugar
@@ -86,7 +97,7 @@ def caminho_modelo(baixar: bool = True, pasta: str | None = None, url: str = MOD
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
-    except (OSError, ValueError):
+    except (OSError, ValueError, http.client.HTTPException):    # HTTPException: IncompleteRead
         return None
 
 
@@ -147,18 +158,25 @@ class Perfis:
     def __init__(self, pasta: str | None = None, extrator=None):
         self.pasta = pasta or os.path.join(dervs_config.CONFIG_DIR, "vozes")
         self._extrator = extrator
+        self._trava_extrator = threading.Lock()
+        self._modelo_ok = False                  # o hash de 38 MB só se confere uma vez
 
     def _extrair(self, audio: np.ndarray) -> np.ndarray:
         if self._extrator is None:
-            modelo = caminho_modelo()
-            if not modelo:
-                raise ErroLocutor("O modelo de reconhecimento de voz não está disponível "
-                                  "(não consegui baixá-lo). Tente de novo com internet.")
-            self._extrator = ExtratorSherpa(modelo)
+            with self._trava_extrator:           # dois threads não carregam o modelo duas vezes
+                if self._extrator is None:
+                    modelo = caminho_modelo()
+                    if not modelo:
+                        raise ErroLocutor("O modelo de reconhecimento de voz não está disponível "
+                                          "(não consegui baixá-lo). Tente de novo com internet.")
+                    self._extrator = ExtratorSherpa(modelo)
         return _normalizar(self._extrator(audio))
 
     def disponivel(self) -> bool:
-        return self._extrator is not None or caminho_modelo(baixar=False) is not None
+        if self._extrator is not None or self._modelo_ok:
+            return True
+        self._modelo_ok = caminho_modelo(baixar=False) is not None
+        return self._modelo_ok
 
     def _dir(self, nome: str) -> str:
         d = os.path.realpath(os.path.join(self.pasta, _slug(nome)))
@@ -176,10 +194,13 @@ class Perfis:
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
-    def gravar(self, nome: str, papel: str, audio16k: np.ndarray) -> Perfil:
+    def gravar(self, nome: str, papel: str, audio16k: np.ndarray, substituir: bool = False) -> Perfil:
         nome = _validar_nome(nome)
         if papel not in PAPEIS:
             raise ErroLocutor("O papel do perfil é 'dono' ou 'convidado'.")
+        if not substituir and os.path.exists(self._dir(nome)):
+            raise ErroLocutor("Já existe um perfil com o nome '%s'. Apague-o antes ou peça para substituir."
+                              % nome)
         util = _fala_util(np.asarray(audio16k, dtype=np.float32))
         if len(util) < MIN_FALA_S * TAXA:
             raise ErroLocutor("Preciso de pelo menos %d segundos de fala para aprender a voz; "
@@ -237,6 +258,9 @@ class Perfis:
         if not candidatos or len(audio16k) == 0:
             return None, 0.0
         e = self._extrair(np.asarray(audio16k, dtype=np.float32))
+        candidatos = [(p, v) for p, v in candidatos if v.shape == e.shape]   # voz.npy de outro modelo: pula
+        if not candidatos:
+            return None, 0.0
         p, score = max(((p, float(e @ v)) for p, v in candidatos), key=lambda t: t[1])
         limiar = dervs_config.carregar()["locutor_limiar"]
         return (p if score >= limiar else None), score
