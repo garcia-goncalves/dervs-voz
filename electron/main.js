@@ -717,6 +717,21 @@ ipcMain.on("dervs:claude-nova-conversa", () => {
   enviarAoPython({ verbo: "claude_nova_conversa" });
 });
 
+// Botão "ENTRAR": abre uma janela do PowerShell em que o DONO entra com a assinatura no
+// cérebro do DERVS (scripts/entrar-cerebro.ps1). Caminho fixo, nada vem da tela; o
+// login é dele, no navegador — o DERVS não toca em credencial.
+ipcMain.on("dervs:claude-entrar", () => {
+  const script = path.join(__dirname, "..", "scripts", "entrar-cerebro.ps1");
+  try {
+    // `detached` no Windows dá ao filho uma janela de console própria.
+    require("child_process").spawn("powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+      { detached: true, stdio: "ignore" }).unref();
+  } catch (erro) {
+    console.error("electron: não consegui abrir a janela de entrar:", erro && erro.message);
+  }
+});
+
 // Central do PC (onda D): a tela só PEDE. O clique de aprovar leva o cartão que o
 // Python entregou junto do relatório; o motor confere tudo de novo do lado de lá.
 const ID_CURTO = /^[A-Za-z0-9_-]{1,64}$/;

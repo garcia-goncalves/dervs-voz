@@ -136,8 +136,7 @@ terminal — com o seu `~/.claude` (CLAUDE.md, skills, agentes, MCPs) — pela
   nega comando destrutivo (`dervs_safety`) e escrita em caminho protegido antes de
   qualquer regra; todo pedido de permissão vira o diálogo do painel (foco em
   **Negar**; sem resposta em 5 min, nega; voz nunca aprova o que muda o estado).
-- **Servidor MCP `dervs` em processo:** `central_coletar` (stub até a onda D),
-  `propor_acao` (entrega a proposta à `Fachada` do motor de aprovação da onda C, só
+- **Servidor MCP `dervs` em processo:** `propor_acao` (entrega a proposta à `Fachada` do motor de aprovação da onda C, só
   `analisar` e `status`; o Motor, o cartão e a senha de uso nunca chegam ao Claude;
   **não executa nada**) e `status_aprovacao`.
 - **Gancho em TODA ferramenta (revisão de segurança, 29/09):** as regras `allow` do

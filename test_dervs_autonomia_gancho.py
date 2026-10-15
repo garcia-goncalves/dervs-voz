@@ -73,6 +73,19 @@ def test_caminho_protegido_continua_negado_com_tudo_liberado():
     assert acao == "deny"
 
 
+@pytest.mark.parametrize("comando", [
+    "git -C C:/projetos/loja push", "git -C x push origin main", "git -c user.name=x push",
+    "gh pr merge 12", "gh pr create --fill", "git --git-dir=x/.git push",
+])
+def test_envio_remoto_nunca_passa_sozinho_nem_com_opcao_antes_do_verbo(comando):
+    """Revisão 15/10: `git -C x push` escapava da regex de rede e a política "sozinho"
+    deixava o push sair sem cartão."""
+    for ferramenta in ("Bash", "PowerShell"):
+        acao, _ = gancho(ferramenta, {"command": comando}, TUDO_SOZINHO)
+        assert acao in ("deny", "ask"), (ferramenta, comando)
+    assert cc.classificar("Bash", {"command": comando})["rede"] is True, comando
+
+
 def test_comando_destrutivo_nunca_passa_sozinho():
     acao, _ = gancho("Bash", {"command": "rm -rf C:/Users/x"}, TUDO_SOZINHO)
     assert acao in ("deny", "ask")

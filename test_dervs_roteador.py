@@ -170,3 +170,56 @@ def test_desvio_fica_no_registro_com_o_motivo(tmp_path, monkeypatch):
     assert linha["executor"] == "codex"
     assert linha["motivo"] == "claude ocupado: reserva automática"
     assert linha["fala"] == "analisa o projeto dervs-voz"
+
+
+# --- destino: cérebro do DERVS ou harness emprestado de um projeto (15/10) --------------
+
+@pytest.fixture
+def raizes(tmp_path):
+    for nome in ("dervs-voz", "grimoire", "medconsultoria"):
+        (tmp_path / nome).mkdir()
+    return [str(tmp_path)]
+
+
+@pytest.mark.parametrize("fala", [
+    "no projeto grimoire, corrige o bug do login",
+    "corrige o bug do login no projeto grimoire",
+    "Dervs, conserta a tela de cadastro do projeto grimoire",
+    "pede pro Claude analisar o código no projeto grimoire",
+    "analisa o projeto grimoire",
+])
+def test_trabalho_com_projeto_empresta_o_harness_na_pasta_do_projeto(fala, raizes):
+    d = r.destino(fala, raizes)
+    assert d["executor"] == "claude_code" and d["perfil"] == "projeto"
+    assert d["projeto"] == str(__import__("pathlib").Path(raizes[0]) / "grimoire")
+
+
+def test_desenvolver_sem_projeto_pergunta_qual_e_nao_empresta(raizes):
+    d = r.destino("cria um site para a minha clínica", raizes)
+    assert d["executor"] == "falar" and "projeto" in d["fala"].lower()
+    assert d.get("projeto") is None
+
+
+def test_projeto_que_nao_existe_e_dito_em_voz(raizes):
+    d = r.destino("corrige o bug no projeto xyzw", raizes)
+    assert d["executor"] == "falar" and "xyzw" in d["fala"]
+
+
+@pytest.mark.parametrize("fala,executor", [
+    ("abre a calculadora", "planejador"),
+    ("verifica meu PC", "claude_code"),
+    ("que horas são", "planejador"),
+])
+def test_o_resto_fica_no_cerebro_do_dervs(fala, executor, raizes):
+    d = r.destino(fala, raizes)
+    assert d["executor"] == executor and d["perfil"] == "dervs" and d.get("projeto") is None
+
+
+def test_projeto_citado_sem_pedido_de_trabalho_nao_empresta(raizes):
+    d = r.destino("no projeto grimoire, que horas são", raizes)
+    assert d["perfil"] == "dervs" and d.get("projeto") is None
+
+
+def test_destino_sem_raizes_e_com_entrada_torta_nao_quebra():
+    assert r.destino("", [])["perfil"] == "dervs"
+    assert r.destino("corrige o bug no projeto grimoire", [])["executor"] == "falar"

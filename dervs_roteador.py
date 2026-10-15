@@ -5,7 +5,8 @@ Dois destinos:
   - `claude_code`: pedido de DESENVOLVER (criar/consertar/refatorar código) ou de
     TRABALHO explícito ("pede pro Claude…", "analisa…", "verifica meu PC"). Roda na
     sessão do Claude Code (assinatura do dono, no PC dele), sob as permissões do
-    painel.
+    painel: com o cérebro do DERVS, ou com o Claude Code do dono emprestado DENTRO da
+    pasta do projeto quando a frase nomeia um (`destino`).
   - `planejador`: todo o resto — o fluxo rápido de sempre (comando, hora, abrir app).
 
 É heurística transparente, não modelo: um falso positivo manda o pedido ao
@@ -20,6 +21,7 @@ import time
 import unicodedata
 
 import dervs_claude_code
+import dervs_voz_infra
 
 # Tudo é comparado JÁ normalizado (sem acento, minúsculo): "Olá", "faça" e "corrija"
 # chegam como "ola", "faca" e "corrija".
@@ -68,6 +70,61 @@ def rotear(texto: str) -> dict:
                 "pedido": original}
     return {"executor": "planejador", "intencao": "rapido",
             "motivo": "comando ou conversa curta: planejador rápido", "pedido": None}
+
+
+# --- qual cérebro: o do DERVS ou o Claude Code do dono emprestado num projeto ---------
+# Decisão do dono (15/10/2026): o DERVS responde com o cérebro próprio; o Claude Code
+# de desenvolvimento dele só é emprestado quando ele pede TRABALHO num projeto NOMEADO,
+# e roda dentro da pasta desse projeto (`dervs_claude_code`, perfil `projeto`).
+DIGA_O_PROJETO = "Em qual projeto? Diga, por exemplo: no projeto tal, conserta isso."
+_PREP = r"(?:no|do|na|da|em)\s+projeto\s+(?:d[oae]\s+)?"
+_PROJETO_NO_COMECO = re.compile(rf"^{_PREP}(?P<n>[^,:;]+?)\s*[,:;]\s*(?P<p>.+)$")
+_PROJETO_NO_COMECO_SEM_VIRGULA = re.compile(rf"^{_PREP}(?P<n>\S+)\s+(?P<p>.+)$")
+_PROJETO_NO_FIM = re.compile(
+    r"^(?P<p>.+?)[\s,]+(?P<prep>no|do|na|da|em|o)\s+projeto\s+(?:d[oae]\s+)?"
+    r"(?P<n>[a-z0-9][\w .-]{0,60})$")
+
+
+def _projeto_citado(texto: str):
+    """`(nome, pedido)` quando a frase cita um projeto, ou None. O pedido é o que sobra
+    sem o projeto — é nele que se mede a intenção ("no projeto X, corrige o bug")."""
+    t = _norm(texto).rstrip(" .!?")
+    t = _PEDIDO_EDUCADO.sub("", _VOCATIVO.sub("", t, count=1), count=1).strip()
+    for padrao in (_PROJETO_NO_COMECO, _PROJETO_NO_COMECO_SEM_VIRGULA):
+        m = padrao.match(t)
+        if m:
+            return m.group("n").strip(" .-"), m.group("p")
+    m = _PROJETO_NO_FIM.match(t)
+    if m:
+        # "analisa o projeto X": o projeto É o objeto do verbo, a frase inteira vale.
+        return m.group("n").strip(" .-"), (t if m.group("prep") == "o" else m.group("p"))
+    return None
+
+
+def destino(texto: str, raizes) -> dict:
+    """`rotear` mais o cérebro: `perfil` (`dervs` ou `projeto`), `projeto` (a pasta) e,
+    quando o DERVS só responde, `executor="falar"` com a `fala`. Nunca levanta."""
+    rota = {**rotear(texto), "perfil": "dervs", "projeto": None}
+    citado = _projeto_citado(texto)
+    if citado is None:
+        if rota["intencao"] == "desenvolver":
+            return {**rota, "executor": "falar", "fala": DIGA_O_PROJETO}
+        return rota
+    nome, pedido = citado
+    rota_projeto = rotear(pedido)
+    if rota_projeto["executor"] != "claude_code":
+        return rota                      # cita um projeto mas não pede trabalho: fica com o DERVS
+    try:
+        pasta, empate = dervs_voz_infra.achar_projeto(nome, raizes or [])
+    except Exception:
+        pasta, empate = None, []
+    if pasta:
+        return {**rota_projeto, "perfil": "projeto", "projeto": pasta,
+                "pedido": (texto or "").strip(),
+                "motivo": rota_projeto["motivo"] + "; no projeto " + os.path.basename(pasta)}
+    fala = ("Achei mais de um projeto parecido: " + ", ".join(empate) + ". Qual deles?"
+            if empate else f"Não achei o projeto {nome} nas suas pastas de projeto.")
+    return {**rota_projeto, "executor": "falar", "fala": fala, "perfil": "dervs", "projeto": None}
 
 
 # --- Codex como reserva do Claude ocupado ------------------------------------------

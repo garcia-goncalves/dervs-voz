@@ -616,8 +616,8 @@ class SessaoClaudeFalsa:
         self._aceita = aceita
         self.chamadas = []
 
-    def perguntar(self, texto, origem="painel"):
-        self.chamadas.append(("perguntar", texto, origem))
+    def perguntar(self, texto, origem="painel", projeto=None):
+        self.chamadas.append(("perguntar", texto, origem) + ((projeto,) if projeto else ()))
         return self._aceita
 
     def parar(self):
@@ -647,15 +647,29 @@ def test_frase_que_pede_trabalho_vai_para_o_claude_code_e_nao_para_o_planejador(
     assert motor.claude.chamadas == [("perguntar", "analisar o disco", "voz")]
 
 
-def test_pedido_de_desenvolvimento_vai_sozinho_para_o_claude_code(motor, monkeypatch, tmp_path):
+def test_pedido_de_desenvolvimento_num_projeto_empresta_o_claude_na_pasta_dele(motor, monkeypatch, tmp_path):
     """Roteador (esteira dervs-autonomia): sem dizer "pede pro Claude", um pedido
-    claro de construir software cai no Claude Code, e o motivo fica registrado."""
+    claro de construir software cai no Claude Code, e o motivo fica registrado. Desde
+    15/10, só com o projeto nomeado, e o Claude roda DENTRO da pasta dele."""
     monkeypatch.setenv("DERVS_ROTEAMENTO_LOG", str(tmp_path / "r.jsonl"))
+    (tmp_path / "clinica-site").mkdir()
+    monkeypatch.setattr(dervs_electron, "_raizes_de_projeto", lambda: [str(tmp_path)])
+    motor.claude = SessaoClaudeFalsa()
+    monkeypatch.setattr(motor, "_pensar", lambda: pytest.fail("foi para o planejador"))
+    _fala(motor, "no projeto clinica-site, cria um site para a minha clínica")
+    assert motor.claude.chamadas == [("perguntar", "no projeto clinica-site, cria um site para a minha clínica",
+                                      "voz", str(tmp_path / "clinica-site"))]
+    assert "desenvolver" in (tmp_path / "r.jsonl").read_text(encoding="utf-8")
+
+
+def test_pedido_de_desenvolvimento_sem_projeto_pergunta_qual_e_nao_chama_o_claude(motor, monkeypatch, tmp_path):
+    monkeypatch.setattr(dervs_electron, "_raizes_de_projeto", lambda: [str(tmp_path)])
     motor.claude = SessaoClaudeFalsa()
     monkeypatch.setattr(motor, "_pensar", lambda: pytest.fail("foi para o planejador"))
     _fala(motor, "cria um site para a minha clínica")
-    assert motor.claude.chamadas == [("perguntar", "cria um site para a minha clínica", "voz")]
-    assert "desenvolver" in (tmp_path / "r.jsonl").read_text(encoding="utf-8")
+    assert motor.claude.chamadas == []
+    falas = [c for c in motor.ponte.de_tipo("fala") if c[1] == "dervs"]
+    assert falas and "projeto" in falas[-1][2].lower()
 
 
 def test_plano_inofensivo_roda_sozinho_depois_de_anunciar(motor, monkeypatch):
@@ -766,6 +780,28 @@ def test_verbos_do_painel_chegam_na_sessao(motor):
     assert motor.claude.chamadas == [
         ("perguntar", "olha o disco", "painel"), ("parar",), ("nova_conversa",),
         ("responder", "a1", True, "a1", "clique")]
+
+
+def test_caixa_do_painel_vai_ao_cerebro_do_dervs_e_projeto_vai_a_pasta_dele(motor, monkeypatch, tmp_path):
+    (tmp_path / "grimoire").mkdir()
+    monkeypatch.setattr(dervs_electron, "_raizes_de_projeto", lambda: [str(tmp_path)])
+    motor.claude = SessaoClaudeFalsa()
+    ao_claude = dervs_electron._construir_ao_claude(motor)
+    ao_claude("claude_perguntar", {"texto": "abre a calculadora"})
+    ao_claude("claude_perguntar", {"texto": "corrige o bug do login no projeto grimoire"})
+    assert motor.claude.chamadas == [
+        ("perguntar", "abre a calculadora", "painel"),
+        ("perguntar", "corrige o bug do login no projeto grimoire", "painel", str(tmp_path / "grimoire"))]
+
+
+def test_caixa_do_painel_sem_projeto_para_desenvolver_responde_sem_chamar_o_claude(motor, monkeypatch, tmp_path):
+    monkeypatch.setattr(dervs_electron, "_raizes_de_projeto", lambda: [str(tmp_path)])
+    motor.claude = SessaoClaudeFalsa()
+    dervs_electron._construir_ao_claude(motor)("claude_perguntar", {"texto": "cria um site"})
+    assert motor.claude.chamadas == []
+    delta = motor.ponte.de_tipo("claude_delta")
+    assert delta and "projeto" in delta[-1][1]["texto"].lower()
+    assert motor.ponte.de_tipo("claude_fim")[-1][1]["ok"] is True
 
 
 def test_pergunta_recusada_do_painel_devolve_fim_com_erro(motor):

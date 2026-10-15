@@ -182,7 +182,9 @@ class Motor(dervs.PopUp):
         self._proximo_cartao_id = 0
         self._cartao_pendente = None
         # O Claude Code (onda B). Só cria o objeto: o laço e o `claude` só sobem
-        # na primeira pergunta. O perfil vem da config (`claude_perfil`).
+        # na primeira pergunta. Responde com o cérebro PRÓPRIO do DERVS (perfil
+        # `dervs`); a config `claude_perfil` só escolhe o harness emprestado quando o
+        # dono pede trabalho num projeto ("equipe" = só o do projeto).
         self.cofre = None            # `dervs_cofre.Cofre`: ligado em `main` (segundo cérebro)
         self.codex = None            # `dervs_codex.Codex`: ligado em `main`
         self.codex_voz = None        # `AcoesCodex`: idem
@@ -196,7 +198,9 @@ class Motor(dervs.PopUp):
             ao_texto_final=self._claude_texto_final,
             ao_aviso=self._claude_aviso,
             fachada_fabrica=self._fachada_aprovacao,
-            perfil=config.carregar()["claude_perfil"],
+            perfil="dervs",
+            perfil_projeto=("equipe" if config.carregar()["claude_perfil"] == "equipe"
+                            else "projeto"),
             niveis_fn=lambda: config.carregar()["permissoes"],
             raizes_fn=lambda: config.carregar()["pastas_de_projeto"])
         # A Central do PC (onda D): analisa, propõe limpeza e devolve o clique ao motor.
@@ -241,13 +245,18 @@ class Motor(dervs.PopUp):
                 self.entrada.clear()
                 self.claude.parar()
                 return
-            rota = roteador.rotear(texto)
+            rota = roteador.destino(texto, _raizes_de_projeto())
             roteador.registrar(rota, texto)
+            if rota["executor"] == "falar":          # ex.: desenvolver sem dizer o projeto
+                self._diz("dono", texto)
+                self.entrada.clear()
+                self._claude_falar_na_tela(rota["fala"])
+                return
             pedido = rota["pedido"] if rota["executor"] == "claude_code" else None
             if pedido:
                 self._diz("dono", texto)
                 self.entrada.clear()
-                if (not self.claude.perguntar(pedido, origem="voz")
+                if (not self.claude.perguntar(pedido, origem="voz", **_no_projeto(rota))
                         and not self._tentar_reserva_codex(rota, texto)):
                     dica = roteador.dica_codex(rota, ligado=self.codex is not None and self.codex.ligado)
                     self._claude_falar_na_tela(_AINDA_TRABALHANDO + dica)
@@ -811,10 +820,19 @@ def _construir_ao_plano(motor: Motor):
 def _construir_ao_claude(motor: Motor):
     """Os quatro verbos do Claude Code que chegam do painel. Todos vêm de
     CLIQUE (origem "clique"): a voz nunca passa por aqui. A sessão é segura entre
-    threads, então a chamada é direta, sem atravessar para a thread da tela."""
+    threads, então a chamada é direta, sem atravessar para a thread da tela.
+
+    A caixa de texto fala com o cérebro do DERVS; trabalho num projeto nomeado
+    empresta o Claude Code do dono na pasta dele (mesma regra da voz, `destino`)."""
     def _ao_claude(verbo, dados):
         if verbo == "claude_perguntar":
-            if not motor.claude.perguntar(dados["texto"], origem="painel"):
+            rota = None if motor.claude.ocupado else roteador.destino(
+                dados["texto"], _raizes_de_projeto())
+            if rota is not None and rota["executor"] == "falar":
+                motor.ponte.enviar_claude("claude_delta", {"texto": rota["fala"]})
+                motor.ponte.enviar_claude("claude_fim", {"ok": True, "custo": 0, "erro": None})
+                return
+            if not motor.claude.perguntar(dados["texto"], origem="painel", **_no_projeto(rota)):
                 motor.ponte.enviar_claude("claude_fim", {
                     "ok": False, "custo": 0,
                     "erro": "ainda estou respondendo a pergunta anterior"})
@@ -956,6 +974,12 @@ def _ligar_codex(motor, ponte, parar):
     except Exception as erro:
         motor.codex = motor.codex_voz = None
         _avisar("Codex desligado: %s" % type(erro).__name__)
+
+
+def _no_projeto(rota) -> dict:
+    """`{"projeto": pasta}` quando a rota empresta o Claude Code num projeto; senão nada."""
+    pasta = rota.get("projeto") if isinstance(rota, dict) else None
+    return {"projeto": pasta} if pasta else {}
 
 
 def _raizes_de_projeto() -> list:
@@ -1102,7 +1126,11 @@ def main():
     motor.infra_apelidos = integracao.apelidos
     motor.infra_voz = voz_infra.AcoesVoz(
         terminal_por_voz=integracao.ssh_por_voz, raizes_fn=_raizes_de_projeto,
-        gravar_config=config.gravar, ler_config=config.carregar, aplicar_ao_vivo=_aplicar_ao_vivo)
+        gravar_config=config.gravar, ler_config=config.carregar, aplicar_ao_vivo=_aplicar_ao_vivo,
+        # o conserto por voz vai à MESMA sessão (perfil `projeto`, na cópia isolada), com o
+        # gancho e o cartão; nunca um `claude` solto no terminal
+        abrir_claude=lambda pasta, pedido: motor.claude.perguntar(pedido, origem="voz",
+                                                                  projeto=pasta))
     ao_permissoes_alvo.append(permissoes_painel.PermissoesLocal(ponte).tratar)
 
     def _aviso_do_painel(texto, alvo):

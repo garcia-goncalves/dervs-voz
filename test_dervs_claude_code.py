@@ -34,13 +34,15 @@ def test_o_modo_de_permissao_e_default_e_nunca_um_dos_proibidos():
         assert proibido in cc.MODOS_PROIBIDOS
     fonte = inspect.getsource(cc)
     assert "set_permission_mode" not in fonte, "o modo nunca muda depois de aberta a sessão"
-    for perfil in ("dono", "equipe"):
+    for perfil in ("dervs", "projeto", "dono", "equipe"):
         assert _opcoes(perfil).permission_mode == "default"
 
 
 def _opcoes(perfil="dono", **extra):
     sessao = cc.SessaoClaudeCode(lambda v, d: None, perfil=perfil, arquivo_sessao=None)
     servidor, _ = cc.criar_servidor_dervs(sessao)
+    if perfil != "dervs":                 # emprestado só existe dentro de um projeto
+        extra.setdefault("cwd", os.path.dirname(os.path.abspath(__file__)))
     return cc.montar_opcoes(perfil, can_use_tool=sessao._can_use_tool,
                             gancho=cc.criar_gancho(), servidor_mcp=servidor,
                             cli_path="claude", **extra)
@@ -204,7 +206,7 @@ def test_ferramenta_fora_da_lista_de_leitura_sempre_pede(nome, entrada):
 
 
 @pytest.mark.parametrize("nome,entrada", [
-    ("TodoWrite", {"todos": []}), ("mcp__dervs__central_coletar", {}),
+    ("TodoWrite", {"todos": []}),
     ("mcp__dervs__propor_acao", {"itens": []}), ("mcp__dervs__status_aprovacao", {}),
 ])
 def test_leitura_pura_e_ferramentas_do_dervs_passam(nome, entrada):
@@ -477,7 +479,7 @@ def test_session_id_e_gravado_e_a_proxima_abertura_retoma(tmp_path, gasto):
     finally:
         cena.fechar()
     salvo = json.loads((tmp_path / "claude_sessao.json").read_text(encoding="utf-8"))
-    assert salvo["session_id"] == "sessao-1234567890" and salvo["perfil"] == "dono"
+    assert salvo["session_id"] == "sessao-1234567890" and salvo["perfil"] == "dervs"
     assert cena.clientes[0].opcoes.resume is None
 
     outra = Cena(tmp_path, _roteiro_simples)          # "reabriu o app"
@@ -840,13 +842,7 @@ def _texto(r):
 
 def test_o_servidor_dervs_nao_tem_ferramenta_de_executar(tmp_path):
     _, f, _, _ = _ferramentas(tmp_path)
-    assert set(f) == {"central_coletar", "propor_acao", "status_aprovacao"}
-
-
-def test_central_coletar_e_um_stub_honesto(tmp_path):
-    _, f, _, _ = _ferramentas(tmp_path)
-    r = asyncio.run(f["central_coletar"].handler({"coletor": "temporarios"}))
-    assert "ainda não instalado" in _texto(r)
+    assert set(f) == {"propor_acao", "status_aprovacao"}
 
 
 def test_propor_acao_vai_para_a_fachada_da_onda_c_e_nao_executa(tmp_path):
@@ -1342,3 +1338,202 @@ def test_nome_curto_8_3_real_de_segredo_e_negado(tmp_path):
     if "~" not in curto.replace(str(tmp_path), ""):
         pytest.skip("o volume nao gera nomes 8.3")
     assert cc.leitura_proibida(curto)
+
+
+# --- cérebro próprio do DERVS × harness emprestado de um projeto ----------------------
+# Antes (15/10/2026) a sessão do painel rodava na pasta do repositório com o ~/.claude do
+# dono: carregava o CLAUDE.md de desenvolvedor, as memórias e os ganchos de SessionStart
+# (a caixa de handoff entregou um recado de dev ao DERVS) e "abre a calculadora" virou
+# conversa de branch. O DERVS tem cérebro próprio; o do dono só vem emprestado num projeto.
+
+def test_perfil_padrao_e_o_cerebro_proprio_do_dervs():
+    assert cc.PERFIL_PADRAO == "dervs"
+    assert cc.SessaoClaudeCode(lambda v, d: None, arquivo_sessao=None).perfil == "dervs"
+
+
+def test_cerebro_do_dervs_nao_carrega_o_harness_do_dono():
+    import dervs_config
+    o = _opcoes("dervs", cwd=cc.PASTA_HARNESS)          # nem pedindo, roda no repositório
+    assert o.env["CLAUDE_CONFIG_DIR"] == cc.pasta_cerebro()
+    assert o.setting_sources == ["user"], "user agora é a pasta do cérebro do DERVS"
+    assert o.cwd == cc.pasta_area()
+    assert o.strict_mcp_config is True and set(o.mcp_servers) == {"dervs"}
+    assert o.permission_mode == "default"
+    casa = os.path.normcase(os.path.join(os.path.expanduser("~"), ".claude"))
+    assert os.path.normcase(cc.pasta_cerebro()) != casa
+    assert os.path.normcase(cc.pasta_cerebro()).startswith(os.path.normcase(dervs_config.CONFIG_DIR))
+    assert not os.path.normcase(cc.pasta_area()).startswith(os.path.normcase(cc.PASTA_HARNESS))
+    assert not os.path.exists(os.path.join(cc.pasta_area(), "CLAUDE.md"))
+
+
+def test_emprestado_roda_na_pasta_do_projeto_com_o_harness_do_dono(tmp_path):
+    o = _opcoes("projeto", cwd=str(tmp_path))
+    assert o.setting_sources == ["user", "project", "local"]
+    assert o.cwd == str(tmp_path)
+    assert "CLAUDE_CONFIG_DIR" not in (o.env or {})
+    assert o.permission_mode == "default"
+
+
+@pytest.mark.parametrize("perfil", ["projeto", "dono", "equipe", "perfil-inventado"])
+def test_emprestado_sem_projeto_nunca_cai_na_pasta_do_dervs(perfil):
+    sessao = cc.SessaoClaudeCode(lambda v, d: None, arquivo_sessao=None)
+    servidor, _ = cc.criar_servidor_dervs(sessao)
+    with pytest.raises(ValueError):
+        cc.montar_opcoes(perfil, can_use_tool=sessao._can_use_tool, gancho=cc.criar_gancho(),
+                         servidor_mcp=servidor, cli_path="claude")
+
+
+def test_cerebro_nasce_com_persona_sem_ganchos_e_respeita_o_que_o_dono_editou(tmp_path):
+    base, area = tmp_path / "cerebro", tmp_path / "area"
+    cc.preparar_cerebro(str(base), str(area))
+    md = (base / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "DERVS" in md and "português" in md.lower()
+    conf = json.loads((base / "settings.json").read_text(encoding="utf-8"))
+    assert "hooks" not in conf
+    assert conf["permissions"]["defaultMode"] == "default"
+    assert conf["permissions"]["defaultMode"] not in cc.MODOS_PROIBIDOS
+    assert (base / "skills" / "README.md").is_file() and (base / "agents" / "README.md").is_file()
+    assert area.is_dir() and not (area / "CLAUDE.md").exists()
+
+    (base / "CLAUDE.md").write_text("o dono mudou", encoding="utf-8")
+    (base / "settings.json").write_text("{}", encoding="utf-8")
+    cc.preparar_cerebro(str(base), str(area))
+    assert (base / "CLAUDE.md").read_text(encoding="utf-8") == "o dono mudou"
+    assert (base / "settings.json").read_text(encoding="utf-8") == "{}"
+
+
+@pytest.mark.parametrize("texto", [
+    "Not logged in · Please run /login",
+    "Invalid API key · Please run /login",
+    "OAuth token has expired. Please obtain a new token or run /login",
+    "CLIConnectionError: authentication_failed",
+])
+def test_reconhece_falta_de_login(texto):
+    assert cc.falta_login(texto)
+
+
+@pytest.mark.parametrize("texto", ["Prompt is too long", "", None, "interrompido"])
+def test_erro_comum_nao_e_falta_de_login(texto):
+    assert not cc.falta_login(texto)
+
+
+def test_sem_login_o_painel_e_a_voz_recebem_a_frase_clara(tmp_path, gasto):
+    async def roteiro(c):
+        yield _resultado(texto="Not logged in · Please run /login", erro=True, custo=0)
+
+    cena = Cena(tmp_path, roteiro)
+    try:
+        cena.perguntar("abre a calculadora", origem="voz")
+    finally:
+        cena.fechar()
+    fim = cena.verbos("claude_fim")
+    assert fim[0]["ok"] is False and fim[0]["erro"] == cc.FALTA_LOGIN
+    assert "Entrar" in cc.FALTA_LOGIN and cena.avisos == [cc.FALTA_LOGIN]
+
+
+def test_sem_login_vindo_como_excecao_tambem_vira_a_frase_clara(tmp_path, gasto):
+    async def roteiro(c):
+        raise RuntimeError("Not logged in · Please run /login")
+        yield  # pragma: no cover
+
+    cena = Cena(tmp_path, roteiro)
+    try:
+        cena.perguntar("oi")
+    finally:
+        cena.fechar()
+    assert cena.verbos("claude_fim")[0]["erro"] == cc.FALTA_LOGIN
+
+
+def test_trabalho_num_projeto_empresta_o_harness_na_pasta_dele_e_volta(tmp_path, gasto):
+    proj = tmp_path / "meu-projeto"
+    proj.mkdir()
+    cena = Cena(tmp_path, _roteiro_simples)
+    try:
+        cena.perguntar("oi")
+        assert cena.sessao.perguntar("corrige o bug", "painel", projeto=str(proj))
+        assert cena.sessao.aguardar_ocioso(10)
+        cena.perguntar("e agora?")
+    finally:
+        cena.fechar()
+    vistos = [(c.opcoes.setting_sources, c.opcoes.cwd) for c in cena.clientes]
+    assert vistos == [(["user"], cc.pasta_area()),
+                      (["user", "project", "local"], str(proj)),
+                      (["user"], cc.pasta_area())]
+    assert cena.clientes[0].desconectado and cena.clientes[1].desconectado
+    assert cena.clientes[1].opcoes.resume is None, "a conversa do DERVS não vai para o projeto"
+    assert cena.clientes[2].opcoes.resume == "sessao-1234567890", "a do DERVS volta"
+    salvo = json.loads((tmp_path / "claude_sessao.json").read_text(encoding="utf-8"))
+    assert salvo["perfil"] == "dervs", "só a conversa do DERVS fica no disco"
+
+
+def _projeto_git(tmp_path, nome="loja"):
+    proj = tmp_path / nome
+    (proj / ".git").mkdir(parents=True)
+    (proj / "src").mkdir()
+    return proj
+
+
+def test_no_projeto_pedido_a_pasta_dele_e_editavel(tmp_path):
+    """Revisão 15/10: a onda C protege "dentro de repositório", e o perfil `projeto`
+    nunca conseguia editar o projeto que o dono pediu."""
+    proj = _projeto_git(tmp_path)
+    alvo = str(proj / "src" / "a.py")
+    assert cc.esta_protegido(alvo) is True, "fora do perfil projeto, repositório segue protegido"
+    assert cc.protegido_no_projeto(alvo, str(proj)) is False
+    acao, _ = cc.decisao_do_gancho("Edit", {"file_path": alvo},
+                                   lambda c: cc.protegido_no_projeto(c, str(proj)))
+    assert acao == "ask", "editável não quer dizer sem cartão"
+
+
+def test_no_projeto_o_resto_continua_protegido(tmp_path):
+    proj = _projeto_git(tmp_path)
+    outro = _projeto_git(tmp_path, "outro")
+    for caminho in (str(proj / ".git" / "config"), str(proj / ".env"),
+                    str(outro / "src" / "a.py"), os.path.join(cc.PASTA_HARNESS, "dervs.py"),
+                    os.path.join(cc.pasta_cerebro(), "settings.json"),
+                    r"C:\Windows\System32\x.dll", "relativo.txt"):
+        assert cc.protegido_no_projeto(caminho, str(proj)) is True, caminho
+        acao, _ = cc.decisao_do_gancho("Edit", {"file_path": caminho},
+                                       lambda c: cc.protegido_no_projeto(c, str(proj)))
+        assert acao == "deny", caminho
+
+
+def test_projeto_dervs_voz_libera_o_proprio_repo_mas_nao_o_appdata(tmp_path):
+    alvo = os.path.join(cc.PASTA_HARNESS, "dervs_brain.py")
+    assert cc.protegido_no_projeto(alvo, cc.PASTA_HARNESS) is False
+    assert cc.protegido_no_projeto(os.path.join(cc.PASTA_HARNESS, ".git", "HEAD"),
+                                   cc.PASTA_HARNESS) is True
+    assert cc.protegido_no_projeto(os.path.join(cc.pasta_cerebro(), "CLAUDE.md"),
+                                   cc.PASTA_HARNESS) is True
+
+
+def test_sessao_no_projeto_usa_a_pasta_dele_como_editavel(tmp_path, gasto):
+    proj = _projeto_git(tmp_path)
+    eventos = []
+    s = cc.SessaoClaudeCode(lambda v, d: eventos.append((v, d)), arquivo_sessao=None,
+                            timeout_pedido=0.05)
+    asyncio.run(s._mirar(str(proj)))
+    alvo = str(proj / "src" / "a.py")
+    assert s._protegido_atual(alvo) is False
+    asyncio.run(s._mirar(None))
+    assert s._protegido_atual(alvo) is True, "de volta ao DERVS, o projeto volta a ser protegido"
+
+
+def test_ferramentas_do_servidor_dervs_sao_so_as_que_funcionam():
+    """`central_coletar` sempre respondia "não instalado": saiu da lista exposta."""
+    sessao = cc.SessaoClaudeCode(lambda v, d: None, arquivo_sessao=None)
+    _, ferramentas = cc.criar_servidor_dervs(sessao)
+    assert set(ferramentas) == {"propor_acao", "status_aprovacao"}
+    assert "mcp__dervs__central_coletar" not in cc.FERRAMENTAS_DERVS
+
+
+def test_perfil_emprestado_segue_a_config_equipe(tmp_path, gasto):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    cena = Cena(tmp_path, _roteiro_simples, perfil_projeto="equipe")
+    try:
+        assert cena.sessao.perguntar("analisa", "painel", projeto=str(proj))
+        assert cena.sessao.aguardar_ocioso(10)
+    finally:
+        cena.fechar()
+    assert cena.clientes[0].opcoes.setting_sources == ["project"]
