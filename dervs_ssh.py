@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DERVS — terminal SSH (módulo testado, ainda SEM tela ligada a ele).
+"""DERVS — terminal SSH (módulo testado; ligado ao painel pela aprovação e pela integração).
 
 Um comando digitado aqui roda num servidor de verdade. Por isso o módulo é
 feito de recusas, e cada uma tem um teste que quebra se alguém afrouxar:

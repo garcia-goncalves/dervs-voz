@@ -12,22 +12,13 @@ girando e núcleo que reage à voz) na bandeja. Você fala → transcreve → o
 cérebro entende, diz "Entendi: vou…" e executa (abre apps, sites, roda
 comandos); só pede o seu OK no que é grave (`confirmar_plano`). Fala de volta com voz humana.
 
-**A tela é Electron desde 16/09/2026** — antes era uma janela Qt visível com um
-selo flutuante; hoje o Qt continua vivo por baixo (motor invisível, ver seção
-abaixo), mas quem aparece na tela é sempre o HUD do Electron.
-
-**Atualização 29/09/2026: o widget deixou de existir; o painel grande é a janela
-única (ver abaixo). O parágrafo a seguir é o histórico da fase 1.** Desde 17/09/2026
-(fase 1 de `docs/esteira/dervs-painel-completo/`) o HUD era um
-widget de desktop: janela transparente (o desktop atrás aparece
-por baixo do tom ciano), sempre visível por cima das outras janelas, ancorada
-no canto superior direito da tela, com relógio/data ao vivo e o uso real de
-CPU/RAM/disco desta máquina (`dervs_sistema.py`, via `psutil`) — e um botão
-"Abrir DERVS App" que abre o outro projeto do dono
-([`garcia-goncalves/dervs`](https://github.com/garcia-goncalves/dervs)) no
-navegador. Nesta fase o botão só ABRE a página; nenhuma outra integração
-(login, comando, cofre) existe ainda — ver `docs/esteira/dervs-painel-completo/
-briefing.md`, "fora_de_escopo".
+**A tela é Electron desde 16/09/2026.** O Qt continua vivo por baixo como motor
+invisível (ver seção abaixo), mas quem aparece é sempre o painel do Electron.
+Desde 29/09/2026 esse painel é a janela única: não há mais selo flutuante nem
+widget compacto (eram da fase 1, 17/09), só o painel grande, com `Ctrl+Alt+D` e a
+bandeja ("Abrir DERVS / Sair do DERVS"). O painel mostra relógio, CPU/RAM/disco
+reais (`dervs_sistema.py`, via `psutil`) e abre o outro projeto do dono
+([`garcia-goncalves/dervs`](https://github.com/garcia-goncalves/dervs)) no navegador.
 
 Detalhe completo em **[DERVS-EXECUTAR.md](DERVS-EXECUTAR.md)**.
 
@@ -331,8 +322,8 @@ verdade, pelo caminho do atalho:
   quebrado de propósito: a tela passa a dizer "não estou conseguindo ouvir — o
   motor de voz não sobe", e o recado **fica** (motivo real no tooltip). Com o
   daemon inteiro, chega em "pronto" em menos de 2 s, sem alarme falso.
-- Bandeja com **"Sair do DERVS"** e **"Trazer o selo de volta"**; arrasto do
-  selo limitado à tela.
+- Bandeja com **"Sair do DERVS"** (o selo e o "Trazer o selo de volta" deixaram de
+  existir em 29/09/2026).
 
 **A revisão pegou dois bloqueantes no próprio conserto**, ambos reproduzidos e
 corrigidos: (1) `QTimer.singleShot` chamado da thread do socket nunca dispara —
