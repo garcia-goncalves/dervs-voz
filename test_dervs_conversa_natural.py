@@ -108,6 +108,10 @@ class PlayerFalso:
     def acabou(self):
         self._tocando = False
 
+    def fechar(self):
+        self.log.append(("fechar", round(self.relogio(), 2)))
+        self._tocando = False
+
     def tocando(self):
         return self._tocando
 
@@ -697,3 +701,247 @@ def test_sistema_pede_frases_curtas_pergunta_na_duvida_e_proibe_o_entendi_vou():
     assert "pergunte" in s and "silencioso=true" in s
     assert {f["name"] for f in cn.FERRAMENTAS} == {"fazer", "abrir_app", "hora", "volume",
                                                     "abrir_pasta", "confirmar"}
+
+
+def test_calar_do_atalho_interrompe_a_resposta_em_curso():
+    c = Cena(fim=10)
+    _tocando_resposta(c)
+    c.cn.calar()
+    assert c.conv.log[-1] == "interromper" and not c.player.tocando()
+
+
+def test_resposta_retida_sai_pelo_tique_quando_o_microfone_para():
+    relogio = [0.0]
+    c = Cena(fim=10, atraso=99)
+    c.cn._relogio = lambda: relogio[0]
+    _turno_do(c)
+    c.responder()                                          # chegou no meio da espera
+    assert not [e for e in c.player.log if e[0] == "tocar"]
+    relogio[0] += 1.0                                      # o atalho fechou o microfone
+    c.cn.tique()
+    assert [e for e in c.player.log if e[0] == "tocar"]
+
+
+# ---- dentro do app (Qt): ligar, cair, ganchos da escuta, painel -------------------
+
+_APP = []
+
+
+def _qt():
+    """A QApplication fica viva até o fim da suíte (coletada, o Qt derruba o processo)."""
+    pytest.importorskip("PyQt6", reason="o motor é Qt")
+    from PyQt6 import QtWidgets
+    if not _APP:
+        _APP.append(QtWidgets.QApplication.instance() or QtWidgets.QApplication([]))
+    return _APP[0]
+
+
+class _SinalNulo:
+    def connect(self, *a, **k):
+        pass
+
+
+class EscutaFalsa:
+    def __init__(self):
+        self.fala = self.mudo = self.nivel = self.finished = _SinalNulo()
+        self.pausado = False
+        self.desvio = self.gravacao = None
+
+    def start(self):
+        pass
+
+    def parar(self):
+        pass
+
+
+class PonteFalsa:
+    def __init__(self):
+        self.chamadas = []
+
+    def __getattr__(self, nome):
+        if nome.startswith("__"):
+            raise AttributeError(nome)
+        return lambda *a, **k: self.chamadas.append((nome, a))
+
+
+@pytest.fixture
+def motor_app(monkeypatch):
+    _qt()
+    import dervs
+    import dervs_electron
+    monkeypatch.setattr(dervs.cfg, "gravar", lambda chave, valor: True)
+    m = dervs_electron.Motor(PonteFalsa())
+    m.voz.ligada = False
+    m.escuta = EscutaFalsa()
+    yield m
+    m.escuta = None
+    dervs.encerrar_tudo(m)
+
+
+def _cn_do_app(monkeypatch, cena_kw=None):
+    cenas = []
+
+    def criar(conf, executar_acao, avisar, arbitro=None, **kw):
+        c = Cena(fim=10, **(cena_kw or {}))
+        c.cn._avisar, c.cn._ao_cair, c.cn._ao_turno = avisar, kw["ao_cair"], kw["ao_turno"]
+        cenas.append(c)
+        return c.cn
+    monkeypatch.setattr(cn, "motor_disponivel", lambda conf: True)
+    monkeypatch.setattr(cn, "criar_padrao", criar)
+    return cenas
+
+
+def test_app_ao_acordar_a_voz_direta_assume_o_microfone(motor_app, monkeypatch):
+    cenas = _cn_do_app(monkeypatch)
+    motor_app._acordar(novo=True)
+    assert motor_app._cn is cenas[0].cn and motor_app.escuta.desvio == cenas[0].cn.quadro
+
+
+def test_app_sem_chave_de_motor_fica_no_caminho_antigo(motor_app, monkeypatch):
+    monkeypatch.setattr(cn, "motor_disponivel", lambda conf: False)
+    motor_app._acordar(novo=True)
+    assert motor_app._cn is None and motor_app.escuta.desvio is None
+
+
+def test_app_motor_caido_volta_ao_caminho_antigo_com_aviso(motor_app, monkeypatch):
+    import time as _time
+    cenas = _cn_do_app(monkeypatch)
+    motor_app._acordar(novo=True)
+    cenas[0].conv.cb(dc.Erro("rede", "sem rede"))
+    assert motor_app._cn is None and motor_app.escuta.desvio is None
+    assert motor_app._cn_bloqueada_ate > _time.time() + 500
+    falas = [a for nome, a in motor_app.ponte.chamadas if nome == "enviar_fala"]
+    assert any(cn.AVISO_CAIU in str(a) for a in falas)
+    motor_app._acordar(novo=True)                         # não tenta de novo logo em seguida
+    assert motor_app._cn is None
+
+
+def test_app_dormiu_desliga_a_voz_direta(motor_app, monkeypatch):
+    cenas = _cn_do_app(monkeypatch)
+    motor_app._acordar(novo=True)
+    motor_app._desperto_ate = 0.0
+    motor_app._cn_vigiar()
+    assert motor_app._cn is None and "encerrar" in cenas[0].conv.log
+
+
+def test_app_frase_que_acordou_vira_a_primeira_vez_da_conversa(motor_app, monkeypatch):
+    cenas = _cn_do_app(monkeypatch, {"perfis": PerfisFalsos(perfis=())})
+    motor_app._cn_pcm = quadro("dono") * 40
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert cenas and cenas[0].conv.log[-1] == "fim" and len(cenas[0].conv.audio) == 960 * 40
+
+
+def test_app_plano_grave_da_voz_direta_vai_para_o_cartao(motor_app, monkeypatch):
+    cartoes, rodados = [], []
+    monkeypatch.setattr(motor_app, "_confirmar_plano", lambda: cartoes.append(list(motor_app.plano)))
+    monkeypatch.setattr(motor_app, "_processar_passo", lambda: rodados.append(1))
+    grave = {"modo": "planejar", "fala": "", "local": True, "passos": [
+        {"descricao": "x", "comando": "rm -rf C:/Users/x/Documents", "risco": "destrutivo",
+         "toca_alvo": False}]}
+    motor_app._cn_tratar("plano", grave)
+    assert cartoes and rodados == []
+    facil = {"modo": "planejar", "fala": "", "local": True, "passos": [
+        {"descricao": "x", "comando": "notepad", "risco": "reversivel", "toca_alvo": False}]}
+    motor_app._cn_tratar("plano", facil)
+    assert rodados == [1]
+
+
+def test_app_slot_da_conversa_natural_nao_derruba_o_app(motor_app, monkeypatch):
+    monkeypatch.setattr(motor_app, "_cerebro_respondeu", lambda f: 1 / 0)
+    motor_app._cn_tratar("plano", {})                      # exceção engolida e registrada
+
+
+def test_app_especial_claude_codex_pede_confirmacao(motor_app):
+    assert motor_app._cn_especial("pede pro claude code revisar o projeto dervs") is True
+    assert motor_app._cn_especial("abre o bloco de notas") is False
+
+
+def test_escuta_entrega_o_quadro_ao_gancho_e_volta_ao_endpointer_se_ele_cair(monkeypatch):
+    _qt()
+    import dervs
+    quadros = [quadro("dono")] * 60 + [quadro("sil")] * 60
+
+    class MicFalso:
+        def __init__(self):
+            self.i = 0
+
+        def abrir(self):
+            pass
+
+        def ler(self):
+            if self.i >= len(quadros):
+                escuta._rodando = False
+                return b""
+            self.i += 1
+            return quadros[self.i - 1]
+
+        def motivo_da_queda(self):
+            return ""
+
+        def fechar(self):
+            pass
+
+    monkeypatch.setattr(dervs, "Microfone", MicFalso)
+    monkeypatch.setattr(dervs, "salvar_wav", lambda pcm, caminho: None)
+    escuta = dervs.Escuta()
+    vistos, falas = [], []
+    escuta.fala.connect(falas.append)
+    escuta.desvio = lambda q: vistos.append(q) or True
+    escuta.run()
+    assert len(vistos) == 120 and falas == []              # nada foi para o caminho antigo
+    escuta.desvio = lambda q: False                        # a conversa caiu
+    escuta.run()
+    assert len(falas) == 1                                 # o Endpointer fechou a frase
+
+
+def test_painel_vozes_vai_e_volta_pela_ponte(motor_app, monkeypatch):
+    import time as _time
+    monkeypatch.setattr(motor_app, "vozes_apagar", lambda nome: {"ok": True})
+    monkeypatch.setattr(motor_app, "vozes_listar", lambda: [])
+    monkeypatch.setattr(motor_app, "conversa_estado", lambda: {"locutor_aviso": "grave sua voz"})
+    motor_app.tratar_vozes("vozes_apagar", {"nome": "Lia"})
+    fim = _time.monotonic() + 2
+    while _time.monotonic() < fim and not any(n == "enviar_vozes" for n, _ in motor_app.ponte.chamadas):
+        _time.sleep(0.01)
+    msg = [a for n, a in motor_app.ponte.chamadas if n == "enviar_vozes"][0][0]
+    assert msg["resultado"] == {"ok": True} and msg["estado"]["locutor_aviso"] == "grave sua voz"
+
+
+def test_conversa_estado_sem_sessao_vem_dos_perfis(motor_app, tmp_path):
+    motor_app._vozes = cn.Vozes(L.Perfis(str(tmp_path / "vozes"), extrator=extrator_falso))
+    assert motor_app.conversa_estado() == {"motor_ativo": None, "motor_nome": None,
+                                           "locutor_ativo": False, "perfis_ativos": [],
+                                           "locutor_aviso": "grave sua voz"}
+
+
+@pytest.mark.parametrize("linha, esperado", [
+    ({"verbo": "vozes_pedir"}, ("vozes_pedir", {})),
+    ({"verbo": "vozes_gravar", "nome": " Lia ", "papel": "convidado"},
+     ("vozes_gravar", {"nome": "Lia", "papel": "convidado"})),
+    ({"verbo": "vozes_ativar", "nome": "Lia", "ativo": False},
+     ("vozes_ativar", {"nome": "Lia", "ativo": False})),
+    ({"verbo": "vozes_apagar", "nome": "Lia"}, ("vozes_apagar", {"nome": "Lia"})),
+    ({"verbo": "vozes_gravar", "nome": "Lia", "papel": "admin"}, None),
+    ({"verbo": "vozes_ativar", "nome": "Lia", "ativo": "false"}, None),
+    ({"verbo": "vozes_apagar", "nome": "x" * 41}, None),
+    ({"verbo": "vozes_apagar", "nome": 3}, None),
+])
+def test_ponte_valida_os_verbos_de_vozes(linha, esperado):
+    import json
+    import dervs_ponte_electron as ponte_mod
+    vistos = []
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a: None,
+                                ao_pronto=lambda: None, ao_vozes=lambda v, d: vistos.append((v, d)))
+    p._processar_linha(json.dumps(linha).encode())
+    assert vistos == ([esperado] if esperado else [])
+
+
+def test_ponte_enviar_vozes_escreve_o_verbo():
+    import dervs_ponte_electron as ponte_mod
+    p = ponte_mod.PonteElectron(ao_sair=lambda: None, ao_plano=lambda *a: None,
+                                ao_pronto=lambda: None)
+    escritos = []
+    p._escrever = escritos.append
+    p.enviar_vozes({"gravando": 0.5, "lista": [{"nome": "Lia", "papel": "convidado", "ativo": True}]})
+    assert escritos == [{"verbo": "vozes", "gravando": 0.5,
+                         "lista": [{"nome": "Lia", "papel": "convidado", "ativo": True}]}]
