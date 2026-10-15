@@ -58,3 +58,9 @@ def test_o_dervs_consegue_falar_nesta_maquina():
         "Kokoro não considerado instalado — o DERVS fica mudo. "
         f"py={tts.KOKORO_PY} daemon={tts.KOKORO_DAEMON} modelo={tts.KOKORO_MODELO}")
     assert voz.disponivel(), "nenhum motor de voz disponível: o DERVS fica mudo"
+
+
+def test_motor_padrao_do_tts_e_o_da_config_uma_fonte_so():
+    """Havia três padrões diferentes (docstring, MOTOR_PADRAO e config). A config manda."""
+    import dervs_config
+    assert tts.MOTOR_PADRAO == dervs_config.PADRAO["motor"]

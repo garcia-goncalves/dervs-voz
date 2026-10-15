@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""DERVS — a voz (falar em português, offline).
+"""DERVS — a voz (falar em português).
 
-Dois motores:
-  - "piper" → PADRÃO. Voz sintética, mas rápida: um daemon (dervs_piper_daemon.py,
-              na venv tts-venv) carrega o modelo .onnx uma vez só e fica vivo; cada
-              fala paga só o tempo de síntese (dezenas de ms por frase), não o
-              recarregamento do modelo (~0,7 s). O texto é falado FRASE POR FRASE —
-              a primeira frase começa a tocar enquanto o daemon ainda gera a
+O motor padrão NÃO é definido aqui: a fonte única é `dervs_config.PADRAO["motor"]`
+(hoje "openai", a voz de nuvem; `MOTOR_PADRAO` abaixo só a repete). Os motores:
+  - "openai" → voz de nuvem, a mais natural; precisa de internet e de chave, e custa
+              centavos por fala. Cai no Kokoro se a nuvem falhar.
+  - "kokoro" → voz humana offline e rápida (~0,6 s até o 1º som), a RESERVA da nuvem.
+  - "piper"  → voz sintética e instantânea: um daemon (dervs_piper_daemon.py, na venv
+              tts-venv) carrega o modelo .onnx uma vez só e fica vivo. O texto é falado
+              FRASE POR FRASE — a primeira começa a tocar enquanto o daemon gera a
               segunda — para o "tempo até o primeiro som" ficar bem abaixo de 1 s.
-  - "xtts"  → voz humana (Coqui XTTS v2), via daemon próprio (dervs_tts_daemon.py,
-              na venv xtts-venv). Muito mais natural, porém ~7 s por frase — o dono
-              decidiu que isso é lento demais para conversar, então deixou de ser o
-              padrão. Continua disponível para quem preferir naturalidade a velocidade.
+  - "xtts"   → voz humana (Coqui XTTS v2), via daemon próprio (dervs_tts_daemon.py,
+              na venv xtts-venv). Muito natural, porém ~7 s por frase: lento demais
+              para conversar.
 
 Regras de projeto:
   - Nunca quebra: se o motor escolhido falhar, cai no outro; se nenhum houver,
@@ -118,10 +119,9 @@ KOKORO_LANG = "pt-br"
 XTTS_PY = _py_do_motor("xtts-venv")
 XTTS_DAEMON = os.path.join(_dir_daemons(), "dervs_tts_daemon.py")
 
-# Motor padrão: Kokoro — humano E rápido no CPU (~0,6 s até o 1º som quente),
-# o meio-termo que faltava entre Piper (robótico) e XTTS (lento). Cai no Piper
-# sozinho se o Kokoro não estiver instalado/falhar.
-MOTOR_PADRAO = "kokoro"
+# Motor padrão: o da config (fonte única). Se a nuvem não puder falar, cai no Kokoro e,
+# sem ele, no Piper.
+MOTOR_PADRAO = dervs_config.PADRAO["motor"]
 
 # --- Voz de nuvem (OpenAI): a mais natural, e a única que aceita instrução de
 # sotaque. O Kokoro local fica de reserva, para quando a internet cair. ---
