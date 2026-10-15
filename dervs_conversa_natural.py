@@ -541,7 +541,7 @@ class ConversaNatural:
     """Ver o cabeçalho do módulo. Os métodos públicos são seguros entre threads."""
 
     def __init__(self, conf, player, perfis, arbitro, conversa_factory, executar_acao, avisar,
-                 ao_cair=None, ao_turno=None, ao_feito=None, eco=None, em_fundo=None,
+                 ao_cair=None, ao_turno=None, ao_feito=None, ao_pedido=None, eco=None, em_fundo=None,
                  relogio=time.monotonic, segurar_s=SEGURAR_S, sinal=None):
         """`executar_acao(pedido, papel, confirmado) -> {"tipo": ...}` (ver `acao_por_texto`);
         `avisar(texto)` aviso curto; `ao_cair(motivo)` a conversa caiu: volte ao caminho antigo;
@@ -556,6 +556,7 @@ class ConversaNatural:
         self._ao_cair = ao_cair or (lambda motivo: None)
         self._ao_turno = ao_turno or (lambda: None)
         self._ao_feito = ao_feito or (lambda: None)
+        self._ao_pedido = ao_pedido or (lambda pedido: None)
         self._eco = eco
         self._em_fundo = em_fundo or _em_thread
         self._relogio = relogio
@@ -738,6 +739,13 @@ class ConversaNatural:
         self._fim_pendente = False
         self._ctx = np.zeros(0, np.float32)
         self._atual, self._atual_voz = [], []
+        # retomada (a resposta nem começou a soar) continua o MESMO pedido: o papel de menor
+        # privilégio e as transcrições seguem; senão é um turno novo, que começa do zero. A
+        # transcrição velha sai AQUI, no começo do turno novo, e não no fim da vez: a do "sim"
+        # costuma chegar enquanto a pessoa ainda fala.
+        if not ((self._aguardando or self._retido) and not tocando):
+            self._perfil_turno = None
+            self._entrada = []
         if tocando and self.trava == "ligada":
             self.player.abaixar(ABAIXAR)            # na hora: o árbitro marca a fala em ~90 ms
             self._interrupcao = self._t
@@ -790,6 +798,12 @@ class ConversaNatural:
             else:
                 perfil, _score = self.perfis.quem_fala(amostra)
                 status = "ok" if perfil is not None and perfil.ativo else "nao"
+                if status == "ok" and len(amostra) > len(lote.voz):
+                    # a janela também tem de passar SOZINHA: colada na fala confirmada de antes,
+                    # a de outra pessoa poderia herdar a confirmação do contexto
+                    sozinha, _s = self.perfis.quem_fala(lote.voz)
+                    if sozinha is None or not sozinha.ativo or sozinha.slug != perfil.slug:
+                        status, perfil = "nao", None
         except Exception:
             status, perfil = "erro", None
         with self._trava_estado:
@@ -806,9 +820,10 @@ class ConversaNatural:
                 if self._resposta_em_curso():
                     self._interromper()             # falou por cima, ou retomou: ele cala
                 self._houve_ok = True
-                self._perfil_turno = lote.perfil
-                if lote.perfil.papel == "dono":
-                    self._ultimo_dono = self._relogio()
+                # o papel do turno é o de MENOR privilégio entre as janelas confirmadas
+                if (self._perfil_turno is None
+                        or lote.perfil.papel != "dono" and self._perfil_turno.papel == "dono"):
+                    self._perfil_turno = lote.perfil
                 self._enviar(bruto)
             elif self._houve_ok:
                 self._enviar(bytes(len(bruto)))     # janela de outra pessoa no meio: silêncio
@@ -825,7 +840,8 @@ class ConversaNatural:
 
     def _vez(self):
         self._turnos += 1
-        self._entrada = []
+        if self._perfil_turno is not None and self._perfil_turno.papel == "dono":
+            self._ultimo_dono = self._relogio()      # só vale o turno INTEIRO de dono
         self._desde_ferramenta = False
         self._descartar = False
         self._mudo = False
@@ -970,6 +986,10 @@ class ConversaNatural:
             return {"ok": False, "recusado": True, "diga": RECUSA_CONVIDADO}
         with self._trava_estado:
             self._pendente = {"pedido": pedido, "turno": ctx["turno"]}
+        try:
+            self._ao_pedido(pedido)                   # o texto EXATO na tela, não a paráfrase
+        except Exception:
+            log.exception("mostrar o pedido pendente falhou")
         return {"ok": True, "feito": False, "precisa_confirmacao": True,
                 "diga": fala or "Quer que eu faça isto: %s?" % pedido}
 
@@ -985,7 +1005,7 @@ class ConversaNatural:
         ouvi = dervs_atalhos.eh_confirmacao(dito) if dito.strip() else None
         if resposta == "nao" or ouvi == "nao":
             return {"ok": True, "feito": False, "diga": "Beleza, não fiz nada."}
-        if (ctx["papel"] != "dono" or ctx["origem_ferramenta"] or turno <= pend["turno"]
+        if (ctx["papel"] != "dono" or ctx["origem_ferramenta"] or turno != pend["turno"] + 1
                 or ouvi != "sim"):
             return {"ok": False, "feito": False, "diga": "Não fiz nada: preciso ouvir um sim seu."}
         return self._traduzir(self._executar(pend["pedido"], "dono", True), pend["pedido"],

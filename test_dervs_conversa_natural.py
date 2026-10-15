@@ -158,6 +158,7 @@ class Cena:
                  conf=None):
         self.player = PlayerFalso()
         self.avisos, self.caidas, self.feitos, self.acoes = [], [], [], []
+        self.pedidos = []
         self.perfis = PerfisFalsos() if perfis is None else perfis
         self.conv = None
 
@@ -173,7 +174,8 @@ class Cena:
         self.cn = cn.ConversaNatural(
             conf or {}, self.player, self.perfis, ArbitroFalso(fins, fim), fabrica,
             executar or executar_padrao, self.avisos.append, ao_cair=self.caidas.append,
-            ao_feito=lambda: self.feitos.append(self.cn._t), em_fundo=lambda f: f(),
+            ao_feito=lambda: self.feitos.append(self.cn._t), ao_pedido=self.pedidos.append,
+            em_fundo=lambda f: f(),
             relogio=lambda: self.cn._t, sinal=b"\x01\x00" * 100,
             **({"segurar_s": segurar_s} if segurar_s is not None else {}))
         self.player.relogio = lambda: self.cn._t
@@ -1030,3 +1032,105 @@ def test_ferramenta_que_termina_depois_do_desligamento_nao_toca_o_sinal():
     c.conv.cb(dc.ChamadaFerramenta("1", "abrir_app", {"nome": "Chrome"}))
     assert not [e for e in c.player.log[antes:] if e[0] == "tocar"]
     assert c.feitos == []
+
+
+# ---- revisão de segurança de 15/10: trava de voz, papel do turno, confirmação ---------
+
+class PerfisPorMistura(PerfisFalsos):
+    """Reconhece o dono quando há pouco som de visita na amostra: a mistura 50/50 (janela da
+    visita + o contexto do dono) ainda passa, a visita sozinha não."""
+
+    def quem_fala(self, audio):
+        self.chamadas += 1
+        visita = float(np.mean(np.abs(audio) * 32768 > 4500))
+        return (self.lista[0], 0.9) if visita < 0.3 else (None, 0.1)
+
+
+class PerfisPeloFim(PerfisFalsos):
+    """Julga só os últimos 1,4 s: o contexto de antes não pesa (cada janela vale por si)."""
+
+    def quem_fala(self, audio):
+        return super().quem_fala(audio[-int(1.4 * 16000):])
+
+
+def test_janela_de_visita_colada_na_do_dono_nao_passa_pelo_contexto():
+    c = Cena(perfis=PerfisPorMistura(), fim=10)
+    c.falar([("sil", 0.3), ("dono", 1.5), ("visita", 1.5), ("sil", 0.6)])
+    enviado = c.enviado()
+    assert len(enviado) > 0 and np.abs(enviado).max() <= AMP["dono"]    # nada da visita saiu
+    assert np.sum(enviado == 0) >= int(1.4 * 16000)                      # virou silêncio
+
+
+PERFIS_DONO_E_CONVIDADO = (("André", "dono"), ("Lia", "convidado"))
+
+
+@pytest.mark.parametrize("roteiro", [
+    [("dono", 1.5), ("filha", 1.5), ("sil", 0.6)],
+    [("filha", 1.5), ("dono", 1.5), ("sil", 0.6)],
+    [("filha", 1.5), ("sil", 0.4), ("dono", 1.5), ("sil", 0.6)],     # retoma antes de ele soar
+])
+def test_papel_do_turno_e_o_de_menor_privilegio_entre_as_janelas(roteiro):
+    c = Cena(perfis=PerfisPeloFim(perfis=PERFIS_DONO_E_CONVIDADO), fim=10, atraso=99)
+    c.falar([("sil", 0.3)] + roteiro)
+    c.conv.cb(dc.ChamadaFerramenta("1", "abrir_app", {"nome": "Chrome"}))
+    assert c.acoes[-1][1] == "convidado"
+    assert c.cn.dono_confirmado_recente() is False
+
+
+def test_turno_novo_comeca_de_novo_o_papel_nao_herda_o_do_anterior():
+    c = Cena(perfis=PerfisPeloFim(perfis=PERFIS_DONO_E_CONVIDADO), fim=10, atraso=99)
+    c.falar([("sil", 0.3), ("filha", 1.5), ("sil", 0.6)])
+    c.conv.cb(dc.FimResposta())                               # a resposta dele já acabou
+    c.falar([("sil", 1.0), ("dono", 1.5), ("sil", 0.6)])
+    c.conv.cb(dc.ChamadaFerramenta("1", "abrir_app", {"nome": "Chrome"}))
+    assert c.acoes[-1][1] == "dono"
+
+
+def _pedido_codex(acoes):
+    def executar(pedido, papel, confirmado):
+        acoes.append((pedido, papel, confirmado))
+        return {"tipo": "delegado"} if confirmado else {"tipo": "confirmar"}
+    return executar
+
+
+def test_pedido_que_espera_confirmacao_aparece_no_pc_com_o_texto_exato():
+    c = Cena(fim=10, atraso=99, executar=_pedido_codex([]))
+    _turno_do(c)
+    _chamar(c, "fazer", {"pedido": "pede pro Codex apagar a pasta fotos", "clareza": "clara"})
+    assert c.pedidos == ["pede pro Codex apagar a pasta fotos"]
+
+
+def test_sim_so_vale_na_vez_logo_depois_do_pedido():
+    acoes = []
+    c = Cena(fim=10, atraso=99, executar=_pedido_codex(acoes))
+    _turno_do(c)
+    _chamar(c, "fazer", {"pedido": "pede pro Codex olhar o projeto", "clareza": "clara"})
+    _turno_do(c)                                              # outra conversa no meio
+    _turno_do(c)
+    c.conv.cb(dc.TextoEntrada("sim, pode"))
+    r = _chamar(c, "confirmar", {"resposta": "sim"}, id_="2")
+    assert r["ok"] is False and all(a[2] is False for a in acoes)
+
+
+def test_sim_transcrito_durante_a_fala_nao_se_perde_no_fim_da_vez():
+    acoes = []
+    c = Cena(fim=10, atraso=99, executar=_pedido_codex(acoes))
+    _turno_do(c)
+    _chamar(c, "fazer", {"pedido": "pede pro Codex olhar o projeto", "clareza": "clara"})
+    c.falar([("sil", 0.3), ("dono", 1.0)])
+    c.conv.cb(dc.TextoEntrada("sim, pode"))                   # a transcrição chega antes do fim
+    c.falar([("dono", 1.0), ("sil", 0.6)])
+    r = _chamar(c, "confirmar", {"resposta": "sim"}, id_="2")
+    assert r == {"ok": True, "silencioso": True, "encaminhado": True}
+
+
+def test_transcricao_de_um_turno_antigo_nao_confirma_o_turno_novo():
+    acoes = []
+    c = Cena(fim=10, atraso=99, executar=_pedido_codex(acoes))
+    _turno_do(c)
+    c.conv.cb(dc.TextoEntrada("sim"))                         # sobra do turno do pedido
+    _chamar(c, "fazer", {"pedido": "pede pro Codex olhar o projeto", "clareza": "clara"})
+    c.conv.cb(dc.FimResposta())
+    _turno_do(c)                                              # a pessoa não disse sim
+    r =_chamar(c, "confirmar", {"resposta": "sim"}, id_="2")
+    assert r["ok"] is False and all(a[2] is False for a in acoes)
