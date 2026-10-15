@@ -9,9 +9,13 @@ ilegível cai no padrão em silêncio, não derruba a voz).
 Cada chave está documentada no PADRAO abaixo; é ele que vira o arquivo de
 exemplo em `garantir_arquivo()`.
 """
+import copy
 import os
+import shutil
 import sys
 import json
+import threading
+import time
 
 import dervs_permissoes
 
@@ -471,20 +475,76 @@ def _validar(conf: dict) -> dict:
     return conf
 
 
-def carregar() -> dict:
-    """Lê o config.json e devolve o dict completo (padrão + o que o dono mudou).
-    Nunca levanta exceção: config faltando ou torta cai no padrão."""
-    conf = dict(PADRAO)
+# Trava do processo inteiro: o painel, a ponte e a voz gravam chaves de threads diferentes, e
+# ler-mudar-gravar sem ela perdia a chave de quem chegasse segundo ao disco.
+_TRAVA = threading.RLock()
+_AVISOU_CORROMPIDO = False
+_CACHE = {"chave": None, "conf": None}      # carregar() só relê o disco se o arquivo mudou
+
+
+def _assinatura():
+    """(caminho, mtime, tamanho) do config.json; mtime/tamanho None se ele não existe."""
+    try:
+        st = os.stat(CONFIG_PATH)
+        return (CONFIG_PATH, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (CONFIG_PATH, None, None)
+
+
+def _ler_disco():
+    """(dict do disco ou None, corrompido). Arquivo ausente não é corrompido; JSON torto,
+    vazio ou que não é objeto é."""
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
             do_disco = json.load(f)
-        if isinstance(do_disco, dict):
-            conf.update({k: v for k, v in do_disco.items() if k in PADRAO})
     except FileNotFoundError:
-        pass
+        return None, False
     except (json.JSONDecodeError, OSError, ValueError):
-        pass
-    return _validar(conf)
+        return None, True
+    if not isinstance(do_disco, dict):
+        return None, True
+    return do_disco, False
+
+
+def _avisar_corrompido():
+    global _AVISOU_CORROMPIDO
+    if not _AVISOU_CORROMPIDO:
+        _AVISOU_CORROMPIDO = True
+        sys.stderr.write("dervs: o config.json está ilegível; uso os valores padrão e, ao gravar uma "
+                         "escolha, guardo antes uma cópia dele (config.json.corrompido-<data>).\n")
+
+
+def carregar() -> dict:
+    """Lê o config.json e devolve o dict completo (padrão + o que o dono mudou).
+    Nunca levanta exceção: config faltando ou torta cai no padrão (e a torta avisa, uma vez).
+    O resultado é cacheado enquanto o arquivo não muda; cada chamada recebe uma cópia."""
+    with _TRAVA:
+        chave = _assinatura()
+        if _CACHE["chave"] == chave and _CACHE["conf"] is not None:
+            return copy.deepcopy(_CACHE["conf"])
+        conf = dict(PADRAO)
+        do_disco, corrompido = _ler_disco()
+        if corrompido:
+            _avisar_corrompido()
+        elif do_disco is not None:
+            conf.update({k: v for k, v in do_disco.items() if k in PADRAO})
+        conf = _validar(conf)
+        _CACHE["chave"], _CACHE["conf"] = chave, copy.deepcopy(conf)
+        return conf
+
+
+def _guardar_copia_do_corrompido() -> bool:
+    """Copia o config.json ilegível para config.json.corrompido-<data>. False se não deu."""
+    destino = "%s.corrompido-%s" % (CONFIG_PATH, time.strftime("%Y%m%d-%H%M%S"))
+    n = 1
+    while os.path.exists(destino):               # duas quedas no mesmo segundo: não sobrescreve
+        n += 1
+        destino = "%s.corrompido-%s-%d" % (CONFIG_PATH, time.strftime("%Y%m%d-%H%M%S"), n)
+    try:
+        shutil.copy2(CONFIG_PATH, destino)
+        return True
+    except OSError:
+        return False
 
 
 def gravar(chave: str, valor) -> bool:
@@ -493,45 +553,51 @@ def gravar(chave: str, valor) -> bool:
     Serve para o app guardar escolha feita na tela (o botão da escuta), sem
     obrigar o dono a editar arquivo nenhum. Lê o que está no disco, muda só a
     chave pedida e regrava — assim uma opção que o dono editou na mão não é
-    apagada por um clique de botão.
+    apagada por um clique de botão. Tudo sob a trava do processo.
+
+    Arquivo ilegível: guarda antes uma cópia (config.json.corrompido-<data>) e só então grava a
+    chave sobre os valores-padrão; se a cópia falhar, recusa — nada é apagado em silêncio.
 
     Devolve False e segue em silêncio se não deu para gravar: disco cheio ou
     pasta somindo não pode derrubar o DERVS por causa de um botão.
     """
     if chave not in PADRAO:
         return False
-    try:
+    with _TRAVA:
         try:
-            with open(CONFIG_PATH, encoding="utf-8") as f:
-                do_disco = json.load(f)
-            if not isinstance(do_disco, dict):
+            do_disco, corrompido = _ler_disco()
+            if corrompido:
+                _avisar_corrompido()
+                if not _guardar_copia_do_corrompido():
+                    return False
+                do_disco = dict(PADRAO)
+            elif do_disco is None:
                 do_disco = {}
-        except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
-            do_disco = {}
-        do_disco[chave] = valor
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        # Escreve ao lado e troca de nome no fim. Abrir o próprio config.json em
-        # "w" o ESVAZIA antes de haver conteúdo novo: morrer nesse instante
-        # (queda de energia, processo morto) deixava o arquivo truncado, e aí
-        # `carregar()` engolia o erro e voltava TUDO ao padrão — a voz, a
-        # velocidade e o que o dono editou na mão sumiam calados. `os.replace`
-        # é atômico: ou está o arquivo velho inteiro, ou o novo inteiro.
-        temporario = CONFIG_PATH + ".tmp"
-        try:
-            with open(temporario, "w", encoding="utf-8") as f:
-                json.dump(do_disco, f, ensure_ascii=False, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temporario, CONFIG_PATH)
-        except (OSError, ValueError, TypeError):
+            do_disco[chave] = valor
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            # Escreve ao lado e troca de nome no fim. Abrir o próprio config.json em
+            # "w" o ESVAZIA antes de haver conteúdo novo: morrer nesse instante
+            # (queda de energia, processo morto) deixava o arquivo truncado, e aí
+            # `carregar()` engolia o erro e voltava TUDO ao padrão — a voz, a
+            # velocidade e o que o dono editou na mão sumiam calados. `os.replace`
+            # é atômico: ou está o arquivo velho inteiro, ou o novo inteiro.
+            temporario = CONFIG_PATH + ".tmp"
             try:
-                os.remove(temporario)
-            except OSError:
-                pass
-            raise
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
+                with open(temporario, "w", encoding="utf-8") as f:
+                    json.dump(do_disco, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temporario, CONFIG_PATH)
+            except (OSError, ValueError, TypeError):
+                try:
+                    os.remove(temporario)
+                except OSError:
+                    pass
+                raise
+            _CACHE["chave"] = None               # o arquivo mudou: a próxima leitura revalida
+            return True
+        except (OSError, ValueError, TypeError):
+            return False
 
 
 def garantir_arquivo() -> str | None:

@@ -300,3 +300,86 @@ def test_conversa_natural_so_aceita_booleano(tmp_path, monkeypatch, bruto, esper
     caminho.write_text('{"conversa_natural": %s}' % bruto, encoding="utf-8")
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
     assert cfg.carregar()["conversa_natural"] is esperado
+
+
+# ---- gravar concorrente, arquivo corrompido e cache do carregar() (revisão de 15/10) ----
+
+def _config_em(tmp_path, monkeypatch, texto=None):
+    caminho = tmp_path / "config.json"
+    if texto is not None:
+        caminho.write_text(texto, encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    monkeypatch.setattr(cfg, "CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(cfg, "_AVISOU_CORROMPIDO", False)
+    return caminho
+
+
+def test_duas_threads_gravando_chaves_diferentes_as_duas_sobrevivem(tmp_path, monkeypatch):
+    """Ler-mudar-gravar sem trava perdia a chave da outra thread (a última a gravar vencia)."""
+    import threading
+    caminho = _config_em(tmp_path, monkeypatch, "{}")
+    original = cfg.json.load
+
+    def lento(f):                       # alarga a janela da corrida: lê, dorme, devolve
+        r = original(f)
+        import time as _t
+        _t.sleep(0.05)
+        return r
+    monkeypatch.setattr(cfg.json, "load", lento)
+    erros = []
+
+    def grava(chave, valor):
+        if cfg.gravar(chave, valor) is not True:
+            erros.append(chave)
+    ts = [threading.Thread(target=grava, args=("escuta_ao_abrir", False)),
+          threading.Thread(target=grava, args=("voz_velocidade", 1.4))]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    monkeypatch.setattr(cfg.json, "load", original)
+    bruto = json.loads(caminho.read_text(encoding="utf-8"))
+    assert erros == [] and bruto["escuta_ao_abrir"] is False and bruto["voz_velocidade"] == 1.4
+
+
+def test_gravar_com_json_corrompido_guarda_copia_e_nao_apaga_em_silencio(tmp_path, monkeypatch):
+    caminho = _config_em(tmp_path, monkeypatch, '{"voz_kokoro": "pm_alex", ')   # cortado no meio
+    assert cfg.gravar("escuta_ao_abrir", False) is True
+    copias = [p for p in tmp_path.iterdir() if ".corrompido-" in p.name]
+    assert len(copias) == 1
+    assert copias[0].read_text(encoding="utf-8") == '{"voz_kokoro": "pm_alex", '   # o que havia, intacto
+    novo = json.loads(caminho.read_text(encoding="utf-8"))
+    assert novo["escuta_ao_abrir"] is False
+    assert novo["voz_velocidade"] == cfg.PADRAO["voz_velocidade"]      # mesclado nos padrões
+
+
+def test_gravar_recusa_se_nao_consegue_guardar_a_copia_do_corrompido(tmp_path, monkeypatch):
+    caminho = _config_em(tmp_path, monkeypatch, "{ lixo")
+    monkeypatch.setattr(cfg.shutil, "copy2", lambda *a, **k: (_ for _ in ()).throw(OSError("sem espaço")))
+    assert cfg.gravar("escuta_ao_abrir", False) is False
+    assert caminho.read_text(encoding="utf-8") == "{ lixo"            # nada foi sobrescrito
+
+
+def test_arquivo_corrompido_avisa_uma_vez_so(tmp_path, monkeypatch, capsys):
+    _config_em(tmp_path, monkeypatch, "{ lixo")
+    cfg.carregar()
+    cfg.carregar()
+    assert capsys.readouterr().err.count("dervs: o config.json") == 1
+
+
+def test_carregar_nao_relê_o_disco_se_o_arquivo_nao_mudou(tmp_path, monkeypatch):
+    caminho = _config_em(tmp_path, monkeypatch, '{"voz_velocidade": 1.1}')
+    cfg.carregar()
+    leituras = []
+    original = cfg.json.load
+    monkeypatch.setattr(cfg.json, "load", lambda f: leituras.append(1) or original(f))
+    assert cfg.carregar()["voz_velocidade"] == 1.1 and leituras == []
+    caminho.write_text('{"voz_velocidade": 1.2, "x": 1}', encoding="utf-8")   # mudou: relê
+    assert cfg.carregar()["voz_velocidade"] == 1.2 and leituras == [1]
+
+
+def test_carregar_devolve_copia_que_o_chamador_pode_mexer(tmp_path, monkeypatch):
+    _config_em(tmp_path, monkeypatch, "{}")
+    a = cfg.carregar()
+    a["voz_velocidade"] = 9.9
+    a["permissoes"]["x"] = 1
+    assert cfg.carregar()["voz_velocidade"] == cfg.PADRAO["voz_velocidade"]
+    assert "x" not in cfg.carregar()["permissoes"]
