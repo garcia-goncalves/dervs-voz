@@ -291,3 +291,12 @@ def test_turno_valor_torto_cai_no_padrao(tmp_path, monkeypatch, chave, bruto, es
     caminho.write_text('{"%s": %s}' % (chave, bruto), encoding="utf-8")
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
     assert cfg.carregar()[chave] == esperado
+
+
+@pytest.mark.parametrize("bruto,esperado", [("false", False), ("true", True), ('"sim"', True),
+                                            ("1", True), ("null", True)])
+def test_conversa_natural_so_aceita_booleano(tmp_path, monkeypatch, bruto, esperado):
+    caminho = tmp_path / "config.json"
+    caminho.write_text('{"conversa_natural": %s}' % bruto, encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    assert cfg.carregar()["conversa_natural"] is esperado

@@ -304,6 +304,11 @@ PADRAO = {
     "turno_prob_fim": 0.5,
     "turno_espera_max_s": 3.0,
     "turno_silencio_min_ms": 300,
+
+    # Conversa natural (`dervs_conversa_natural.py`): depois de acordar, a voz direta (motor da
+    # lista `conversa_motores`) atende em vez do caminho antigo (transcrever, cérebro, voz). Sem
+    # chave de nenhum motor, ou se a conversa cair, o DERVS volta sozinho ao caminho antigo.
+    "conversa_natural": True,
 }
 
 
@@ -455,6 +460,9 @@ def _validar(conf: dict) -> dict:
         v = conf.get(chave)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not minimo <= v <= maximo:
             conf[chave] = PADRAO[chave]
+    # --- conversa natural: liga/desliga ---
+    if not isinstance(conf.get("conversa_natural"), bool):
+        conf["conversa_natural"] = PADRAO["conversa_natural"]
     return conf
 
 

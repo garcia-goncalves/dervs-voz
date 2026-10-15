@@ -109,6 +109,9 @@ Verbos Python → Electron (só estes):
             `parte` = cerebros | web | fila | avisos | ssh | ssh_cartao | ssh_resultado |
             ssh_cancelado | mensagem. Tudo texto de terceiro: a tela só usa `textContent`.
   permissoes {"parte", …}            — a tela "O que o DERVS pode fazer": `parte` = estado | mensagem.
+  vozes {"lista"?, "estado"?, "gravando"?, "resultado"?} — perfis de voz da conversa natural:
+            lista [{nome, papel, ativo}], estado {motor_ativo, locutor_ativo, perfis_ativos,
+            locutor_aviso}, gravando 0..1 (progresso da gravação), resultado {ok, erro?}.
   claude_fim {"ok", "custo", "erro"}  — o turno acabou. `custo` é o equivalente
             em dólar da assinatura (medida, não cobrança).
 
@@ -158,6 +161,10 @@ Verbos Electron → Python (o mínimo que o comportamento de hoje já faz):
   permissoes_pedir                    — a tela abriu: manda o estado das permissões.
   permissoes_definir {"categoria", "nivel"} — muda o nível de UMA categoria.
   permissoes_teto {"valor"}           — muda o teto diário de gasto (US$ 0,01 a 1000).
+  vozes_pedir                         — a tela abriu: manda a lista de perfis e o estado.
+  vozes_gravar {"nome", "papel"}      — grava ~30 s do microfone e cadastra o perfil.
+  vozes_ativar {"nome", "ativo"}      — liga/desliga um perfil.
+  vozes_apagar {"nome"}               — apaga o perfil (a pasta inteira).
 
 Regras duras (valem para os dois lados da ponte, e este arquivo cumpre a
 parte do Python):
@@ -209,6 +216,9 @@ _VERBOS_INTEGRACAO = ("integracao_pedir", "integracao_cerebro", "integracao_disp
                       "integracao_conserto", "integracao_ssh_rodar", "integracao_ssh_confirmar",
                       "integracao_ssh_cancelar")
 _VERBOS_PERMISSOES = ("permissoes_pedir", "permissoes_definir", "permissoes_teto")
+_VERBOS_VOZES = ("vozes_pedir", "vozes_gravar", "vozes_ativar", "vozes_apagar")
+_PAPEIS_VOZ = ("dono", "convidado")
+_LIMITE_NOME_VOZ = 40
 _CATEGORIAS_PERMISSAO = ("ler", "abrir", "instalar", "alterar_projeto", "apagar",
                          "internet", "servidor", "gastar_api")
 _NIVEIS_PERMISSAO = ("analisa", "pergunta", "sozinho")
@@ -242,7 +252,7 @@ class PonteElectron:
 
     def __init__(self, ao_sair, ao_plano, ao_pronto, ao_microfone=None,
                  ao_reuniao=None, ao_claude=None, ao_central=None, ao_integracao=None,
-                 ao_permissoes=None, ao_modo_escuta=None):
+                 ao_permissoes=None, ao_modo_escuta=None, ao_vozes=None):
         """`ao_modo_escuta(modo: str)` recebe um dos três modos já validados,
         na thread de leitura (mesma regra do `ao_microfone`).
 
@@ -260,6 +270,7 @@ class PonteElectron:
         self._ao_central = ao_central   # verbos `central_*` já validados (onda D)
         self._ao_integracao = ao_integracao   # verbos `integracao_*` já validados (tela Integração)
         self._ao_permissoes = ao_permissoes   # verbos `permissoes_*` já validados
+        self._ao_vozes = ao_vozes             # verbos `vozes_*` já validados (perfis de voz)
         self._ao_microfone = ao_microfone
         self._ao_reuniao = ao_reuniao
         self._ao_modo_escuta = ao_modo_escuta
@@ -505,6 +516,8 @@ class PonteElectron:
             self._tratar_integracao(verbo, dado)
         elif verbo in _VERBOS_PERMISSOES:
             self._tratar_permissoes(verbo, dado)
+        elif verbo in _VERBOS_VOZES:
+            self._tratar_vozes(verbo, dado)
         else:
             sys.stderr.write(f"ponte: verbo desconhecido vindo do Electron: {verbo!r}\n")
 
@@ -589,6 +602,24 @@ class PonteElectron:
             return
         if self._ao_permissoes is not None:
             self._chamar(self._ao_permissoes, verbo, dados)
+
+    def _tratar_vozes(self, verbo, dado):
+        """Valida os verbos dos perfis de voz: nome texto curto, papel e `ativo` de listas fixas.
+        O `dervs_locutor` confere o nome de novo (caminho dentro da pasta de vozes)."""
+        dados = {}
+        if verbo != "vozes_pedir":
+            nome = dado.get("nome")
+            ok = isinstance(nome, str) and 0 < len(nome.strip()) <= _LIMITE_NOME_VOZ
+            dados["nome"] = nome.strip() if ok else None
+        if verbo == "vozes_gravar":
+            dados["papel"] = dado.get("papel") if dado.get("papel") in _PAPEIS_VOZ else None
+        elif verbo == "vozes_ativar":
+            dados["ativo"] = dado.get("ativo") if isinstance(dado.get("ativo"), bool) else None
+        if None in dados.values():
+            sys.stderr.write(f"ponte: {verbo} inválido, ignorado\n")
+            return
+        if self._ao_vozes is not None:
+            self._chamar(self._ao_vozes, verbo, dados)
 
     def _tratar_claude(self, verbo, dado):
         """Valida os verbos do Claude Code ANTES de entregar: tudo aqui vem de
@@ -929,6 +960,10 @@ class PonteElectron:
     def enviar_permissoes(self, dados: dict):
         """Estado ou mensagem da tela de permissões (mesma limpeza da Integração)."""
         self._escrever(self._limpar_integracao({"verbo": "permissoes", **(dados or {})}))
+
+    def enviar_vozes(self, dados: dict):
+        """Perfis de voz, estado da conversa natural, progresso ou resultado (ver cabeçalho)."""
+        self._escrever(self._limpar_integracao({"verbo": "vozes", **(dados or {})}))
 
     def enviar_reuniao(self, restante_s):
         """Segundos restantes do modo reunião, ou `None` quando não há."""
