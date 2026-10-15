@@ -20,6 +20,7 @@ transformers. Sem os modelos, `criar()` devolve um árbitro que usa o `Endpointe
 (`dervs_listen.py`, fim_ms=1100) e emite os mesmos eventos.
 """
 import hashlib
+import logging
 import os
 import tempfile
 import urllib.request
@@ -31,11 +32,17 @@ TAXA = 16000
 FRAME_MS = 30
 FRAME_AMOSTRAS = TAXA * FRAME_MS // 1000          # 480
 JANELA_TURNO_S = 8                                 # o Smart Turn olha os últimos 8 s
+BUFFER_MAX_S = 30                                  # fala contínua sem pausa: guarda só os últimos 30 s
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024             # teto do download (os modelos têm 2 e 8 MB)
+
+log = logging.getLogger("dervs.turno")
+_avisou_reserva = False
 
 # nome do arquivo -> (url, sha256). Sem o hash batendo, o arquivo é descartado.
 MODELOS = {
     "silero_vad.onnx": (
-        "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx",
+        "https://github.com/snakers4/silero-vad/raw/bfdc0193023f121ea5b3cc7b176dbed570a68a59/"
+        "src/silero_vad/data/silero_vad.onnx",
         "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"),
     "smart-turn-v3.2-cpu.onnx": (
         "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/"
@@ -197,7 +204,7 @@ class Arbitro:
 
     def __init__(self, vad, turno, prob_fim=0.5, espera_max_s=3.0, silencio_min_ms=300,
                  limiar_fala=0.5, limiar_silencio=0.35, min_fala_quadros=3, pre_roll_quadros=10,
-                 cola_max_ms=600):
+                 cola_max_ms=600, buffer_max_s=BUFFER_MAX_S):
         self.vad, self.turno = vad, turno
         self.prob_fim = prob_fim
         self.espera_max = max(1, round(espera_max_s * 1000 / FRAME_MS))
@@ -206,6 +213,7 @@ class Arbitro:
         self.limiar_fala, self.limiar_silencio = limiar_fala, limiar_silencio
         self.min_fala = min_fala_quadros
         self.pre_max = pre_roll_quadros
+        self.buf_max = max(1, round(buffer_max_s * 1000 / FRAME_MS))
         self.ultima_prob = None          # última prob do Smart Turn (para medir/depurar)
         self.reset()
 
@@ -242,6 +250,8 @@ class Arbitro:
                 ev.append(InicioFala(self._t() - self.min_fala * FRAME_MS / 1000.0))
             return ev
         self._buf.append(x)
+        if len(self._buf) > self.buf_max:
+            del self._buf[:len(self._buf) - self.buf_max]        # monólogo longo: descarta o mais antigo
         # histerese: dentro da fala basta passar do limiar baixo; já em silêncio, só o alto retoma
         limiar = self.limiar_silencio if self._sil == 0 else self.limiar_fala
         if p >= limiar:
@@ -332,10 +342,14 @@ def garantir_modelo(nome, pasta=None, baixar=True):
         os.makedirs(pasta, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=pasta, suffix=".parcial")
         with os.fdopen(fd, "wb") as f, urllib.request.urlopen(url, timeout=60) as r:
+            baixado = 0
             while True:
                 bloco = r.read(1 << 20)
                 if not bloco:
                     break
+                baixado += len(bloco)
+                if baixado > MAX_DOWNLOAD_BYTES:
+                    return None                  # maior que qualquer modelo esperado: descarta
                 f.write(bloco)
         if _sha256(tmp) != sha:
             return None
@@ -351,6 +365,7 @@ def garantir_modelo(nome, pasta=None, baixar=True):
 def criar(conf=None, pasta=None, baixar=True):
     """O melhor árbitro disponível: Silero + Smart Turn se os modelos carregam, senão por energia."""
     conf = conf or {}
+    motivo = "modelos indisponíveis (sem rede, arquivo ausente ou SHA-256 diferente)"
     try:
         vad = garantir_modelo("silero_vad.onnx", pasta, baixar)
         turno = garantir_modelo("smart-turn-v3.2-cpu.onnx", pasta, baixar)
@@ -359,6 +374,10 @@ def criar(conf=None, pasta=None, baixar=True):
                            prob_fim=conf.get("turno_prob_fim", 0.5),
                            espera_max_s=conf.get("turno_espera_max_s", 3.0),
                            silencio_min_ms=conf.get("turno_silencio_min_ms", 300))
-    except Exception:
-        pass
+    except Exception as exc:
+        motivo = "modelo não carregou (%s)" % type(exc).__name__
+    global _avisou_reserva
+    if not _avisou_reserva:                  # uma vez só: o árbitro de energia é bem pior em hesitação
+        _avisou_reserva = True
+        log.warning("árbitro de vez caiu para o de energia: %s", motivo)
     return ArbitroEnergia()

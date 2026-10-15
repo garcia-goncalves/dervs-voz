@@ -135,6 +135,19 @@ def test_caracteristicas_cola_zeros_no_comeco_e_guarda_o_fim():
     assert np.abs(f1[:, :300] - f1[:, :1]).max() < 0.2          # começo é o enchimento de zeros
 
 
+def test_caracteristicas_batem_com_o_whisper_feature_extractor_de_referencia():
+    """Valor de referência gerado UMA vez com o WhisperFeatureExtractor(chunk_length=8) do transformers
+    4/5 (instalado só fora do venv), no mesmo caminho do Pipecat: 0,5 s de sinal + zeros no começo."""
+    rng = np.random.default_rng(20261015)
+    t = np.arange(8000) / 16000.0
+    sinal = (0.3 * np.sin(2 * np.pi * 220 * t) + 0.1 * np.sin(2 * np.pi * 1330 * t)
+             + 0.02 * rng.standard_normal(len(t))).astype(np.float32)
+    ref = np.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata", "mel_referencia.npz"))
+    f = T.caracteristicas(sinal)
+    assert np.allclose(f[:, -60:], ref["fim"], atol=1e-3)         # a fala, no fim da janela
+    assert np.allclose(f[:, :1], ref["inicio"], atol=1e-3)        # o enchimento de zeros, no começo
+
+
 def test_banco_mel_slaney_do_whisper():
     f = T._filtros_mel()
     assert f.shape == (201, 80) and (f >= 0).all()
@@ -188,6 +201,54 @@ def test_sem_rede_devolve_none(tmp_path, monkeypatch):
 
 def test_criar_sem_modelos_cai_na_energia(tmp_path):
     assert isinstance(T.criar({}, pasta=str(tmp_path), baixar=False), T.ArbitroEnergia)
+
+
+def test_download_acima_do_teto_de_tamanho_e_descartado(tmp_path, monkeypatch):
+    conteudo = b"x" * 5000
+    monkeypatch.setitem(T.MODELOS, "x.onnx", ("https://exemplo/x.onnx", hashlib.sha256(conteudo).hexdigest()))
+    monkeypatch.setattr(T.urllib.request, "urlopen", lambda url, timeout=0: _resposta(conteudo))
+    monkeypatch.setattr(T, "MAX_DOWNLOAD_BYTES", 1000)
+    assert T.garantir_modelo("x.onnx", str(tmp_path)) is None
+    assert list(tmp_path.iterdir()) == []                            # nem o .parcial fica
+
+
+def test_urls_dos_modelos_estao_fixadas_em_versao_imutavel():
+    for nome, (url, _sha) in T.MODELOS.items():
+        assert url.startswith("https://") and "/master/" not in url and "/main/" not in url, nome
+    assert "bfdc0193023f121ea5b3cc7b176dbed570a68a59" in T.MODELOS["silero_vad.onnx"][0]
+
+
+def test_buffer_da_fala_tem_teto_de_30s_e_descarta_o_mais_antigo():
+    arb = T.Arbitro(VadFalso(), TurnoFalso(0.0))
+    ev = alimentar(arb, fala(1100))                    # 33 s de fala sem pausa
+    assert len(arb._buf) == 1000 and tipos(ev) == ["InicioFala"]
+
+
+def test_fim_de_vez_depois_do_teto_entrega_no_maximo_30s():
+    arb = T.Arbitro(VadFalso(), TurnoFalso(0.9))
+    ev = alimentar(arb, fala(1100) + silencio(10))
+    assert tipos(ev)[-1] == "FimDeVez" and len(ev[-1].audio) <= 1000 * N * 2
+
+
+def test_criar_avisa_uma_vez_que_caiu_na_energia(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(T, "_avisou_reserva", False)
+    with caplog.at_level("WARNING", logger="dervs.turno"):
+        T.criar({}, pasta=str(tmp_path), baixar=False)
+        T.criar({}, pasta=str(tmp_path), baixar=False)
+    avisos = [r for r in caplog.records if r.name == "dervs.turno"]
+    assert len(avisos) == 1 and "energia" in avisos[0].getMessage() and "modelos" in avisos[0].getMessage()
+
+
+def test_criar_avisa_o_motivo_quando_o_modelo_nao_carrega(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(T, "_avisou_reserva", False)
+    monkeypatch.setattr(T, "garantir_modelo", lambda nome, pasta=None, baixar=True: "caminho")
+
+    def quebra(caminho):
+        raise RuntimeError("onnx quebrado")
+    monkeypatch.setattr(T, "VadSilero", quebra)
+    with caplog.at_level("WARNING", logger="dervs.turno"):
+        assert isinstance(T.criar({}, pasta=str(tmp_path)), T.ArbitroEnergia)
+    assert "RuntimeError" in caplog.text
 
 
 def test_config_padrao_do_turno():
