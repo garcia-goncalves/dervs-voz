@@ -392,9 +392,27 @@ em outra janela.
 
 ## Pedir trabalho ao Claude no painel
 
-No canto de baixo à esquerda do painel fica a caixa **CLAUDE CODE**. É o mesmo Claude
-do seu terminal (com as suas regras e ferramentas), usando a sua assinatura — não
-gasta chave de API.
+No canto de baixo à esquerda do painel fica a caixa **CLAUDE CODE**. Quem responde ali
+(e na voz) é o **cérebro do DERVS**: usa a sua assinatura do Claude, mas com a
+personalidade, as regras e a memória **dele**, separadas do Claude Code que você usa
+para programar.
+
+### Cérebro do DERVS (15/10/2026)
+
+- **Onde mora:** `%APPDATA%\dervs\cerebro` (o `CLAUDE.md` com o jeito de falar dele,
+  `settings.json` sem ganchos, `skills` e `agents` só dele) e trabalha na pasta neutra
+  `%APPDATA%\dervs\area`. Pode editar o `CLAUDE.md` à vontade: o DERVS nunca
+  sobrescreve o que você mudou.
+- **Entrar uma vez com a assinatura:** clique em **ENTRAR** (ao lado de NOVA CONVERSA).
+  Abre uma janela azul; quando o Claude aparecer, digite `/login`, aperte Enter,
+  escolha a sua assinatura e aprove no navegador. Depois digite `/exit` e feche. Se
+  pular essa etapa, o DERVS avisa: "Falta entrar com a sua assinatura no cérebro do
+  DERVS: clique em Entrar". (Sem o painel: rode `scripts\entrar-cerebro.ps1`.)
+- **Trabalho num projeto:** diga ou escreva o nome do projeto ("no projeto grimoire,
+  corrige o bug do login"). Aí o DERVS empresta o seu Claude Code completo, rodando
+  **dentro da pasta daquele projeto**, e só aquela pasta pode ser editada (com o seu
+  OK no cartão). Pedido de programar sem dizer o projeto ganha a pergunta "Em qual
+  projeto?".
 
 - **Como usar:** escreva o que quer ("olha o que está ocupando espaço no C:") e
   aperte **Enter** (Shift+Enter pula linha). A resposta vai aparecendo palavra por
@@ -413,8 +431,8 @@ gasta chave de API.
   (`C:\Windows`, `Program Files`, `.git`, `.ssh`). Ele só **propõe** e você decide;
   quem decide e executa é a **Central do PC** (a próxima seção): só o seu clique, item
   a item, e nada é apagado — vai para a quarentena.
-- **Se ficar sem resposta:** confira se o `claude` está instalado e logado (abra um
-  terminal e digite `claude`); o erro aparece em vermelho na própria caixa.
+- **Se ficar sem resposta:** confira se o `claude` está instalado e se você já clicou
+  em **ENTRAR** uma vez; o erro aparece em vermelho na própria caixa.
 
 ---
 
@@ -489,9 +507,10 @@ de usuário nem `AppData`. Sem pasta listada, escrever sempre pergunta.
 
 ### Pedir para o DERVS desenvolver
 
-Se você falar um pedido claro de construir software ("cria um site para a clínica",
-"conserta o bug do login", "implementa a tela de cadastro"), o DERVS manda direto para o
-Claude Code, sem você dizer "pede pro Claude". Pedidos rápidos (hora, abrir app, lembrete)
+Se você falar um pedido claro de construir software dizendo o projeto ("no projeto
+clinica, cria a página de contato", "conserta o bug do login no projeto grimoire"), o DERVS
+manda direto para o Claude Code, dentro da pasta daquele projeto, sem você dizer "pede pro
+Claude". Sem o nome do projeto, ele pergunta "Em qual projeto?". Pedidos rápidos (hora, abrir app, lembrete)
 continuam no caminho rápido de sempre. Cada escolha fica em
 `%LOCALAPPDATA%\dervs\roteamento.jsonl`, com o motivo (só a frase de quem foi para o
 Claude é guardada, cortada em 80 letras).
@@ -608,7 +627,7 @@ de cada coisa — está no arquivo `ESTADO.md`, na pasta do projeto.
 | "Roda <comando> na VPS" | Leitura roda; o que muda o servidor vira um cartão na tela Integração e só roda se você clicar. |
 | "Pergunta pro Claude da VPS …" | Sempre vira cartão, com o texto exato. |
 | "Abre o projeto X" | Abre a pasta no VS Code (procura em `source\repos` ou nas pastas de projeto do painel). |
-| "No projeto X, pede pro Claude …" | Pede "confirma"; então abre o Claude Code numa cópia isolada, sem poder mandar nada ao GitHub. |
+| "No projeto X, pede pro Claude …" | Pede "confirma"; então pede ao Claude Code do painel, numa cópia isolada; mudar arquivo ou mandar algo ao GitHub pede o seu OK no cartão. |
 | "Faz commit e push do projeto X" | Diz o que vai e pede "confirma"; sobe num branch novo `dervs/voz-…`, nunca na main, nunca com segredo. |
 | "Fala mais rápido" / "troca a voz para onyx" / "ativa o modo sempre confirmar" | Muda só essas configurações. Permissões, teto de gasto e pastas de projeto só pelo painel. |
 

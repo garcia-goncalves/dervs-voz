@@ -10,7 +10,9 @@ Travas que não saem daqui:
   - Servidor: leitura roda; o que muda servidor vira cartão na tela (o terminal SSH decide).
     "Pergunta pro Claude da VPS" NUNCA é leitura: sempre cartão.
   - Projeto: só abre pasta achada DENTRO das pastas de projeto; o Claude do conserto roda em
-    git worktree isolado, num branch `dervs/...`, e este módulo nunca mexe na `main`.
+    git worktree isolado, num branch `dervs/...`, e este módulo nunca mexe na `main`. Esse
+    Claude é a sessão do DERVS no perfil `projeto` (`abrir_claude`), com o gancho, os caminhos
+    protegidos e o cartão — nunca um `claude` interativo solto no PowerShell.
   - GitHub: commit e push só em branch próprio, só depois do "confirma" dito pelo dono, e sem
     arquivo de segredo na lista. Não existe aqui `--force`, repositório público nem apagar
     branch remoto: pedir isso por voz só ganha uma recusa.
@@ -297,7 +299,10 @@ class AcoesVoz:
         self._ler = ler_config
         self._ao_vivo = aplicar_ao_vivo or (lambda chave, valor: None)
         self._abrir_vscode = abrir_vscode or self._vscode_padrao
-        self._abrir_claude = abrir_claude or self._claude_padrao
+        # (pasta, pedido) -> bool: a sessão do Claude Code do DERVS, perfil `projeto`, com o
+        # gancho, os caminhos protegidos e o cartão. Sem ela, nada abre: o antigo `claude`
+        # interativo no PowerShell rodava sem nenhuma dessas travas (revisão 15/10).
+        self._abrir_claude = abrir_claude
         self._git = git
         self._relogio = relogio
         self._pasta_wt = pasta_worktrees or os.path.join(
@@ -391,11 +396,6 @@ class AcoesVoz:
         subprocess.Popen([exe, pasta], creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
         return f"Abrindo {os.path.basename(pasta)} no VS Code."
 
-    def _claude_padrao(self, worktree, pedido):
-        env = dict(os.environ, DERVS_PEDIDO=pedido)      # o pedido vai por variável: sem aspas, sem shell
-        subprocess.Popen(["powershell", "-NoExit", "-Command", "claude --disallowedTools 'Bash(git push:*)' -- $env:DERVS_PEDIDO"],
-                         cwd=worktree, env=env, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
-
     def _conserto(self, pasta, pedido):
         """O pedido falado vira o PROMPT de um Claude Code: por isso espera o "confirma", como o envio."""
         if self._git(pasta, "rev-parse", "--is-inside-work-tree").returncode != 0:
@@ -403,10 +403,12 @@ class AcoesVoz:
         self._pendente = {"tipo": "conserto", "pasta": pasta, "pedido": pedido,
                           "expira": self._relogio() + VALIDADE_CONFIRMACAO_S}
         return (f"Vou pedir ao Claude Code, numa cópia isolada do {os.path.basename(pasta)}: {pedido}. "
-                "Ele não vai poder mandar nada ao GitHub. Diga confirma para eu abrir.")
+                "Mandar qualquer coisa ao GitHub vai pedir o seu OK no painel. Diga confirma para eu pedir.")
 
     def _abrir_conserto(self, p):
         pasta, pedido = p["pasta"], p["pedido"]
+        if self._abrir_claude is None:
+            return "O Claude Code do DERVS não está ligado agora; não abri nada."
         branch = f"dervs/{_slug(pedido)}-{time.strftime('%H%M')}"
         destino = os.path.join(
             self._pasta_wt, f"{_slug(os.path.basename(pasta))}-{_slug(pedido)}-{time.strftime('%H%M%S')}")
@@ -414,9 +416,12 @@ class AcoesVoz:
         r = self._git(pasta, "worktree", "add", "-b", branch, destino)
         if r.returncode != 0:
             return "Não consegui criar a cópia isolada do projeto. Nada foi feito."
-        self._abrir_claude(destino, pedido)
-        return (f"Abri o Claude Code numa cópia isolada do {os.path.basename(pasta)}, no branch {branch}. "
-                "Ele não tem permissão de mandar nada ao GitHub: o envio só sai por aqui, com o seu confirma.")
+        if self._abrir_claude(destino, pedido) is False:
+            self._git(pasta, "worktree", "remove", destino)
+            self._git(pasta, "branch", "-d", branch)
+            return "O Claude Code está ocupado com outro pedido; desfiz a cópia. Peça de novo daqui a pouco."
+        return (f"Pedi ao Claude Code, numa cópia isolada do {os.path.basename(pasta)}, no branch {branch}. "
+                "Ele trabalha no painel do DERVS: mudar arquivo ou mandar algo para fora pede o seu OK no cartão.")
 
     def _arquivos_mudados(self, pasta):
         """Caminhos exatos que mudaram (pasta nova listada arquivo a arquivo), ou None se não é git."""

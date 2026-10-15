@@ -115,6 +115,8 @@ contextBridge.exposeInMainWorld("dervs", {
     }
   },
   claudeNovaConversa: () => { ipcRenderer.send("dervs:claude-nova-conversa"); },
+  // Sem parâmetro: o processo principal sabe sozinho qual script abrir.
+  claudeEntrar: () => { ipcRenderer.send("dervs:claude-entrar"); },
 
   // ---- Central do PC (onda D) — lista ESTREITA, de propósito ------------------
   // Python -> tela: a visão da análise, o andamento, o relatório de limpeza (com o

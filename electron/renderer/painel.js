@@ -512,6 +512,7 @@
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); claudeEnviar(); }
   });
   $("p-claude-parar").addEventListener("click", () => window.dervs.claudeParar());
+  $("p-claude-entrar").addEventListener("click", () => window.dervs.claudeEntrar());
   $("p-claude-nova").addEventListener("click", () => {
     limpar(elConversaClaude);
     $("p-claude-vazio").hidden = false;

@@ -101,7 +101,15 @@ def test_preload_expoe_so_a_lista_estreita_do_claude():
     expostos = set(re.findall(r"^\s{2}((?:aoClaude|claude)\w+)\s*:", js, re.MULTILINE))
     assert expostos == {"aoClaudeDelta", "aoClaudeFerramenta", "aoClaudePedido", "aoClaudeFim",
                         "claudePerguntar", "claudeParar", "claudeResponder",
-                        "claudeNovaConversa"}
+                        "claudeNovaConversa", "claudeEntrar"}
+
+
+def test_botao_entrar_abre_so_o_script_fixo_sem_parametro_da_tela():
+    assert "claudeEntrar: () => { ipcRenderer.send(\"dervs:claude-entrar\"); }" in _fonte("preload.js")
+    js = _fonte("main.js")
+    assert 'ipcMain.on("dervs:claude-entrar", () => {' in js
+    assert '"scripts", "entrar-cerebro.ps1"' in js
+    assert 'id="p-claude-entrar"' in _fonte("renderer", "painel.html")
 
 
 def test_main_valida_os_quatro_pedidos_da_tela_ao_claude():

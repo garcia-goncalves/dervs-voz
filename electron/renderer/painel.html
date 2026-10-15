@@ -169,13 +169,14 @@
     <div class="p-painel-baixo p-claude" aria-label="Claude Code">
       <h2 class="p-titulo">CLAUDE CODE <span class="p-titulo-nota" id="p-claude-estado" role="status">pronto</span>
         <button type="button" id="p-claude-nova" class="p-mini" title="Esquece a conversa e começa outra do zero">NOVA CONVERSA</button>
+        <button type="button" id="p-claude-entrar" class="p-mini" title="Abre uma janela para entrar com a sua assinatura no cérebro do DERVS (só uma vez)">ENTRAR</button>
       </h2>
-      <div class="p-claude-conversa" id="p-claude-conversa" role="log" aria-label="Conversa com o Claude Code" aria-live="polite" tabindex="0"></div>
-      <p class="p-vazio" id="p-claude-vazio">Escreva abaixo o que quer que o Claude faça neste PC. Ele lê a máquina toda; para mudar qualquer coisa, pede o seu OK aqui.</p>
+      <div class="p-claude-conversa" id="p-claude-conversa" role="log" aria-label="Conversa com o DERVS" aria-live="polite" tabindex="0"></div>
+      <p class="p-vazio" id="p-claude-vazio">Escreva abaixo para o DERVS. Ele lê a máquina toda; para mudar qualquer coisa, pede o seu OK aqui. Para trabalho num projeto, diga o nome do projeto.</p>
       <form class="p-claude-form" id="p-claude-form">
         <textarea id="p-claude-texto" class="p-claude-texto" rows="2" maxlength="8000"
-                  placeholder="Pergunte ou peça algo ao Claude Code (Enter envia, Shift+Enter pula linha)"
-                  aria-label="Mensagem para o Claude Code"></textarea>
+                  placeholder="Escreva para o DERVS (para trabalho num projeto, diga o nome do projeto)"
+                  aria-label="Mensagem para o DERVS"></textarea>
         <button type="submit" id="p-claude-enviar" class="p-mini p-mini-forte">ENVIAR</button>
         <button type="button" id="p-claude-parar" class="p-mini p-mini-perigo" hidden>PARAR</button>
       </form>

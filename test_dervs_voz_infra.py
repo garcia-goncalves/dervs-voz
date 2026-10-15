@@ -262,6 +262,30 @@ def test_conserto_abre_worktree_em_branch_proprio_sem_tocar_a_main(acoes, repo):
     assert g(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
 
 
+def test_conserto_nunca_abre_claude_interativo_fora_das_travas_do_dervs():
+    """Revisão 15/10: abria `claude` no PowerShell com o config inteiro do dono, sem o
+    gancho do DERVS; só `git push` era barrado e `git -C x push`/`gh` passavam."""
+    import inspect
+    fonte = inspect.getsource(vi)
+    assert "disallowedTools" not in fonte and "-NoExit" not in fonte
+
+
+def test_sem_sessao_do_claude_ligada_o_conserto_nao_cria_copia(acoes, repo, tmp_path):
+    acoes._abrir_claude = None
+    acoes.executar({"tipo": "projeto_claude", "nome": "dervs voz", "pedido": "consertar o login"})
+    fala = acoes.responder_pendencia(True)
+    assert "não" in fala.lower() and not (tmp_path / "wt").exists()
+
+
+def test_claude_ocupado_desfaz_a_copia_isolada(acoes, repo, tmp_path):
+    acoes._abrir_claude = lambda pasta, pedido: False
+    acoes.executar({"tipo": "projeto_claude", "nome": "dervs voz", "pedido": "consertar o login"})
+    fala = acoes.responder_pendencia(True)
+    assert "ocupado" in fala
+    assert not [p for p in (tmp_path / "wt").iterdir()] if (tmp_path / "wt").exists() else True
+    assert "dervs/" not in g(repo, "branch", "--list")
+
+
 def test_envio_na_main_vai_para_branch_novo_depois_do_confirma(acoes, repo):
     (repo / "novo.txt").write_text("x")
     fala = acoes.executar({"tipo": "git_enviar", "nome": "dervs voz"})

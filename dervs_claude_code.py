@@ -4,9 +4,21 @@
 Há DUAS peças de Claude no DERVS, de propósito:
   1. o planejador de voz (`dervs_brain.py`), isolado (`--setting-sources ""`),
      que só devolve uma ficha JSON curta; e
-  2. ESTA: a sessão do Claude Code, "o mesmo Claude" do terminal do dono — com o
-     `~/.claude` dele (CLAUDE.md, skills, agentes, MCPs, plugins), pela ASSINATURA
-     (OAuth já logado no CLI; nenhuma chave de API passa por aqui).
+  2. ESTA: a sessão do Claude Code, pela ASSINATURA (OAuth do CLI; nenhuma chave
+     de API passa por aqui), com DOIS perfis (decisão do dono, 15/10/2026):
+       - `dervs` (o padrão: caixa do painel e voz): o CÉREBRO PRÓPRIO do DERVS.
+         `CLAUDE_CONFIG_DIR` = `%APPDATA%\\dervs\\cerebro` (CLAUDE.md com a persona,
+         settings sem ganchos, skills/agentes só dele, memória e login próprios),
+         `setting_sources=["user"]` (o "user" agora é essa pasta), MCP só o `dervs`
+         (`strict_mcp_config`) e a pasta de trabalho `%APPDATA%\\dervs\\area`, que
+         não é repositório nem tem CLAUDE.md de projeto. Nada do `~/.claude` de
+         desenvolvedor do dono entra aqui (antes entrava: o recado de handoff e o
+         CLAUDE.md de dev faziam "abre a calculadora" virar conversa de branch).
+       - `projeto` (emprestado): o Claude Code completo do dono (`~/.claude`,
+         user+project+local), SÓ quando ele pede trabalho num projeto nomeado, e
+         rodando DENTRO da pasta desse projeto. Sem pasta de projeto, não abre.
+     O cérebro próprio precisa entrar com a assinatura uma vez
+     (`scripts\\entrar-cerebro.ps1`); sem isso o painel e a voz dizem `FALTA_LOGIN`.
 
 Usa o SDK oficial (`claude-agent-sdk`), que já fala o protocolo de controle do
 stream-json (pedido de permissão, interrupt, ganchos em processo) — a parte
@@ -38,6 +50,7 @@ responde com um erro claro em vez de derrubar o DERVS.
 """
 import asyncio
 import datetime
+import functools
 import json
 import os
 import re
@@ -48,6 +61,7 @@ import unicodedata
 import uuid
 import warnings
 
+import dervs_config
 import dervs_gasto
 import dervs_permissoes as perm
 import dervs_processos
@@ -58,7 +72,7 @@ try:
 except ImportError:                       # o DERVS abre mesmo assim, sem a sessão
     sdk = None
 else:
-    # O SDK avisa que `can_use_tool` não é consultado para as 3 ferramentas do
+    # O SDK avisa que `can_use_tool` não é consultado para as 2 ferramentas do
     # servidor `dervs` (estão em `allowed_tools`). É de propósito: nenhuma executa
     # nada, e o gancho PreToolUse continua valendo antes delas.
     warnings.filterwarnings("ignore", category=sdk.CanUseToolShadowedWarning)
@@ -67,10 +81,16 @@ else:
 PERMISSION_MODE = "default"
 MODOS_PROIBIDOS = ("bypassPermissions", "acceptEdits", "auto")
 
-PERFIL_PADRAO = "dono"
-# dono: o ~/.claude dele inteiro vale. equipe: só o harness do projeto, para as
-# regras valerem iguais em qualquer PC (onda E). Perfil desconhecido = o menor.
-SETTING_SOURCES = {"dono": ("user", "project", "local"), "equipe": ("project",)}
+PERFIL_PADRAO = "dervs"
+# dervs: só o cérebro próprio (o "user" é a pasta dele, ver `pasta_cerebro`).
+# projeto/dono: o ~/.claude do dono inteiro, emprestado dentro de um projeto ("dono"
+# é o nome antigo da config). equipe: só o harness do projeto, para as regras
+# valerem iguais em qualquer PC (onda E). Perfil desconhecido = o menor.
+SETTING_SOURCES = {"dervs": ("user",), "projeto": ("user", "project", "local"),
+                   "dono": ("user", "project", "local"), "equipe": ("project",)}
+FALTA_LOGIN = "Falta entrar com a sua assinatura no cérebro do DERVS: clique em Entrar."
+FALTA_LOGIN_PROJETO = ("O Claude Code do seu computador está sem a assinatura entrada; "
+                       "abra o Claude Code e entre de novo.")
 
 LIMITE_PERGUNTA = 8000          # caracteres que a caixa de texto aceita
 TIMEOUT_PEDIDO_S = 300          # sem resposta do dono em 5 min: NEGA
@@ -81,9 +101,12 @@ LIMITE_ENTRADA = 1000           # o resto dos parâmetros; o corte é contado e 
 FERRAMENTAS_DE_COMANDO = ("Bash", "PowerShell")
 FERRAMENTAS_DE_ESCRITA = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 _SO_LEITURA = ("Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead")
-FERRAMENTAS_DERVS = ("mcp__dervs__central_coletar", "mcp__dervs__propor_acao",
-                     "mcp__dervs__status_aprovacao")
-# A "pasta do harness" (onda E) ainda não existe: até lá, a própria pasta do DERVS.
+# Só o que funciona: `central_coletar` (stub que sempre dizia "não instalado") saiu em
+# 15/10; a leitura da máquina usa as ferramentas normais, e a Central tem o painel dela.
+FERRAMENTAS_DERVS = ("mcp__dervs__propor_acao", "mcp__dervs__status_aprovacao")
+# A pasta do código do DERVS. NÃO é a pasta de trabalho de nenhuma sessão (o perfil
+# `dervs` roda em `pasta_area()`, o emprestado na pasta do projeto); fica só como uma
+# das bases contra as quais um caminho relativo é conferido na leitura.
 PASTA_HARNESS = os.path.dirname(os.path.abspath(__file__))
 
 LIMITE_ITENS_PROPOSTA = 50
@@ -98,9 +121,9 @@ ETIQUETA_GASTO = "assinatura (equivalente)"     # medida, não cobrança
 # (Antes havia um "piso interno" que deixava passar `\\?\C:\Windows\x`, nomes
 # 8.3, `~\.claude.json` e a própria pasta do DERVS.)
 #
-# Decisão consciente: a C protege "dentro de repositório", então o Claude do painel
-# NÃO edita código de projetos — isso é feito no VS Code. O painel é para
-# manutenção do PC.
+# A C protege "dentro de repositório": o cérebro do DERVS não edita código de
+# projeto. A exceção é o perfil `projeto` (`protegido_no_projeto`): só a pasta do
+# projeto que o dono nomeou fica editável, sob as permissões do painel (cartão).
 try:
     import dervs_caminhos_protegidos as _cp
 except ImportError:
@@ -122,6 +145,44 @@ def protegido_com_motivo(caminho, **kw):
 
 def esta_protegido(caminho) -> bool:
     return protegido_com_motivo(caminho)[0]
+
+
+def protegido_no_projeto(caminho, projeto, protegido=esta_protegido) -> bool:
+    """Perfil `projeto`: a pasta do projeto pedido é editável (a onda C protege todo
+    repositório, e sem isto o Claude emprestado nunca editava o que o dono pediu).
+    Dentro dela seguem protegidos o `.git`, segredo e o próprio DERVS (repositório e
+    %APPDATA%\\dervs), que só se libera quando o projeto pedido É o dervs-voz. Fora
+    dela, a régua de sempre. Editável não é sem cartão: o gancho ainda pergunta.
+    Na dúvida, protegido."""
+    try:
+        if _cp is None or not isinstance(caminho, str) or not caminho:
+            return True
+        raiz = _cp.normalizar(projeto) if isinstance(projeto, str) and projeto else None
+        lexico = _cp._lexico(_para_windows(caminho))
+        real = _cp.normalizar(lexico) if lexico else None
+        if raiz is None or real is None:
+            return protegido(caminho)
+        if _cp.link_no_caminho(lexico) or _cp.link_no_caminho(real):
+            return True
+        c, r = _cp._chave(real), _cp._chave(raiz)
+        # O próprio DERVS (código e %APPDATA%\dervs), dentro ou fora do projeto, a não ser
+        # que o projeto pedido esteja dentro dele (é o dervs-voz).
+        for pasta_do_dervs in (PASTA_HARNESS, dervs_config.CONFIG_DIR):
+            d = _cp.normalizar(pasta_do_dervs) or _cp._lexico(pasta_do_dervs)
+            if d is None:
+                return True
+            d = _cp._chave(d)
+            if _cp._dentro(c, d) and not _cp._dentro(r, d):
+                return True
+        if not _cp._dentro(c, r):
+            return protegido(caminho)
+        if any(p.lower() == ".git" for p in re.split(r"[\\/]", os.path.relpath(real, raiz))):
+            return True
+        if _parece_segredo(caminho) or _parece_segredo(real):
+            return True
+        return False
+    except Exception:
+        return True
 
 
 # Perfis de navegador (cookies, senhas salvas, histórico) e o ~/.claude.json (MCPs,
@@ -253,8 +314,11 @@ def leitura_proibida(caminho, busca: bool = False):
 # para o planejador de VOZ e aceita `chrome`, `explorer`, `code`... só pelo prefixo:
 # um Claude induzido por conteúdo hostil abria o navegador com dado da conversa na
 # URL e o gancho devolvia `{}`. Aqui, tudo fora da lista é `ask`.
+# `git -C pasta push`, `git -c x=y push`, `git --git-dir=... push`: a opção antes do verbo
+# não pode esconder o envio (revisão 15/10). Na dúvida (a palavra aparece depois de
+# `git`), é rede: o pior caso é um cartão a mais.
 _REDE = re.compile(
-    r"\b(?:git\s+(?:push|remote|clone|fetch|pull|ls-remote|submodule)|gh|curl|wget|"
+    r"\b(?:git\b[^;&|\r\n]*?\s(?:push|remote|clone|fetch|pull|ls-remote|submodule)\b|gh|curl|wget|"
     r"Invoke-WebRequest|iwr|Invoke-RestMethod|irm|Start-BitsTransfer|bitsadmin|scp|sftp|"
     r"ssh|ftp|telnet|nc|ncat|socat|npm\s+publish|Test-NetConnection|tnc)\b", re.IGNORECASE)
 # Abre navegador, editor, programa ou URL: leva o dado da conversa para fora do PC.
@@ -438,7 +502,7 @@ def decisao_do_gancho(nome, entrada, protegido=esta_protegido, leitura=leitura_p
 
     `ask` faz o pedido cair SEMPRE no `can_use_tool` (o diálogo do painel), mesmo
     que uma regra `allow` do settings do dono o liberasse: o gancho roda antes das
-    regras. Só passa direto a leitura pura, as 3 ferramentas do servidor `dervs`
+    regras. Só passa direto a leitura pura, as 2 ferramentas do servidor `dervs`
     e o comando que o `dervs_safety` classifica como reversível (sem rede)."""
     motivo = motivo_de_bloqueio(nome, entrada, protegido, leitura)
     if motivo:
@@ -489,11 +553,99 @@ def _unidades_para_leitura():
     return [(os.environ.get("SystemDrive") or "C:") + "\\"]
 
 
+def pasta_cerebro() -> str:
+    """O `CLAUDE_CONFIG_DIR` do cérebro próprio: `%APPDATA%\\dervs\\cerebro`."""
+    return os.path.join(dervs_config.CONFIG_DIR, "cerebro")
+
+
+def pasta_area() -> str:
+    """A pasta de trabalho do perfil `dervs`: neutra, sem git e sem CLAUDE.md de projeto."""
+    return os.path.join(dervs_config.CONFIG_DIR, "area")
+
+
+PERSONA = """\
+# DERVS
+
+Você é o DERVS, o assistente pessoal do dono deste computador, no estilo do JARVIS:
+educado, direto, prestativo e com um toque de humor discreto.
+
+## Como falar
+- Sempre em português do Brasil, simples, sem jargão técnico.
+- Respostas curtas, boas de ouvir em voz alta: uma ou duas frases. Detalhe só se ele pedir.
+- O dono não é técnico. Explique o que vai fazer em palavras do dia a dia.
+- Sem listas longas, tabelas ou blocos de código, a não ser que ele peça.
+
+## Como agir
+- Coisa fácil e segura (abrir um programa, ver uma informação, responder uma dúvida): faça direto.
+- Na dúvida sobre o que ele quer, pergunte uma coisa só, com a sua sugestão.
+- Para mudar qualquer coisa no computador, o painel do DERVS pede o OK dele. Nunca tente contornar.
+- Para limpar, desinstalar ou desativar, proponha com a ferramenta mcp__dervs__propor_acao.
+
+## O que não fazer
+- Não fale do seu próprio código, de branches, commits ou do processo de desenvolvimento
+  do DERVS, a não ser que ele pergunte.
+- Trabalho de programação num projeto não é com você: diga a ele para pedir
+  "no projeto tal, ..." que o DERVS chama o Claude Code dentro daquele projeto.
+"""
+
+_SETTINGS_CEREBRO = {
+    # Sem "hooks": nenhum gancho de terminal roda aqui. O único gancho é o PreToolUse
+    # em processo (`criar_gancho`), que o DERVS passa pelas opções do SDK.
+    "permissions": {"defaultMode": PERMISSION_MODE, "allow": [], "deny": []},
+}
+
+_LEIA_ME = {
+    "skills": "Skills do DERVS. Só valem para o cérebro próprio do DERVS, nunca para o "
+              "Claude Code de desenvolvimento do dono (que mora em ~/.claude).\n",
+    "agents": "Agentes do DERVS. Só valem para o cérebro próprio do DERVS, nunca para o "
+              "Claude Code de desenvolvimento do dono (que mora em ~/.claude).\n",
+}
+
+
+def _escrever_se_faltar(caminho: str, conteudo: str):
+    """Grava só se o arquivo NÃO existe: o que o dono editou nunca é sobrescrito."""
+    try:
+        with open(caminho, "x", encoding="utf-8", newline="\n") as f:
+            f.write(conteudo)
+    except FileExistsError:
+        pass
+
+
+def preparar_cerebro(base=None, area=None):
+    """Monta (idempotente) a pasta do cérebro próprio e a pasta de trabalho neutra."""
+    base = base or pasta_cerebro()
+    area = area or pasta_area()
+    for pasta in (base, area, os.path.join(base, "skills"), os.path.join(base, "agents")):
+        os.makedirs(pasta, exist_ok=True)
+    _escrever_se_faltar(os.path.join(base, "CLAUDE.md"), PERSONA)
+    _escrever_se_faltar(os.path.join(base, "settings.json"),
+                        json.dumps(_SETTINGS_CEREBRO, ensure_ascii=False, indent=2) + "\n")
+    for sub, texto in _LEIA_ME.items():
+        _escrever_se_faltar(os.path.join(base, sub, "README.md"), texto)
+
+
+_SEM_LOGIN = re.compile(r"not logged in|run /login|invalid api key|oauth token has expired|"
+                        r"authentication_failed", re.IGNORECASE)
+
+
+def falta_login(texto) -> bool:
+    """O erro do CLI é de assinatura não entrada (ou vencida)?"""
+    return isinstance(texto, str) and bool(_SEM_LOGIN.search(texto))
+
+
 def montar_opcoes(perfil, *, can_use_tool, gancho, servidor_mcp, resume=None,
                   cwd=None, cli_path=None):
     if sdk is None:
         raise RuntimeError("o pacote claude-agent-sdk não está instalado "
                            "(rode: pip install -r requirements.txt)")
+    if perfil == "dervs":
+        # Cérebro próprio: nem um `cwd` pedido de fora o leva para um repositório.
+        preparar_cerebro()
+        cwd, ambiente, so_o_dervs = pasta_area(), {"CLAUDE_CONFIG_DIR": pasta_cerebro()}, True
+    elif not cwd:
+        raise ValueError("o Claude Code do dono só é emprestado dentro da pasta de um projeto")
+    else:
+        ambiente, so_o_dervs = {}, False
     if cli_path is None:
         import dervs_brain
         cli_path = dervs_brain._resolver_claude()
@@ -501,7 +653,9 @@ def montar_opcoes(perfil, *, can_use_tool, gancho, servidor_mcp, resume=None,
     return sdk.ClaudeAgentOptions(
         permission_mode=PERMISSION_MODE,
         setting_sources=list(fontes),
-        cwd=cwd or PASTA_HARNESS,
+        cwd=cwd,
+        env=ambiente,                           # o SDK soma ao ambiente herdado
+        strict_mcp_config=so_o_dervs,           # no cérebro próprio, MCP só o `dervs`
         cli_path=cli_path,
         add_dirs=_unidades_para_leitura(),      # leitura da máquina inteira
         include_partial_messages=True,          # streaming palavra a palavra
@@ -793,7 +947,7 @@ class SessaoClaudeCode:
                  fachada_fabrica=None, cwd=None, protegido=esta_protegido,
                  timeout_pedido=TIMEOUT_PEDIDO_S, espera_interrupt=ESPERA_INTERRUPT_S,
                  encerrar_arvore=dervs_processos.encerrar_arvore, niveis_fn=None,
-                 raizes_fn=None):
+                 raizes_fn=None, perfil_projeto="projeto"):
         # `niveis_fn()` devolve a matriz de permissões do dono, lida na hora (o painel
         # vale sem reiniciar). Sem ela, tudo vai ao cartão como antes.
         self._niveis_fn = niveis_fn
@@ -802,6 +956,13 @@ class SessaoClaudeCode:
         self._ao_texto_final = ao_texto_final
         self._ao_aviso = ao_aviso
         self.perfil = perfil if perfil in SETTING_SOURCES else PERFIL_PADRAO
+        # O harness emprestado quando o pedido é num projeto (config `claude_perfil`).
+        self._perfil_projeto = (perfil_projeto if perfil_projeto in SETTING_SOURCES
+                                and perfil_projeto != "dervs" else "projeto")
+        self._alvo_base = (self.perfil, cwd)
+        self._alvo = self._alvo_base          # (perfil, cwd) do cliente atual
+        self._sessoes = {}                    # session_id de cada alvo já usado
+        self._sem_login = False
         self._fabrica = fabrica_cliente or self._fabrica_padrao
         self._arquivo_sessao = caminho_sessao() if arquivo_sessao == "padrao" else arquivo_sessao
         # A ÚNICA porta para o motor de aprovação (onda C): a `Fachada` (só
@@ -810,6 +971,7 @@ class SessaoClaudeCode:
         self._fachada = None
         self._cwd = cwd
         self._protegido = protegido
+        self._protegido_atual = protegido     # no projeto emprestado, a pasta dele é editável
         self._timeout_pedido = timeout_pedido
         self._espera_interrupt = espera_interrupt
         self._encerrar_arvore = encerrar_arvore
@@ -841,9 +1003,13 @@ class SessaoClaudeCode:
     def ocupado(self) -> bool:
         return self._ocupado
 
-    def perguntar(self, texto: str, origem: str = "painel") -> bool:
+    def perguntar(self, texto: str, origem: str = "painel", projeto=None) -> bool:
+        """`projeto` (pasta) empresta o Claude Code do dono DENTRO dela; sem ele,
+        responde o cérebro próprio do DERVS."""
         texto = (texto or "").strip()
         if not texto or len(texto) > LIMITE_PERGUNTA or self._encerrada:
+            return False
+        if projeto is not None and not (isinstance(projeto, str) and os.path.isdir(projeto)):
             return False
         with self._trava:
             if self._ocupado:
@@ -852,7 +1018,7 @@ class SessaoClaudeCode:
             self._interrompido = False
             self._fim_do_turno = threading.Event()
         laco = self._garantir_laco()
-        laco.call_soon_threadsafe(self._comandos.put_nowait, ("turno", (texto, origem)))
+        laco.call_soon_threadsafe(self._comandos.put_nowait, ("turno", (texto, origem, projeto)))
         return True
 
     def parar(self) -> bool:
@@ -875,6 +1041,7 @@ class SessaoClaudeCode:
         self.parar()
         self._geracao += 1            # o resultado de um turno anterior fica velho
         self._session_id = None
+        self._sessoes.clear()
         self._custo_acumulado = 0.0
         apagar_sessao(self._arquivo_sessao)
         if self._laco is not None:
@@ -965,17 +1132,34 @@ class SessaoClaudeCode:
     def _fabrica_padrao(self, opcoes):
         return sdk.ClaudeSDKClient(options=opcoes)
 
+    async def _mirar(self, projeto):
+        """Troca de cérebro entre turnos: pedido num projeto usa o harness emprestado,
+        na pasta dele; o resto volta ao do DERVS. Cada um retoma a PRÓPRIA conversa."""
+        alvo = (self._perfil_projeto, projeto) if projeto else self._alvo_base
+        if alvo == self._alvo:
+            return
+        await self._descartar_cliente()
+        if self._session_id:
+            self._sessoes[self._alvo] = self._session_id
+        self._alvo = alvo
+        self._session_id = self._sessoes.get(alvo)
+        self._protegido_atual = (self._protegido if alvo == self._alvo_base else
+                                 functools.partial(protegido_no_projeto, projeto=alvo[1],
+                                                   protegido=self._protegido))
+
     async def _conectar(self):
         if self._cliente is not None:
             return
-        if self._session_id is None and self._arquivo_sessao:
+        base = self._alvo == self._alvo_base
+        if self._session_id is None and self._arquivo_sessao and base:
             self._session_id = ler_sessao(self._arquivo_sessao, self.perfil)
         servidor = criar_servidor_dervs(self)[0]
+        perfil, cwd = self._alvo
         opcoes = montar_opcoes(
-            self.perfil, can_use_tool=self._can_use_tool,
-            gancho=criar_gancho(self._protegido, niveis_fn=self._niveis_fn,
+            perfil, can_use_tool=self._can_use_tool,
+            gancho=criar_gancho(self._protegido_atual, niveis_fn=self._niveis_fn,
                                 raizes_fn=self._raizes_fn), servidor_mcp=servidor,
-            resume=self._session_id, cwd=self._cwd)
+            resume=self._session_id, cwd=cwd)
         cliente = self._fabrica(opcoes)
         antes = _pids_filhos()
         try:
@@ -983,7 +1167,8 @@ class SessaoClaudeCode:
         except Exception:
             if self._session_id:            # não deu para retomar: a próxima começa limpa
                 self._session_id = None
-                apagar_sessao(self._arquivo_sessao)
+                if base:
+                    apagar_sessao(self._arquivo_sessao)
             raise
         self._cliente = cliente
         self._custo_acumulado = 0.0
@@ -1048,14 +1233,16 @@ class SessaoClaudeCode:
         except Exception as e:
             sys.stderr.write(f"claude_code: falha ao avisar o painel: {e}\n")
 
-    async def _turno(self, texto, origem):
+    async def _turno(self, texto, origem, projeto=None):
         self._texto_emitido = False
         self._separar = False
         self._streamou = False
         self._partes = []
+        self._sem_login = False
         erro = None
         resultado = None
         geracao = self._geracao
+        await self._mirar(projeto)            # antes do custo: trocar de cliente o zera
         base_custo = self._custo_acumulado
         try:
             await self._conectar()
@@ -1076,6 +1263,14 @@ class SessaoClaudeCode:
         elif erro is None and resultado.is_error:
             detalhe = resultado.result or "; ".join(resultado.errors or []) or resultado.subtype
             erro = str(detalhe)[:300]
+        if not ok and not self._interrompido and (self._sem_login or falta_login(erro)):
+            # Erro genérico do CLI não diz nada ao dono: diga o que falta e onde clicar.
+            erro = FALTA_LOGIN if self._alvo == self._alvo_base else FALTA_LOGIN_PROJETO
+            if self._ao_aviso:
+                try:
+                    self._ao_aviso(erro)
+                except Exception:
+                    pass
         self._pedidos.negar_todos()
         with self._trava:
             self._ocupado = False
@@ -1099,7 +1294,8 @@ class SessaoClaudeCode:
             pass    # turno anterior à nova_conversa: não ressuscita a sessão apagada
         elif resultado.session_id and resultado.session_id != self._session_id:
             self._session_id = resultado.session_id
-            gravar_sessao(self._arquivo_sessao, self._session_id, self.perfil)
+            if self._alvo == self._alvo_base:     # a do projeto emprestado não vai ao disco
+                gravar_sessao(self._arquivo_sessao, self._session_id, self.perfil)
         custo = 0.0
         total = resultado.total_cost_usd
         if isinstance(total, (int, float)) and total >= 0:
@@ -1117,6 +1313,8 @@ class SessaoClaudeCode:
             if msg.parent_tool_use_id is None:
                 self._tratar_stream(msg.event or {})
         elif isinstance(msg, sdk.AssistantMessage):
+            if getattr(msg, "error", None) == "authentication_failed":
+                self._sem_login = True
             self._tratar_assistente(msg)
         elif isinstance(msg, sdk.RateLimitEvent):
             self._tratar_limite(msg.rate_limit_info)
@@ -1184,7 +1382,7 @@ class SessaoClaudeCode:
                 d = perm.decidir(nome, entrada, risco, self._niveis_fn(),
                                 self._raizes_fn() if self._raizes_fn else ())
                 livre = (d["acao"] == "permitir"
-                         and not motivo_de_bloqueio(nome, entrada, self._protegido,
+                         and not motivo_de_bloqueio(nome, entrada, self._protegido_atual,
                                                     leitura_proibida))
             except Exception:
                 livre = False          # política ilegível: cai no cartão, nunca no "sim"
@@ -1226,14 +1424,6 @@ def criar_servidor_dervs(sessao: SessaoClaudeCode):
     {nome: ferramenta}). NÃO existe ferramenta que execute: executar é clique."""
     if sdk is None:
         raise RuntimeError("claude-agent-sdk não instalado")
-
-    @sdk.tool("central_coletar",
-              "Coleta uma leitura da máquina (somente leitura) para a Central do PC.",
-              {"coletor": str})
-    async def central_coletar(args):
-        # A onda D preenche os coletores reais.
-        return _texto_mcp("Coletor ainda não instalado: a Central do PC (onda D) "
-                          "não chegou. Use as ferramentas normais de leitura.")
 
     @sdk.tool("propor_acao",
               "Propõe ao dono uma lista de ações (limpar, desinstalar, desativar...). "
@@ -1289,6 +1479,6 @@ def criar_servidor_dervs(sessao: SessaoClaudeCode):
                           f"({i.get('acao')}, risco {i.get('risco')})")
         return _texto_mcp("\n".join(linhas))
 
-    ferramentas = {t.name: t for t in (central_coletar, propor_acao, status_aprovacao)}
+    ferramentas = {t.name: t for t in (propor_acao, status_aprovacao)}
     return (sdk.create_sdk_mcp_server("dervs", tools=list(ferramentas.values())),
             ferramentas)
