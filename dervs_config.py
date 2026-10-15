@@ -282,6 +282,11 @@ PADRAO = {
     # liga um modelo local (~240 MB de download na 1ª vez, ~600 MB de RAM enquanto em uso) e exige
     # `pip install -r requirements-semantica.txt`. Tudo roda no PC; nada de nota sai por causa dela.
     "cofre_semantica": False,
+    # Trava de perfil de voz (`dervs_locutor.py`): só a voz de um perfil ATIVO segue para o motor
+    # de conversa. `locutor_limiar` é a similaridade mínima (0 a 1, cosseno) para aceitar a voz;
+    # calibrado com o ERes2Net em 15/10/2026. `locutor_ligado=false` desliga a trava.
+    "locutor_limiar": 0.5,
+    "locutor_ligado": True,
 }
 
 
@@ -400,6 +405,13 @@ def _validar(conf: dict) -> dict:
         conf["codex_reserva"] = PADRAO["codex_reserva"]
     if not isinstance(conf.get("cofre_semantica"), bool):
         conf["cofre_semantica"] = PADRAO["cofre_semantica"]
+    if not isinstance(conf.get("locutor_ligado"), bool):
+        conf["locutor_ligado"] = PADRAO["locutor_ligado"]
+    lim = conf.get("locutor_limiar")
+    if isinstance(lim, bool) or not isinstance(lim, (int, float)) or not 0.0 <= lim <= 1.0:
+        conf["locutor_limiar"] = PADRAO["locutor_limiar"]
+    else:
+        conf["locutor_limiar"] = float(lim)
     pastas = conf.get("pastas_de_projeto")
     if not isinstance(pastas, list):
         pastas = []
