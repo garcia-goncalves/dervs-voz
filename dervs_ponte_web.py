@@ -48,6 +48,19 @@ ESPERA_DA_REDE_S = 20
 ESPERA_CALMA_S = 300           # painel sem a ponte ainda: olha de novo a cada 5 minutos
 INTERVALO_PADRAO_S = 60
 TETO_DA_ESPERA_S = 900
+# 403 das rotas /agente/voz/* quando a MÁQUINA não pode falar com o VOZ (servir.py,
+# Hub._voz_maquina). Casa pelo texto exato, sem acento como o painel manda; outro texto
+# cai na frase genérica de token.
+RECUSA_DA_MAQUINA = {
+    "este computador so mede": (
+        "Este computador foi conectado ao painel só para medir: o DERVS-VOZ não fala com o "
+        "painel daqui. Para usar o VOZ, abra o painel em Conectar, clique em 'Prefiro colar "
+        "um comando', gere o código de seis dígitos e pareie este computador com ele. Depois, "
+        "em Computadores, remova a entrada antiga deste computador."),
+    "este servidor so olha": (
+        "Esta máquina está no painel como servidor, e servidor só olha: o DERVS-VOZ não fala "
+        "com o painel daqui."),
+}
 
 TIPOS = ("analisar", "status", "propor", "avisar")
 NIVEIS = ("leitura", "muda_estado")
@@ -173,6 +186,10 @@ class PonteWeb:
             with self._abridor.open(pedido, timeout=ESPERA_DA_REDE_S) as r:
                 bruto = self._ler_com_prazo(r)
         except urllib.error.HTTPError as e:
+            if e.code == 403:
+                frase = RECUSA_DA_MAQUINA.get(self._erro_do_corpo(e))
+                if frase:
+                    raise PonteIndisponivel(frase, calma=True)
             if erros and e.code in erros:
                 raise PonteIndisponivel(erros[e.code])
             if e.code == 404:
@@ -198,6 +215,16 @@ class PonteWeb:
         except ValueError:
             raise PonteIndisponivel("O painel respondeu algo que não entendi.")
         return resposta if isinstance(resposta, dict) else {}
+
+    @classmethod
+    def _erro_do_corpo(cls, e) -> str:
+        """O texto de {"erro": ...} de uma recusa; "" se não der para ler."""
+        try:
+            obj = json.loads(cls._ler_com_prazo(e) or b"{}")
+        except Exception:
+            return ""
+        erro = obj.get("erro") if isinstance(obj, dict) else None
+        return erro if isinstance(erro, str) else ""
 
     @staticmethod
     def _ler_com_prazo(resposta) -> bytes:

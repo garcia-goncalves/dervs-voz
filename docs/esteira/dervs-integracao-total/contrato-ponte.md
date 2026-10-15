@@ -30,3 +30,10 @@ no painel web não substitui. O que o porteiro e os caminhos protegidos recusam 
 `pedido:false` = já existia. A tarefa nasce PENDENTE do "Pode fazer" do dono no painel e nunca roda sozinha.
 404 = alerta inexistente ou de outra conta; 403 = regra que a IA não conserta ou projeto bloqueado;
 429 = 10 pedidos por 15 min. Cliente: `PonteWeb.pedir_conserto`. Hoje só `memoria_crlf` e `env_drift` passam.
+
+## Recusa da máquina (painel desde 09/10, PRs #38/#39)
+
+Nas quatro rotas `/agente/voz/*`, o painel recusa por causa da MÁQUINA antes de qualquer outra regra:
+403 `{"erro":"este servidor so olha"}` (`tipo=servidor`) e 403 `{"erro":"este computador so mede"}`
+(computador ligado pelo `conectar-dervs.cmd`). O VOZ casa pelo texto exato (`RECUSA_DA_MAQUINA` em
+`dervs_ponte_web.py`) e diz ao dono o que fazer. Outro texto de 403 cai na frase genérica de token.

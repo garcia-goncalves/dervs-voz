@@ -36,6 +36,7 @@ class FalsoPainel:
         self.resposta_pedido = {"ok": True, "tarefa_id": "memoria_crlf:1:memoria_crlf:dervs",
                                 "pedido": True, "aviso": ""}
         self.status = 200
+        self.erro = "x"
         painel = self
 
         class H(BaseHTTPRequestHandler):
@@ -57,7 +58,7 @@ class FalsoPainel:
             def do_GET(self):
                 painel.tokens_vistos.append(self.headers.get("Authorization"))
                 if painel.status != 200:
-                    return self._responder(painel.status, {"erro": "x"})
+                    return self._responder(painel.status, {"erro": painel.erro})
                 if self.path == "/agente/voz/recados":
                     return self._responder(200, {"recados": painel.recados})
                 self._responder(404, {})
@@ -69,7 +70,7 @@ class FalsoPainel:
                 # (falhou assim, às vezes, na CI).
                 corpo = self._corpo()
                 if painel.status != 200:
-                    return self._responder(painel.status, {"erro": "x"})
+                    return self._responder(painel.status, {"erro": painel.erro})
                 if self.path == "/agente/voz/pedido":
                     painel.pedidos.append(corpo)
                     return self._responder(200, painel.resposta_pedido)
@@ -567,3 +568,28 @@ def test_alerta_id_invalido_nem_sai_do_computador(ponte, painel, ruim):
 def test_resposta_estranha_do_pedido_nao_levanta(ponte, painel):
     painel.resposta_pedido = {"ok": True, "tarefa_id": 5}
     assert not ponte.pedir_conserto("a:b")["ok"]
+
+
+# ------------------------------------------------------------------ máquina que só mede ou só olha
+# Corpos exatos do painel (servir.py, Hub._voz_maquina), sem acento de propósito.
+
+@pytest.mark.parametrize("erro,trecho", [("este computador so mede", "só para medir"),
+                                         ("este servidor so olha", "servidor só olha")])
+def test_403_de_maquina_que_so_mede_tem_frase_clara(ponte, painel, erro, trecho):
+    painel.status, painel.erro = 403, erro
+    r = ponte.ciclo()
+    assert not r["ok"] and trecho in r["motivo"] and r["calma"] is True
+    assert "pareie de novo" not in r["motivo"]
+
+
+@pytest.mark.parametrize("erro,trecho", [("este computador so mede", "só para medir"),
+                                         ("este servidor so olha", "servidor só olha")])
+def test_pedido_de_conserto_em_maquina_que_so_mede_nao_culpa_o_alerta(ponte, painel, erro, trecho):
+    painel.status, painel.erro = 403, erro
+    r = ponte.pedir_conserto("a:b")
+    assert not r["ok"] and trecho in r["motivo"] and "não conserta" not in r["motivo"]
+
+
+def test_403_com_outro_texto_mantem_a_frase_generica(ponte, painel):
+    painel.status, painel.erro = 403, "so servidor"
+    assert "token" in ponte.ciclo()["motivo"]
