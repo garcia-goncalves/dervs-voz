@@ -368,6 +368,7 @@ class Escuta(QtCore.QThread):
     conversar sem clicar em Gravar/Parar. Enquanto o DERVS fala ou trabalha,
     fica 'pausado' — para não escutar a própria voz nem atropelar."""
     fala = QtCore.pyqtSignal(str)
+    GANCHO_FALHAS_MAX = 20     # quadros seguidos com o gancho quebrado (0,6 s) = cai para o antigo
     # O microfone está aberto e entregando silêncio digital: ninguém vai
     # apertar nada para descobrir isso, então a escuta tem de gritar.
     mudo = QtCore.pyqtSignal()
@@ -385,6 +386,7 @@ class Escuta(QtCore.QThread):
         # conversa caiu) deixa o quadro seguir o caminho antigo.
         self.desvio = None
         self.gravacao = None
+        self.desvio_quebrou = None     # chamado (uma vez) quando o `desvio` quebra de vez
 
     def run(self):
         self._rodando = True
@@ -392,6 +394,7 @@ class Escuta(QtCore.QThread):
         vigia = VigiaDeSilencio()
         estava_pausado = False
         desviado = False
+        falhas_seguidas = 0
         while self._rodando:
             self._mic = Microfone()
             try:
@@ -424,9 +427,24 @@ class Escuta(QtCore.QThread):
                     if gancho is not None:
                         try:
                             tratado = bool(gancho(frame))
+                            falhas_seguidas = 0
                         except Exception as e:
                             sys.stderr.write("dervs: gancho da escuta falhou (%s)\n" % e)
                             tratado = False
+                            if gancho is self.desvio:
+                                # o quadro não pode ir para os DOIS caminhos: a conversa natural
+                                # ainda é dona do microfone até ela cair de vez
+                                tratado = True
+                                falhas_seguidas += 1
+                                if falhas_seguidas >= self.GANCHO_FALHAS_MAX:
+                                    falhas_seguidas = 0
+                                    self.desvio = None
+                                    tratado = False
+                                    if self.desvio_quebrou is not None:
+                                        try:
+                                            self.desvio_quebrou()
+                                        except Exception as e2:
+                                            sys.stderr.write("dervs: queda do gancho falhou (%s)\n" % e2)
                         if tratado:
                             if not desviado:
                                 ep.reset()  # nada de frase pela metade no caminho antigo
@@ -522,6 +540,9 @@ class PopUp(QtWidgets.QWidget):
         self._cn_bloqueada_ate = 0.0
         self._cn_pcm = None            # a frase que acordou, para virar a 1ª vez da conversa
         self._cn_arbitro = None
+        self._cn_frase = None          # texto da frase que acordou (refeita no antigo se a voz direta cair sem falar)
+        self._plano_grave = False      # o cartão aberto é de coisa grave: só o clique confirma
+        self._vozes_trava = threading.Lock()
         self._vozes = None
         self._cn_evento.connect(self._cn_tratar)
 
@@ -1079,8 +1100,13 @@ class PopUp(QtWidgets.QWidget):
         if self._cn is not None and pcm:
             # a voz direta acordou com esta frase: ela mesma é a 1ª vez da conversa
             self._diz("dono", texto)
+            self._cn_frase = texto
             self._cn.turno_gravado(pcm)
             return
+        if self._cn is not None:
+            # sem o áudio da frase a voz direta não a ouviu, e o caminho antigo vai atender: os
+            # dois juntos responderiam em dobro. Sai a voz direta, uma vez, com aviso.
+            self._cn._cair("sem áudio da frase")
         self.entrada.setPlainText(texto)
         self.executar()
 
@@ -1352,12 +1378,13 @@ class PopUp(QtWidgets.QWidget):
             self._cn = conversa_natural.criar_padrao(
                 conf, self._cn_executar, lambda t: emitir("aviso", t), arbitro=self._cn_arbitro,
                 ao_cair=lambda m: emitir("caiu", m), ao_turno=lambda: emitir("turno", None),
-                ao_feito=lambda: emitir("feito", None))
+                ao_feito=lambda: emitir("feito", None), ao_pedido=lambda t: emitir("pedido", t))
         except Exception as e:
             sys.stderr.write("dervs: conversa natural não montou (%s)\n" % type(e).__name__)
             self._cn = None
             return
         if self._cn.iniciar() and self._cn is not None and self.escuta is not None:
+            self.escuta.desvio_quebrou = lambda: emitir("quebrou", None)
             self.escuta.desvio = self._cn.quadro
 
     def _cn_executar(self, pedido, papel, confirmado):
@@ -1390,8 +1417,23 @@ class PopUp(QtWidgets.QWidget):
                 if self.voz.ligada and (self._cn is None or not self._cn.player.tocando()):
                     self.voz.falar(dado)
             elif tipo == "caiu":
+                # caiu antes de qualquer som ou ferramenta: a frase que acordou não foi atendida
+                refazer = (self._cn_frase if self._cn is not None
+                           and self._cn.frase_sem_resposta() else None)
+                self._cn_frase = None
                 self._cn_desligar()
                 self._cn_bloqueada_ate = time.time() + self.CN_PAUSA_APOS_QUEDA
+                if refazer:
+                    self.entrada.setPlainText(refazer)
+                    self.executar()
+            elif tipo == "quebrou":
+                if self._cn is not None:
+                    self._cn._cair("quadro")
+            elif tipo == "pedido":
+                # o texto EXATO que espera o seu sim, na tela: não a paráfrase do modelo
+                msg = "Esperando o seu sim para: %s" % dado
+                self._diz("dervs", msg, cor=GOLD)
+                self._toast(msg)
             elif tipo == "feito":
                 self._toast("feito ✓")
             elif tipo == "plano":
@@ -1425,12 +1467,13 @@ class PopUp(QtWidgets.QWidget):
 
     # ---- perfis de voz (API do painel) ----
     def _vozes_api(self):
-        if self._vozes is None:
-            import dervs_locutor
-            self._vozes = conversa_natural.Vozes(
-                dervs_locutor.Perfis(), conversa=lambda: self._cn, gravar_audio=self._gravar_voz,
-                conf=cfg.carregar())
-        return self._vozes
+        with self._vozes_trava:                  # painel e ponte chamam de threads diferentes
+            if self._vozes is None:
+                import dervs_locutor
+                self._vozes = conversa_natural.Vozes(
+                    dervs_locutor.Perfis(), conversa=lambda: self._cn,
+                    gravar_audio=self._gravar_voz, conf=cfg.carregar())
+            return self._vozes
 
     def vozes_listar(self):
         return self._vozes_api().listar()
@@ -1652,6 +1695,7 @@ class PopUp(QtWidgets.QWidget):
                 self._confirmar_plano()
             else:
                 self._plano_nivel_max = self._nivel_do_plano()
+                self._plano_grave = False
                 self._aguardando_ok = True          # só para o `confirmar_plano_ok` aceitar
                 self.confirmar_plano_ok(por_voz=False)
 
@@ -1662,6 +1706,7 @@ class PopUp(QtWidgets.QWidget):
             return
         self._aguardando_ok = True
         self._plano_nivel_max = self._nivel_do_plano()
+        self._plano_grave = plano_pede_confirmacao(self.plano, "grave")
         def _rotulo_passo(p):
             if p.get("tipo") == "navegador":
                 return "🌐 navegador: " + p.get("objetivo", "")
@@ -1700,7 +1745,7 @@ class PopUp(QtWidgets.QWidget):
         """
         if not self._aguardando_ok:
             return
-        if por_voz and self._plano_nivel_max != "reversivel":
+        if por_voz and (self._plano_nivel_max != "reversivel" or self._plano_grave):
             aviso = ("Esse plano mexe em coisa que não dá para desfazer sozinha. "
                      "Confirma no botão, por favor — por voz eu não faço.")
             self._diz("dervs", aviso, cor=GOLD)

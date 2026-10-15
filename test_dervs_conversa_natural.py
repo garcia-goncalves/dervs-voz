@@ -1221,3 +1221,137 @@ def test_perfil_de_antes_do_marcador_tambem_conta_como_ja_teve(tmp_path):
     assert L.Perfis(str(tmp_path / "vozes")).listar() != []
     perfis.apagar("André")
     assert L.Perfis(str(tmp_path / "vozes")).ja_teve_perfil() is True
+
+
+# ---- revisão de 15/10 dentro do app: queda sem resposta, gancho, plano grave -----------
+
+def test_app_queda_antes_de_qualquer_som_refaz_a_frase_que_acordou_no_caminho_antigo(
+        motor_app, monkeypatch):
+    cenas = _cn_do_app(monkeypatch, {"perfis": PerfisFalsos(perfis=())})
+    rodados = []
+    monkeypatch.setattr(motor_app, "executar", lambda: rodados.append(motor_app.entrada.toPlainText()))
+    motor_app._cn_pcm = quadro("dono") * 40
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    cenas[0].conv.cb(dc.Erro("rede", "sem rede"))          # o motor caiu antes de qualquer som
+    assert motor_app._cn is None and rodados == ["abre o Chrome"]
+
+
+def test_app_queda_depois_de_resposta_nao_repete_a_frase(motor_app, monkeypatch):
+    cenas = _cn_do_app(monkeypatch, {"perfis": PerfisFalsos(perfis=())})
+    rodados = []
+    monkeypatch.setattr(motor_app, "executar", lambda: rodados.append(1))
+    motor_app._cn_pcm = quadro("dono") * 40
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    cenas[0].responder()                                   # ele já respondeu algo
+    cenas[0].conv.cb(dc.Erro("rede", "caiu no meio"))
+    assert motor_app._cn is None and rodados == []
+
+
+def test_app_frase_que_acordou_sem_audio_legivel_cai_uma_vez_e_segue_no_antigo(
+        motor_app, monkeypatch):
+    cenas = _cn_do_app(monkeypatch)
+    rodados = []
+    monkeypatch.setattr(motor_app, "executar", lambda: rodados.append(motor_app.entrada.toPlainText()))
+    motor_app._cn_pcm = None                               # o .wav não deu para ler
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert rodados == ["abre o Chrome"]                    # o caminho antigo atende...
+    assert motor_app._cn is None and "encerrar" in cenas[0].conv.log     # ...e a voz direta saiu
+    falas = [a for nome, a in motor_app.ponte.chamadas if nome == "enviar_fala"]
+    assert any(cn.AVISO_CAIU in str(a) for a in falas)
+
+
+def test_app_pedido_pendente_aparece_com_o_texto_exato(motor_app, monkeypatch):
+    mostrados = []
+    monkeypatch.setattr(motor_app, "_toast", mostrados.append)
+    vistos = []
+    monkeypatch.setattr(motor_app, "_diz", lambda papel, texto, cor=None: vistos.append((papel, texto)))
+    motor_app._cn_tratar("pedido", "pede pro Codex apagar a pasta fotos")
+    assert any("pede pro Codex apagar a pasta fotos" in t for t in mostrados)
+    assert any("pede pro Codex apagar a pasta fotos" in t for _, t in vistos)
+
+
+def _passo(**kw):
+    return {"descricao": "x", "comando": "notepad", "risco": "reversivel", "toca_alvo": False, **kw}
+
+
+def test_app_cartao_grave_nao_aceita_ok_por_voz_no_caminho_antigo(motor_app, monkeypatch):
+    rodados = []
+    monkeypatch.setattr(motor_app, "_processar_passo", lambda: rodados.append(1))
+    motor_app.plano = [_passo(toca_alvo=True)]             # grave pelo cartão, "reversível" no nível
+    motor_app._cerebro_respondeu({"modo": "planejar", "fala": "", "passos": motor_app.plano})
+    assert motor_app._aguardando_ok is True
+    motor_app.confirmar_plano_ok(por_voz=True)
+    assert rodados == [] and motor_app._aguardando_ok is True      # só o clique vale
+    motor_app.confirmar_plano_ok(por_voz=False)
+    assert rodados == [1]
+
+
+def test_app_cartao_reversivel_continua_aceitando_ok_por_voz(motor_app, monkeypatch):
+    import dervs
+    rodados = []
+    monkeypatch.setattr(motor_app, "_processar_passo", lambda: rodados.append(1))
+    monkeypatch.setattr(dervs.cfg, "carregar", lambda: {"confirmar_plano": "sempre"})
+    motor_app._cerebro_respondeu({"modo": "planejar", "fala": "", "passos": [_passo()]})
+    assert motor_app._aguardando_ok is True
+    motor_app.confirmar_plano_ok(por_voz=True)
+    assert rodados == [1]
+
+
+def test_app_vozes_api_nasce_uma_vez_so_mesmo_com_threads_juntas(motor_app, monkeypatch):
+    import threading
+    import time as _time
+    criadas = []
+
+    def lenta(*a, **k):
+        _time.sleep(0.05)
+        criadas.append(1)
+        return object()
+    monkeypatch.setattr(cn, "Vozes", lenta)
+    motor_app._vozes = None
+    ths = [threading.Thread(target=motor_app._vozes_api) for _ in range(6)]
+    for t in ths:
+        t.start()
+    for t in ths:
+        t.join()
+    assert len(criadas) == 1
+
+
+def test_escuta_gancho_que_quebra_20_vezes_seguidas_aciona_a_queda(monkeypatch):
+    _qt()
+    import dervs
+    quadros = [quadro("dono")] * 60 + [quadro("sil")] * 60
+
+    class MicFalso:
+        def __init__(self):
+            self.i = 0
+
+        def abrir(self):
+            pass
+
+        def ler(self):
+            if self.i >= len(quadros):
+                escuta._rodando = False
+                return b""
+            self.i += 1
+            return quadros[self.i - 1]
+
+        def motivo_da_queda(self):
+            return ""
+
+        def fechar(self):
+            pass
+
+    monkeypatch.setattr(dervs, "Microfone", MicFalso)
+    monkeypatch.setattr(dervs, "salvar_wav", lambda pcm, caminho: None)
+    escuta = dervs.Escuta()
+    chamadas, quebrou, falas = [], [], []
+    escuta.fala.connect(falas.append)
+
+    def gancho(q):
+        chamadas.append(1)
+        raise RuntimeError("quadro quebrou")
+    escuta.desvio = gancho
+    escuta.desvio_quebrou = lambda: quebrou.append(1)
+    escuta.run()
+    assert len(chamadas) == dervs.Escuta.GANCHO_FALHAS_MAX and quebrou == [1]
+    assert escuta.desvio is None

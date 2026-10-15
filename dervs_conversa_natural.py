@@ -637,6 +637,7 @@ class ConversaNatural:
         self._entrada = []
         self._desde_ferramenta = False
         self._pendente = None
+        self._sem_resposta = False        # a frase gravada que acordou ainda sem resposta
 
     # ---- ciclo de vida ----
     def atualizar_trava(self):
@@ -760,6 +761,7 @@ class ConversaNatural:
         with self._trava_estado:
             if self.falhou or self.conversa is None:
                 return
+            self._sem_resposta = True
             self._inicio_fala(False, pre=False)
             for i in range(0, len(pcm) - QUADRO_BYTES + 1, QUADRO_BYTES):
                 self._acumular(pcm[i:i + QUADRO_BYTES])
@@ -951,7 +953,16 @@ class ConversaNatural:
         except Exception:
             log.exception("evento da conversa natural falhou")
 
+    def frase_sem_resposta(self) -> bool:
+        """A frase que acordou o DERVS (`turno_gravado`) ainda não teve som nem ferramenta de
+        volta? Se a conversa cair assim, quem usa refaz a frase no caminho antigo."""
+        with self._trava_estado:
+            return self._sem_resposta
+
     def _tratar_evento(self, ev):
+        if isinstance(ev, (dc.AudioSaida, dc.TextoSaida, dc.ChamadaFerramenta)):
+            with self._trava_estado:
+                self._sem_resposta = False
         if isinstance(ev, dc.AudioSaida):
             with self._trava_estado:
                 if self._descartar or self._mudo:
