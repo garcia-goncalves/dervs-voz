@@ -251,6 +251,19 @@ def test_criar_avisa_o_motivo_quando_o_modelo_nao_carrega(tmp_path, monkeypatch,
     assert "RuntimeError" in caplog.text
 
 
+@pytest.mark.parametrize("espera,silencio", [(0.5, 300), (2.0, 2000), (1.0, 800)])
+def test_config_espera_max_tem_de_passar_do_silencio_minimo_mais_300ms(espera, silencio):
+    """Teto de espera <= silêncio mínimo faria o árbitro fechar a vez sem nunca consultar o modelo."""
+    c = cfg._validar(dict(cfg.PADRAO, turno_espera_max_s=espera, turno_silencio_min_ms=silencio))
+    assert (c["turno_espera_max_s"], c["turno_silencio_min_ms"]) == (
+        cfg.PADRAO["turno_espera_max_s"], cfg.PADRAO["turno_silencio_min_ms"])
+
+
+def test_config_espera_max_coerente_e_mantida():
+    c = cfg._validar(dict(cfg.PADRAO, turno_espera_max_s=2.5, turno_silencio_min_ms=2000))
+    assert (c["turno_espera_max_s"], c["turno_silencio_min_ms"]) == (2.5, 2000)
+
+
 def test_config_padrao_do_turno():
     assert (cfg.PADRAO["turno_prob_fim"], cfg.PADRAO["turno_espera_max_s"],
             cfg.PADRAO["turno_silencio_min_ms"]) == (0.5, 3.0, 300)
