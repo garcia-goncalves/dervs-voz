@@ -480,9 +480,10 @@ def test_realtime_reamostra_16k_para_24k():
 def test_realtime_vez_e_eventos(gasto):
     m, ws, col, _ = openai()
     m.iniciar("x", [])
+    m.enviar_audio(PCM * 3)                                  # 300 ms: acima do mínimo de 100 ms
     m.fim_da_vez()
-    esperar_ate(lambda: len(ws.enviados) >= 3)
-    assert ws.tipos()[1:3] == ["input_audio_buffer.commit", "response.create"]
+    esperar_ate(lambda: "response.create" in ws.tipos())
+    assert ws.tipos()[2:4] == ["input_audio_buffer.commit", "response.create"]
     pcm = b"\x05\x00" * 240
     ws.servidor({"type": "response.output_audio.delta", "item_id": "it1",
                  "delta": base64.b64encode(pcm).decode()})
@@ -544,6 +545,67 @@ def test_realtime_erro_do_servidor(codigo, tipo):
                                             "message": "texto bruto " + CHAVE}})
     e = col.esperar(dc.Erro)[0]
     assert e.tipo == tipo and CHAVE not in e.msg
+
+
+OPENAI_ERRO = lambda codigo: {"type": "error", "error": {"code": codigo, "type": "invalid_request_error",
+                                                          "message": "texto bruto"}}
+
+
+@pytest.mark.parametrize("codigo", ["response_cancel_not_active", "input_audio_buffer_commit_empty"])
+def test_realtime_erro_recuperavel_nao_mata_o_motor(codigo):
+    m, ws, col, _ = openai()
+    m.iniciar("x", [])
+    ws.servidor(OPENAI_ERRO(codigo))
+    ws.servidor({"type": "conversation.item.input_audio_transcription.completed", "transcript": "oi"})
+    assert col.esperar(dc.TextoEntrada)[0].texto == "oi"       # o leitor seguiu vivo
+    assert not col.de(dc.Erro) and not m._encerrado
+    m.encerrar()
+
+
+def test_realtime_audio_curto_nao_faz_commit_nem_resposta():
+    m, ws, col, _ = openai()
+    m.iniciar("x", [])
+    m.enviar_audio(PCM[:1600])                                # 50 ms (PCM tem 100 ms)
+    m.fim_da_vez()
+    col.esperar(dc.FimResposta)                               # fecha a vez sem falar com o servidor
+    esperar_ate(lambda: "input_audio_buffer.append" in ws.tipos())
+    assert "input_audio_buffer.commit" not in ws.tipos() and "response.create" not in ws.tipos()
+    m.encerrar()
+
+
+def test_realtime_interromper_sem_resposta_ativa_nao_manda_cancel():
+    m, ws, col, _ = openai()
+    m.iniciar("x", [])
+    m.enviar_audio(PCM)
+    m.interromper()
+    esperar_ate(lambda: "input_audio_buffer.clear" in ws.tipos())
+    assert "response.cancel" not in ws.tipos()
+    m.encerrar()
+
+
+def test_realtime_depois_do_response_done_nao_ha_mais_resposta_ativa():
+    m, ws, col, _ = openai()
+    m.iniciar("x", [])
+    ws.servidor({"type": "response.created", "response": {}})
+    ws.servidor({"type": "response.done", "response": {"status": "completed"}})
+    col.esperar(dc.FimResposta)
+    m.interromper()
+    esperar_ate(lambda: "input_audio_buffer.clear" in ws.tipos())
+    assert "response.cancel" not in ws.tipos()
+    m.encerrar()
+
+
+def test_realtime_falha_ao_abrir_fecha_o_ws():
+    class WsQuebrado(FakeWS):
+        def send(self, texto):
+            raise ConnectionResetError("caiu")
+
+    ws = WsQuebrado()
+    col = Coletor()
+    m = dc.MotorOpenAIRealtime(col, dict(CONF), chave=CHAVE, transporte=Transporte(ws))
+    m.iniciar("x", [])
+    assert col.esperar(dc.Erro)[0].tipo == "rede"
+    assert ws.fechado
 
 
 # --- Cascata (servidor HTTP local) -------------------------------------------------

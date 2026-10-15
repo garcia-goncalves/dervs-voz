@@ -64,6 +64,7 @@ USD_REALTIME_CACHE = 0.30 / 1_000_000
 USD_GROQ_POR_HORA = 0.04
 MOTORES_PAGOS = ("cascata", "openai_realtime")
 TURNOS_DE_CONTEXTO = 6
+MIN_COMMIT_MS = 100          # o Realtime recusa commit de menos de 100 ms de áudio
 
 MENSAGENS = {
     "limite": "O limite de uso do serviço de voz acabou.",
@@ -650,6 +651,8 @@ class MotorOpenAIRealtime(_MotorWS):
         self._item_atual = None
         self._ms_enviados = 0
         self._ignorar_audio = False
+        self._resposta_ativa = False         # só então response.cancel faz sentido
+        self._ms_buffer = 0.0                # áudio no buffer de entrada; commit exige >= 100 ms
 
     def _nome_chave(self):
         return "OPENAI_API_KEY"
@@ -675,13 +678,18 @@ class MotorOpenAIRealtime(_MotorWS):
         if self._ferramentas:
             sessao["tools"] = [dict(f, type="function") for f in self._ferramentas]
             sessao["tool_choice"] = "auto"
-        ws.send(json.dumps({"type": "session.update", "session": sessao}))
-        for papel, texto in self._contexto:
-            tipo = "input_text" if papel == "user" else "output_text"
-            ws.send(json.dumps({"type": "conversation.item.create", "item": {
-                "type": "message", "role": "user" if papel == "user" else "assistant",
-                "content": [{"type": tipo, "text": texto}]}}))
+        try:
+            ws.send(json.dumps({"type": "session.update", "session": sessao}))
+            for papel, texto in self._contexto:
+                tipo = "input_text" if papel == "user" else "output_text"
+                ws.send(json.dumps({"type": "conversation.item.create", "item": {
+                    "type": "message", "role": "user" if papel == "user" else "assistant",
+                    "content": [{"type": tipo, "text": texto}]}}))
+        except Exception as exc:
+            self._fechar_ws(ws)                  # não deixa o socket aberto sem dono
+            raise ErroTransporte(classificar_excecao(exc)) from None
         self._contexto = []
+        self._pronto(ws)
         return ws
 
     def enviar_audio(self, pcm):
@@ -690,18 +698,29 @@ class MotorOpenAIRealtime(_MotorWS):
         self._enfileirar({"type": "input_audio_buffer.append",
                           "audio": base64.b64encode(reamostrar_16k_para_24k(pcm)).decode()},
                          audio=True)
+        with self._trava:
+            self._ms_buffer += len(pcm) / 32.0
         self.uso["seg_in"] += len(pcm) / 32000.0
 
     def fim_da_vez(self):
-        self._ignorar_audio = False
-        self._enfileirar({"type": "input_audio_buffer.commit"})
-        self._enfileirar({"type": "response.create"})
+        with self._trava:
+            self._ignorar_audio = False
+            curto = self._ms_buffer < MIN_COMMIT_MS
+            self._ms_buffer = 0.0
+            if not curto:
+                self._resposta_ativa = True      # a resposta já foi pedida; cancel passa a valer
+                self._enfileirar({"type": "input_audio_buffer.commit"})
+                self._enfileirar({"type": "response.create"})
+        if curto:                                # o servidor recusa commit de < 100 ms: nada a responder
+            self._emitir(FimResposta())
 
     def interromper(self):
         with self._trava:
             self._fila.purgar_audio()
             self._ignorar_audio = True
-            self._enfileirar({"type": "response.cancel"})
+            self._ms_buffer = 0.0                # o clear abaixo esvazia o buffer do servidor
+            if self._resposta_ativa:
+                self._enfileirar({"type": "response.cancel"})
             if self._item_atual:
                 self._enfileirar({"type": "conversation.item.truncate",
                                   "item_id": self._item_atual, "content_index": 0,
@@ -709,6 +728,8 @@ class MotorOpenAIRealtime(_MotorWS):
             self._enfileirar({"type": "input_audio_buffer.clear"})
 
     def responder_ferramenta(self, id_, resultado):
+        with self._trava:
+            self._resposta_ativa = True
         self._enfileirar({"type": "conversation.item.create", "item": {
             "type": "function_call_output", "call_id": id_,
             "output": json.dumps(resultado, ensure_ascii=False)}})
@@ -718,10 +739,17 @@ class MotorOpenAIRealtime(_MotorWS):
         tipo = ev.get("type", "")
         if tipo == "error":
             e = ev.get("error") or {}
-            achado = classificar_texto("%s %s" % (e.get("code", ""), e.get("type", "")))
+            codigo = str(e.get("code") or "")
+            if codigo.endswith(("_not_active", "_empty")):
+                log.debug("erro recuperável do servidor: %s", codigo[:60])    # cancel/commit sem o que cancelar
+                return
+            achado = classificar_texto("%s %s" % (codigo, e.get("type", "")))
             raise ErroTransporte(achado or "outro")
+        if tipo == "response.created":
+            self._resposta_ativa = True
         if tipo in ("response.output_audio.delta", "response.audio.delta"):
             self._item_atual = ev.get("item_id") or self._item_atual
+            self._resposta_ativa = True
             if self._ignorar_audio:
                 return
             pcm = base64.b64decode(ev.get("delta", ""))
@@ -746,6 +774,7 @@ class MotorOpenAIRealtime(_MotorWS):
             resp = ev.get("response") or {}
             self._registrar_uso(resp.get("usage"))
             self._item_atual, self._ms_enviados = None, 0
+            self._resposta_ativa = False
             if resp.get("status") != "cancelled":
                 self._emitir(FimResposta())
 
