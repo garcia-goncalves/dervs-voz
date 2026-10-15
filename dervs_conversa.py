@@ -1193,12 +1193,14 @@ class Conversa:
         motor.iniciar(self._instrucoes, self._ferramentas, contexto)
 
     def _evento(self, motor, ev):
+        a_fechar = None                                  # motor velho: fecha FORA da trava
+        repassar = True
         with self._trava:
             if motor is not self._motor:
                 return                                  # evento de motor já trocado
-            if isinstance(ev, Erro) and ev.tipo in ("limite", "rede", "chave"):
-                if self._trocar(ev.tipo):
-                    return
+            if isinstance(ev, Erro) and ev.tipo in ("limite", "rede", "chave", "outro"):
+                trocou, a_fechar = self._trocar(ev.tipo)
+                repassar = not trocou
             elif isinstance(ev, TextoSaida):
                 self._fala.append(ev.texto)
                 self._respondendo = True
@@ -1213,9 +1215,22 @@ class Conversa:
                 self._vez_fechada = False
                 if self._nome in MOTORES_PAGOS and not self._pode_gastar()[0]:
                     self._emitir(ev)
-                    self._trocar("gasto")
-                    return
-        self._emitir(ev)
+                    repassar = False
+                    trocou, a_fechar = self._trocar("gasto")
+                    if not trocou:                      # teto estourado e ninguém para assumir
+                        self._motor, a_fechar = None, motor
+                        self._emitir(Erro("limite", MENSAGENS["limite"]))
+        self._encerrar_motor(a_fechar)
+        if repassar:
+            self._emitir(ev)
+
+    @staticmethod
+    def _encerrar_motor(motor):
+        if motor is not None:
+            try:
+                motor.encerrar()
+            except Exception:
+                pass
 
     def _fechar_fala(self):
         if self._entrada:
@@ -1225,24 +1240,21 @@ class Conversa:
         self._entrada, self._fala = [], []
 
     def _trocar(self, motivo):
-        """True se passou para outro motor."""
+        """(passou para outro motor?, motor velho a encerrar). Chamar com a trava; o `encerrar()`
+        do velho espera o ws.close() (até 3 s) e fica a cargo de quem chama, já sem a trava."""
         antigo, nome_antigo = self._motor, self._nome
         self._falhos.add(nome_antigo)
         proximo = self._proximo()
         if proximo is None:
-            return False
+            return False, None
         self._fechar_fala()
-        try:
-            antigo.encerrar()
-        except Exception:
-            pass
         self._emitir(Troca(nome_antigo, proximo, motivo))
         self._subir(proximo, list(self._historico))
         if self._audio_turno and not self._respondendo:        # refaz o turno em andamento
             self._motor.enviar_audio(bytes(self._audio_turno))
             if self._vez_fechada:
                 self._motor.fim_da_vez()
-        return True
+        return True, antigo
 
     # contrato (delegado)
     def enviar_audio(self, pcm):

@@ -896,11 +896,48 @@ def test_conversa_ultimo_motor_falhando_repassa_o_erro():
     assert col.de(dc.Erro)[0].tipo == "rede"
 
 
-def test_conversa_erro_outro_nao_troca():
+def test_conversa_erro_outro_tambem_troca_de_motor():
+    """Motor com erro inesperado fica morto: manter ele engole o áudio em silêncio."""
     c, col, log, mot = conversa()
     c.iniciar("i", [])
     mot["gemini_live"]._callback(dc.Erro("outro", "z"))
-    assert c.motor_ativo == "gemini_live" and col.de(dc.Erro)[0].tipo == "outro"
+    assert c.motor_ativo == "cascata" and not col.de(dc.Erro)
+    assert col.de(dc.Troca)[0].motivo == "outro" and ("gemini_live", "encerrar") in log
+
+
+def test_conversa_erro_outro_sem_sucessor_avisa_quem_chama():
+    c, col, log, mot = conversa(ordem=("gemini_live",))
+    c.iniciar("i", [])
+    mot["gemini_live"]._callback(dc.Erro("outro", "z"))
+    assert col.de(dc.Erro)[0].tipo == "outro"
+
+
+def test_conversa_teto_estourado_sem_sucessor_encerra_o_pago_e_avisa():
+    estado = {"ok": True}
+    c, col, log, mot = conversa(ordem=("cascata",), pode=lambda: (estado["ok"], ""))
+    c.iniciar("i", [])
+    estado["ok"] = False
+    mot["cascata"]._callback(dc.FimResposta())
+    assert ("cascata", "encerrar") in log
+    assert col.de(dc.Erro)[0].tipo == "limite" and col.de(dc.FimResposta)
+    c.enviar_audio(PCM)                                    # nada mais vai para o motor pago
+    assert ("cascata", "audio", len(PCM)) not in log
+
+
+def test_conversa_troca_nao_segura_a_trava_enquanto_fecha_o_motor_velho():
+    c, col, log, mot = conversa()
+    c.iniciar("i", [])
+    entrou, solta = threading.Event(), threading.Event()
+    mot["gemini_live"].encerrar = lambda: (entrou.set(), solta.wait(5))
+    t = threading.Thread(target=lambda: mot["gemini_live"]._callback(dc.Erro("limite", "x")))
+    t.start()
+    assert entrou.wait(5)
+    livre = threading.Event()
+    threading.Thread(target=lambda: (c.enviar_audio(PCM), livre.set())).start()
+    assert livre.wait(2), "enviar_audio ficou preso esperando o ws.close() do motor velho"
+    solta.set()
+    t.join(5)
+    assert c.motor_ativo == "cascata"
 
 
 def test_conversa_ignora_evento_de_motor_antigo():
