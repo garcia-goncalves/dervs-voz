@@ -1,0 +1,699 @@
+"""Testes da conversa natural (dervs_conversa_natural), com dublês e relógio simulado.
+
+O relógio é o próprio microfone: cada quadro são 30 ms. A "voz" de cada pessoa é um tom
+com amplitude própria, e o `quem_fala` falso reconhece a pessoa pela amplitude — assim
+dá para conferir, byte a byte, o que chegou ao motor (o que iria para a nuvem).
+Nada aqui abre microfone, caixa de som ou rede.
+"""
+import numpy as np
+import pytest
+
+import dervs_conversa as dc
+import dervs_conversa_natural as cn
+import dervs_locutor as L
+import dervs_turno as dt
+
+Q = cn.QUADRO_S
+AMP = {"dono": 3000, "visita": 6000, "filha": 9000}
+
+
+def quadro(quem):
+    if quem == "sil":
+        return bytes(cn.QUADRO_BYTES)
+    t = np.arange(480) / 16000
+    return (AMP[quem] * np.sin(2 * np.pi * 220 * t)).astype(np.int16).tobytes()
+
+
+class ArbitroFalso:
+    """Fala por energia; a vez só fecha nos instantes gravados (`fins`, em segundos) ou depois
+    de `fim` quadros de silêncio. Replica as decisões do árbitro real nos casos de 15/10."""
+
+    def __init__(self, fins=(), fim=None):
+        self.fins = sorted(fins)
+        self.fim = fim
+        self.n = 0
+        self.em_fala = False
+        self.cand = self.sil = 0
+        self.limiar_fala = 0.5
+
+    def reset(self):
+        self.em_fala = False
+        self.cand = self.sil = 0
+
+    def processar(self, q):
+        self.n += 1
+        voz = cn._rms(q) >= cn.LIMIAR_VOZ
+        if not self.em_fala:
+            self.cand = self.cand + 1 if voz else 0
+            if self.cand >= 3:
+                self.em_fala, self.sil = True, 0
+                return [dt.InicioFala(self.n * Q)]
+            return []
+        self.sil = 0 if voz else self.sil + 1
+        t = self.n * Q
+        if (self.fins and t >= self.fins[0] - 1e-9) or (self.fim and self.sil >= self.fim):
+            while self.fins and t >= self.fins[0] - 1e-9:
+                self.fins.pop(0)
+            self.em_fala, self.cand = False, 0
+            return [dt.FimDeVez(t, b"")]
+        return []
+
+
+class PerfisFalsos:
+    def __init__(self, perfis=(("André", "dono"),), ativos=None, disponivel=True, explode=False):
+        self.lista = [L.Perfil(n, n.lower(), p, True if ativos is None else n in ativos)
+                      for n, p in perfis]
+        self._disp = disponivel
+        self.explode = explode
+        self.chamadas = 0
+
+    def listar(self):
+        return list(self.lista)
+
+    def disponivel(self):
+        return self._disp
+
+    def quem_fala(self, audio):
+        self.chamadas += 1
+        if self.explode:
+            raise RuntimeError("modelo quebrou")
+        rms = float(np.sqrt(np.mean(np.square(audio)))) * 32768
+        papel = "dono" if rms < 3000 else ("visita" if rms < 5000 else "filha")
+        for p in self.lista:
+            if p.ativo and (p.papel == papel or (papel == "filha" and p.papel == "convidado")):
+                return p, 0.9
+        return None, 0.1
+
+
+class PlayerFalso:
+    def __init__(self):
+        self.log = []
+        self._tocando = False
+        self.relogio = lambda: 0.0
+
+    def tocar(self, pcm, taxa=24000):
+        self.log.append(("tocar", round(self.relogio(), 2), len(pcm)))
+        self._tocando = True
+
+    def abaixar(self, frac=0.3):
+        self.log.append(("abaixar", round(self.relogio(), 2), frac))
+
+    def restaurar(self):
+        self.log.append(("restaurar", round(self.relogio(), 2)))
+
+    def parar(self):
+        self.log.append(("parar", round(self.relogio(), 2)))
+        self._tocando = False
+
+    def acabou(self):
+        self._tocando = False
+
+    def tocando(self):
+        return self._tocando
+
+    def primeiro(self, tipo):
+        return next((e for e in self.log if e[0] == tipo), None)
+
+
+class ConversaFalsa:
+    """Motor dublê: responde `atraso` segundos depois do fim da vez (relógio dos quadros)."""
+
+    def __init__(self, cb, atraso=0.8):
+        self.cb = cb
+        self.atraso = atraso
+        self.log = []
+        self.audio = bytearray()
+        self.respostas = []
+        self.agendada = None
+        self.motor_ativo = "gemini_live"
+
+    def iniciar(self, instrucoes, ferramentas):
+        self.instrucoes, self.ferramentas = instrucoes, ferramentas
+
+    def enviar_audio(self, pcm):
+        self.audio += pcm
+        self.log.append("audio")
+
+    def fim_da_vez(self):
+        self.log.append("fim")
+        self.agendada = self.agora() + self.atraso
+
+    def interromper(self):
+        self.log.append("interromper")
+        self.agendada = None
+
+    def responder_ferramenta(self, id_, resultado):
+        self.respostas.append((id_, resultado))
+
+    def encerrar(self):
+        self.log.append("encerrar")
+
+
+class Cena:
+    def __init__(self, perfis=None, fins=(), fim=None, atraso=0.8, executar=None, segurar_s=None,
+                 conf=None):
+        self.player = PlayerFalso()
+        self.avisos, self.caidas, self.feitos, self.acoes = [], [], [], []
+        self.perfis = PerfisFalsos() if perfis is None else perfis
+        self.conv = None
+
+        def fabrica(cb):
+            self.conv = ConversaFalsa(cb, atraso)
+            self.conv.agora = lambda: self.cn._t
+            return self.conv
+
+        def executar_padrao(pedido, papel, confirmado):
+            self.acoes.append((pedido, papel, confirmado))
+            return {"tipo": "facil"}
+
+        self.cn = cn.ConversaNatural(
+            conf or {}, self.player, self.perfis, ArbitroFalso(fins, fim), fabrica,
+            executar or executar_padrao, self.avisos.append, ao_cair=self.caidas.append,
+            ao_feito=lambda: self.feitos.append(self.cn._t), em_fundo=lambda f: f(),
+            relogio=lambda: self.cn._t, sinal=b"\x01\x00" * 100,
+            **({"segurar_s": segurar_s} if segurar_s is not None else {}))
+        self.player.relogio = lambda: self.cn._t
+        assert self.cn.iniciar()
+
+    def responder(self, pcm=b"\x00\x10" * 2400):
+        self.conv.cb(dc.AudioSaida(pcm, 24000))
+
+    def falar(self, roteiro):
+        """roteiro: [(quem, segundos)]. Entrega os quadros e as respostas agendadas do motor."""
+        for quem, seg in roteiro:
+            for _ in range(int(round(seg / Q))):
+                self.cn.quadro(quadro(quem))
+                if self.conv.agendada is not None and self.cn._t >= self.conv.agendada - 1e-9:
+                    self.conv.agendada = None
+                    self.responder()
+
+    def enviado(self):
+        return np.frombuffer(bytes(self.conv.audio), np.int16)
+
+
+# ---- sem perfis: como hoje, com aviso ------------------------------------------------
+
+def test_sem_perfis_tudo_vai_ao_motor_e_o_painel_pede_para_gravar_a_voz():
+    c = Cena(perfis=PerfisFalsos(perfis=()), fim=10)
+    c.falar([("sil", 0.3), ("visita", 1.0), ("sil", 0.6)])
+    assert c.conv.log.count("fim") == 1
+    assert np.abs(c.enviado()).max() > 5000
+    e = c.cn.estado()
+    assert e["locutor_ativo"] is False and e["locutor_aviso"] == "grave sua voz"
+    assert e["motor_ativo"] == "gemini_live"
+
+
+def test_sem_perfis_nao_ha_interrupcao_microfone_surdo_enquanto_ele_fala():
+    c = Cena(perfis=PerfisFalsos(perfis=()), fim=10)
+    c.player.tocar(b"\x00\x01" * 100)
+    c.falar([("dono", 2.0), ("sil", 0.6)])
+    assert "interromper" not in c.conv.log and len(c.conv.audio) == 0
+    assert c.player.primeiro("abaixar") is None
+
+
+# ---- trava de voz: outras pessoas -----------------------------------------------
+
+def test_voz_nao_cadastrada_nunca_vira_pedido_nem_sai_do_pc():
+    c = Cena(fim=10)
+    c.falar([("sil", 0.3), ("visita", 3.0), ("sil", 0.6)])
+    assert len(c.conv.audio) == 0 and "fim" not in c.conv.log
+    assert c.perfis.chamadas >= 2
+
+
+def test_perfil_inativo_e_tratado_como_outra_pessoa():
+    c = Cena(perfis=PerfisFalsos(perfis=(("André", "dono"), ("Lia", "convidado")),
+                                 ativos={"André"}), fim=10)
+    c.falar([("sil", 0.3), ("filha", 2.0), ("sil", 0.6)])
+    assert len(c.conv.audio) == 0 and "fim" not in c.conv.log
+
+
+def test_o_audio_do_dono_so_sai_depois_de_confirmado_e_inteiro_desde_o_comeco():
+    c = Cena(fim=10)
+    c.cn.quadro(quadro("sil"))
+    for _ in range(40):                                 # 1,2 s de fala: ainda não deu a janela
+        c.cn.quadro(quadro("dono"))
+    assert len(c.conv.audio) == 0                       # nada sai antes de confirmar
+    c.falar([("dono", 0.6), ("sil", 0.6)])
+    enviado = c.enviado()
+    assert len(enviado) >= int(1.8 * 16000)             # do começo (com o pre-roll), sem perder
+    assert c.conv.log[-1] == "fim"
+
+
+def test_janela_de_outra_pessoa_no_meio_do_turno_vira_silencio():
+    c = Cena(fim=10)
+    c.falar([("sil", 0.3), ("dono", 1.5), ("visita", 1.5), ("dono", 1.5), ("sil", 0.6)])
+    enviado = c.enviado()
+    assert np.abs(enviado).max() <= AMP["dono"]          # nenhuma amostra da visita saiu
+    zeros = np.sum(enviado == 0)
+    assert zeros >= int(1.4 * 16000)                     # a janela dela virou silêncio
+    assert c.conv.log.count("fim") == 1
+
+
+def test_frase_curta_do_dono_e_conferida_no_fim_e_vai():
+    c = Cena(fim=10)
+    c.falar([("sil", 0.3), ("dono", 0.9), ("sil", 0.6)])
+    assert len(c.conv.audio) > 0 and c.conv.log[-1] == "fim"
+
+
+# ---- fail-closed ------------------------------------------------------------------
+
+@pytest.mark.parametrize("perfis, aviso", [
+    (PerfisFalsos(disponivel=False), cn.AVISO_TRAVA),          # sem modelo / hash errado
+    (PerfisFalsos(ativos=set()), cn.AVISO_SEM_ATIVO),           # nenhum perfil ativo
+    (PerfisFalsos(explode=True), cn.AVISO_TRAVA),               # erro no quem_fala
+])
+def test_com_perfil_gravado_a_trava_fecha_e_avisa(perfis, aviso):
+    c = Cena(perfis=perfis, fim=10)
+    c.falar([("sil", 0.3), ("dono", 3.0), ("sil", 0.6), ("dono", 2.0), ("sil", 0.6)])
+    assert len(c.conv.audio) == 0 and "fim" not in c.conv.log
+    assert c.avisos == [aviso]                                  # avisa uma vez só
+    assert c.cn.estado()["locutor_ativo"] is True
+
+
+def test_erro_ao_listar_perfis_tambem_fecha():
+    class Quebrado(PerfisFalsos):
+        def listar(self):
+            raise OSError("disco")
+    c = Cena(perfis=Quebrado(), fim=10)
+    c.falar([("sil", 0.3), ("dono", 2.0), ("sil", 0.6)])
+    assert c.cn.trava == "ligada" and len(c.conv.audio) == 0
+
+
+# ---- pausa para pensar: nenhum som antes do fim real ----------------------------------
+# Decisões do árbitro REAL nos clipes de 15/10 (`scripts/medir_turno.py`): a vez fecha
+# 0,34-0,64 s depois do fim; no "gagueja" ele fecha 0,33 s depois de "uma pasta nova" e a
+# pessoa retoma 1,2 s depois da pausa começar.
+
+CASOS = {
+    "completa": ([("dono", 2.2)], [2.2 + 0.36]),
+    "hesita_1,5s": ([("dono", 1.6), ("sil", 1.5), ("dono", 0.8), ("sil", 1.0), ("dono", 1.6)],
+                    [6.5 + 0.34]),
+    "hesita_2,5s": ([("dono", 1.8), ("sil", 2.5), ("dono", 1.6)], [5.9 + 0.64]),
+    "gagueja": ([("dono", 3.3), ("sil", 1.2), ("dono", 2.0)], [3.3 + 0.33, 6.5 + 0.38]),
+}
+
+
+@pytest.mark.parametrize("caso", list(CASOS))
+def test_nenhum_som_antes_do_fim_real_da_fala(caso):
+    roteiro, fins = CASOS[caso]
+    c = Cena(fins=[f + 0.3 for f in fins])              # + 0,3 s de silêncio inicial
+    c.falar([("sil", 0.3)] + roteiro + [("sil", 3.0)])
+    fim_real = 0.3 + sum(s for _, s in roteiro)
+    sons = [e for e in c.player.log if e[0] == "tocar"]
+    assert sons, "ele tem de responder"
+    assert sons[0][1] >= fim_real                       # nada antes do fim de verdade
+    assert sons[0][1] - fim_real <= 1.5
+
+
+def test_gagueira_retomada_descarta_a_resposta_calado_e_segue_o_mesmo_pedido():
+    roteiro, fins = CASOS["gagueja"]
+    c = Cena(fins=[f + 0.3 for f in fins])
+    c.falar([("sil", 0.3)] + roteiro + [("sil", 3.0)])
+    assert c.conv.log.count("fim") == 2 and c.conv.log.count("interromper") == 1
+    assert c.conv.log.index("interromper") < len(c.conv.log) - 1
+    assert len([e for e in c.player.log if e[0] == "tocar"]) == 1
+
+
+# ---- interrupção ----------------------------------------------------------------
+
+def _tocando_resposta(c):
+    c.falar([("sil", 0.3), ("dono", 2.0), ("sil", 2.0)])
+    assert c.player.tocando()
+    return c.cn._t
+
+
+def test_dono_por_cima_abaixa_em_ate_0_3s_e_para_em_ate_0_9s():
+    c = Cena(fim=10)
+    inicio = _tocando_resposta(c)
+    n_fim = c.conv.log.count("fim")
+    c.falar([("dono", 1.5), ("sil", 0.6)])
+    abaixou = [e for e in c.player.log if e[0] == "abaixar" and e[1] > inicio][0]
+    parou = [e for e in c.player.log if e[0] == "parar" and e[1] > inicio][0]
+    assert abaixou[1] - inicio <= 0.3 and abaixou[2] == cn.ABAIXAR
+    assert parou[1] - inicio <= 0.9
+    # interrompe ANTES de mandar a fala nova, e a fala nova vira a próxima vez
+    log = c.conv.log
+    i = log.index("interromper")
+    assert "audio" in log[i:] and log.count("fim") == n_fim + 1
+
+
+def test_outra_pessoa_por_cima_so_abaixa_e_o_volume_volta():
+    c = Cena(fim=10)
+    inicio = _tocando_resposta(c)
+    audio_antes = len(c.conv.audio)
+    c.falar([("visita", 2.0), ("sil", 0.6)])
+    assert "interromper" not in c.conv.log
+    assert not [e for e in c.player.log if e[0] == "parar"]
+    voltou = [e for e in c.player.log if e[0] == "restaurar" and e[1] > inicio][0]
+    assert voltou[1] - inicio <= cn.ESPERA_CONFIRMAR_S + 0.15     # contado do começo da fala
+    assert len(c.conv.audio) == audio_antes            # nada da visita foi enviado
+
+
+def test_fala_curta_de_outra_pessoa_que_acaba_restaura_o_volume():
+    c = Cena(fim=10)
+    _tocando_resposta(c)
+    c.falar([("visita", 0.4), ("sil", 0.4)])
+    assert c.player.log[-1][0] == "restaurar"
+
+
+# ---- ferramentas: fácil, dúvida, grave, convidado -----------------------------------
+
+def _chamar(c, nome, args, id_="1"):
+    c.conv.cb(dc.ChamadaFerramenta(id_, nome, args))
+    return c.conv.respostas[-1][1]
+
+
+def _turno_do(c, quem="dono"):
+    c.falar([("sil", 0.3), (quem, 2.0), ("sil", 0.6)])
+
+
+def test_facil_faz_calado_toca_o_sinal_e_corta_o_que_ele_falaria():
+    c = Cena(fim=10, atraso=99)
+    _turno_do(c)
+    r = _chamar(c, "abrir_app", {"nome": "Chrome"})
+    assert r == {"ok": True, "silencioso": True}
+    assert c.acoes == [("abre o Chrome", "dono", False)]
+    assert c.feitos and c.player.log[-1][0] == "tocar"     # o sinal
+    n = len(c.player.log)
+    c.responder()                                          # "Pronto, abri o Chrome!"
+    assert len(c.player.log) == n                          # não tocou
+    c.conv.cb(dc.FimResposta())
+    assert c.cn._mudo is False
+
+
+@pytest.mark.parametrize("args", [{"pedido": "apaga aquilo", "clareza": "duvida"}])
+def test_duvida_nao_faz_nada_e_manda_perguntar(args):
+    c = Cena(fim=10, atraso=99)
+    _turno_do(c)
+    r = _chamar(c, "fazer", args)
+    assert r["ok"] is False and "Pergunte" in r["diga"] and c.acoes == []
+
+
+@pytest.mark.parametrize("nome, args", [
+    ("rodar_powershell", {"comando": "rm -rf C:/"}),         # fora da lista
+    ("fazer", "abre o chrome"),                              # args não é dict
+    ("fazer", {"pedido": "abre", "clareza": "clara", "papel": "dono"}),   # campo a mais
+    ("volume", {"nivel": 500}),
+    ("volume", {"nivel": True}),
+    ("abrir_app", {"nome": ""}),
+    ("confirmar", {"resposta": "talvez"}),
+])
+def test_ferramenta_fora_da_lista_ou_com_args_invalidos_e_descartada(nome, args):
+    c = Cena(fim=10, atraso=99)
+    _turno_do(c)
+    r = _chamar(c, nome, args)
+    assert r["ok"] is False and c.acoes == []
+
+
+def test_clara_nao_autoriza_sozinha_o_que_a_politica_manda_confirmar():
+    def executar(pedido, papel, confirmado):
+        return {"tipo": "confirmar", "fala": "Quer que eu peça ao Claude Code?"}
+    c = Cena(fim=10, atraso=99, executar=executar)
+    _turno_do(c)
+    r = _chamar(c, "fazer", {"pedido": "pede pro Claude revisar o projeto", "clareza": "clara"})
+    assert r["precisa_confirmacao"] is True and r["feito"] is False
+
+
+def test_pedido_gerado_por_resultado_de_ferramenta_sempre_pede_confirmacao():
+    c = Cena(fim=10, atraso=99)
+    _turno_do(c)
+    _chamar(c, "hora", {})
+    r = _chamar(c, "abrir_app", {"nome": "Chrome"}, id_="2")
+    assert r["precisa_confirmacao"] is True
+    assert c.acoes == [("que horas são", "dono", False)]   # o segundo não rodou
+
+
+def test_confirmacao_so_vale_com_um_sim_novo_do_dono():
+    def executar(pedido, papel, confirmado):
+        acoes.append((pedido, papel, confirmado))
+        return {"tipo": "delegado"} if confirmado else {"tipo": "confirmar"}
+    acoes = []
+    c = Cena(fim=10, atraso=99, executar=executar)
+    _turno_do(c)
+    r = _chamar(c, "fazer", {"pedido": "pede pro Codex olhar o projeto", "clareza": "clara"})
+    assert r["precisa_confirmacao"]
+    # o modelo "confirma" sozinho, sem o dono falar de novo: nada
+    assert _chamar(c, "confirmar", {"resposta": "sim"}, id_="2")["ok"] is False
+    assert acoes == [("pede pro Codex olhar o projeto", "dono", False)]
+    # de novo, agora com o dono dizendo sim numa vez nova
+    _chamar(c, "fazer", {"pedido": "pede pro Codex olhar o projeto", "clareza": "clara"}, id_="3")
+    _turno_do(c)
+    c.conv.cb(dc.TextoEntrada("sim, pode"))
+    r = _chamar(c, "confirmar", {"resposta": "sim"}, id_="4")
+    assert r == {"ok": True, "silencioso": True, "encaminhado": True}
+    assert acoes[-1] == ("pede pro Codex olhar o projeto", "dono", True)
+
+
+def test_sim_que_a_transcricao_nao_confirma_nao_vale():
+    c = Cena(fim=10, atraso=99, executar=lambda p, pa, conf: {"tipo": "confirmar"})
+    _turno_do(c)
+    _chamar(c, "fazer", {"pedido": "pede pro Claude apagar a pasta", "clareza": "clara"})
+    _turno_do(c)
+    c.conv.cb(dc.TextoEntrada("o que você acha disso"))
+    assert _chamar(c, "confirmar", {"resposta": "sim"}, id_="2")["ok"] is False
+
+
+def test_convidado_so_faz_o_facil_e_recebe_recusa_no_resto():
+    perfis = PerfisFalsos(perfis=(("André", "dono"), ("Lia", "convidado")))
+    respostas = {"abre o Chrome": {"tipo": "facil"}, "pede pro Claude revisar": {"tipo": "confirmar"},
+                 "apaga a pasta fotos": {"tipo": "grave"}, "entra no servidor": {"tipo": "recusado"}}
+    vistos = []
+
+    def executar(pedido, papel, confirmado):
+        vistos.append(papel)
+        return respostas[pedido]
+    c = Cena(perfis=perfis, fim=10, atraso=99, executar=executar)
+    _turno_do(c, "filha")
+    assert _chamar(c, "abrir_app", {"nome": "Chrome"})["silencioso"] is True
+    for i, pedido in enumerate(["pede pro Claude revisar", "apaga a pasta fotos",
+                                "entra no servidor"]):
+        _turno_do(c, "filha")
+        r = _chamar(c, "fazer", {"pedido": pedido, "clareza": "clara"}, id_=str(i + 2))
+        assert r["ok"] is False and r["diga"] == cn.RECUSA_CONVIDADO
+    assert set(vistos) == {"convidado"}                    # o papel veio da voz, não do modelo
+
+
+def test_grave_pela_voz_direta_vai_para_o_cartao_com_clique():
+    import dervs
+    mostrados, rodados = [], []
+    ficha = {"modo": "planejar", "fala": "Vou apagar.", "passos": [
+        {"descricao": "x", "comando": "rm -rf C:/Users/x/Documents", "risco": "destrutivo",
+         "toca_alvo": False}]}
+
+    def executar(pedido, papel, confirmado):
+        return cn.acao_por_texto(
+            pedido, papel, confirmado, atalho=lambda t: None, especial=lambda t: False,
+            planejar=lambda t: ficha,
+            pede_confirmacao=lambda p: dervs.plano_pede_confirmacao(p, "grave"),
+            rodar_plano=rodados.append, mostrar_plano=mostrados.append, delegar=None)
+    c = Cena(fim=10, atraso=99, executar=executar)
+    _turno_do(c)
+    r = _chamar(c, "fazer", {"pedido": "apaga meus documentos", "clareza": "clara"})
+    assert r["aguardando_clique"] is True and rodados == []
+    assert mostrados and mostrados[0]["fala"] == ""
+
+
+# ---- política pura (o adaptador do app) ------------------------------------------
+
+def _acao(pedido, papel="dono", confirmado=False, atalho=None, especial=False, ficha=None,
+          grave=False):
+    log = []
+    r = cn.acao_por_texto(
+        pedido, papel, confirmado, atalho=lambda t: atalho,
+        especial=lambda t: especial, planejar=lambda t: log.append("cerebro") or ficha,
+        pede_confirmacao=lambda p: grave, rodar_plano=lambda f: log.append(("rodar", f)),
+        mostrar_plano=lambda f: log.append(("mostrar", f)),
+        delegar=lambda t: log.append(("delegar", t)))
+    return r, log
+
+
+PLANO = {"modo": "planejar", "fala": "Beleza, abrindo.", "passos": [{"comando": "explorer"}]}
+
+
+def test_acao_facil_roda_o_plano_calado_e_sem_o_cerebro_comentar():
+    r, log = _acao("abre o chrome", atalho=PLANO)
+    assert r["tipo"] == "facil" and log[0][0] == "rodar"
+    assert log[0][1]["fala"] == "" and log[0][1]["local"] is True
+
+
+def test_acao_hora_e_resposta_falada():
+    r, _ = _acao("que horas são", atalho={"modo": "conversar", "fala": "São três horas."})
+    assert r == {"tipo": "resposta", "fala": "São três horas."}
+
+
+def test_acao_especial_claude_codex_so_com_confirmacao():
+    r, log = _acao("pede pro Claude revisar", especial=True)
+    assert r["tipo"] == "confirmar" and log == []
+    r, log = _acao("pede pro Claude revisar", especial=True, confirmado=True)
+    assert r["tipo"] == "delegado" and log == [("delegar", "pede pro Claude revisar")]
+
+
+def test_acao_convidado_nao_chega_ao_cerebro_nem_ao_roteador():
+    r, log = _acao("cria uma pasta", papel="convidado", ficha=PLANO, especial=True)
+    assert r["tipo"] == "recusado" and log == []
+    r, log = _acao("abre o chrome", papel="convidado", atalho=PLANO, grave=True)
+    assert r["tipo"] == "recusado" and not [x for x in log if x[0] in ("rodar", "mostrar")]
+
+
+def test_acao_papel_desconhecido_e_recusado():
+    assert _acao("abre", papel=None, atalho=PLANO)[0]["tipo"] == "recusado"
+
+
+# ---- troca e queda do motor -----------------------------------------------------
+
+def test_troca_de_motor_vira_aviso_curto():
+    c = Cena(fim=10)
+    c.conv.cb(dc.Troca("gemini_live", "cascata", "limite"))
+    assert c.avisos == ["Mudei a voz para o modo econômico."]
+
+
+def test_motor_caido_volta_ao_caminho_antigo_com_aviso():
+    c = Cena(fim=10)
+    c.conv.cb(dc.Erro("limite", "Nenhum motor de conversa disponível agora."))
+    assert c.caidas == ["limite"] and cn.AVISO_CAIU in c.avisos
+    assert c.cn.quadro(quadro("dono")) is False          # o quadro volta para o Endpointer
+    assert "encerrar" in c.conv.log
+
+
+def test_motor_que_nem_sobe_cai_para_o_antigo():
+    caidas = []
+    x = cn.ConversaNatural({}, PlayerFalso(), PerfisFalsos(), ArbitroFalso(),
+                           lambda cb: (_ for _ in ()).throw(RuntimeError("sem rede")),
+                           lambda *a: None, lambda t: None, ao_cair=caidas.append)
+    assert x.iniciar() is False and caidas == ["não subiu"]
+
+
+# ---- perfis pelo painel -------------------------------------------------------------
+
+def extrator_falso(audio):
+    esp = np.abs(np.fft.rfft(audio))
+    f = np.fft.rfftfreq(len(audio), 1 / 16000)
+    return np.array([esp[(f >= a) & (f < b)].sum() for a, b in
+                     [(0, 200), (200, 300), (300, 400), (400, 600), (600, 900), (900, 1500),
+                      (1500, 3000), (3000, 8000)]], np.float32) + 1e-3
+
+
+def tom(freq, seg):
+    t = np.arange(int(16000 * seg)) / 16000
+    return (0.3 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+
+
+class CnFalsa:
+    def __init__(self, recente):
+        self.recente = recente
+        self.atualizou = 0
+
+    def dono_confirmado_recente(self):
+        return self.recente
+
+    def atualizar_trava(self):
+        self.atualizou += 1
+
+
+def test_vozes_gravar_listar_ativar_apagar(tmp_path):
+    perfis = L.Perfis(str(tmp_path / "vozes"), extrator=extrator_falso)
+    progresso = []
+    v = cn.Vozes(perfis, gravar_audio=lambda s, p: (p(1.0), tom(250, 20))[1])
+    assert v.gravar("André", "dono", progresso=progresso.append)["ok"] is True   # 1º dono
+    assert progresso == [1.0]
+    assert v.listar() == [{"nome": "André", "papel": "dono", "ativo": True}]
+    assert v.ativar("André", False)["perfil"]["ativo"] is False
+    assert v.estado()["locutor_aviso"] == "nenhum perfil ativo"
+    assert sorted(p.name for p in (tmp_path / "vozes" / "andre").iterdir()) == \
+        ["perfil.json", "voz.bin"]                         # só a impressão (cifrada)
+    assert v.apagar("André") == {"ok": True}
+    assert not (tmp_path / "vozes" / "andre").exists()
+    assert v.estado()["locutor_aviso"] == "grave sua voz"
+
+
+def test_novo_dono_so_de_sessao_confirmada_como_dono(tmp_path):
+    perfis = L.Perfis(str(tmp_path / "vozes"), extrator=extrator_falso)
+    perfis.gravar("André", "dono", tom(250, 20))
+    sessao = CnFalsa(recente=False)
+    v = cn.Vozes(perfis, conversa=lambda: sessao, gravar_audio=lambda s, p: tom(700, 20))
+    r = v.gravar("Outro", "dono")
+    assert r["ok"] is False and "dono já cadastrado" in r["erro"]
+    assert v.gravar("Lia", "convidado")["ok"] is True     # convidado pode
+    sessao.recente = True
+    assert v.gravar("Outro", "dono")["ok"] is True
+    assert sessao.atualizou == 2
+
+
+def test_dono_confirmado_recente_vem_da_trava_de_voz():
+    c = Cena(fim=10)
+    assert c.cn.dono_confirmado_recente() is False
+    _turno_do(c)
+    assert c.cn.dono_confirmado_recente() is True
+
+
+def test_gravador_junta_os_quadros_e_avisa_o_progresso():
+    prog = []
+    g = cn.Gravador(segundos=0.3, progresso=prog.append)
+    for _ in range(12):
+        g.quadro(quadro("dono"))
+    assert g.pronto.is_set() and prog[-1] == 1.0
+    assert len(g.audio()) == 10 * 480
+
+
+# ---- player em fluxo ------------------------------------------------------------
+
+class StreamFalso:
+    def __init__(self, cb):
+        self.cb = cb
+        self.fechado = False
+
+    def bloco(self, n=480):
+        buf = bytearray(n * 2)
+        self.cb(memoryview(buf), n, None, None)
+        return np.frombuffer(bytes(buf), np.int16)
+
+    def abort(self):
+        pass
+
+    def close(self):
+        self.fechado = True
+
+
+def test_player_toca_conforme_chega_abaixa_na_hora_e_para():
+    fluxos = []
+    p = cn.PlayerFluxo(stream_fabrica=lambda cb: fluxos.append(StreamFalso(cb)) or fluxos[-1])
+    p.tocar((np.ones(4800, np.int16) * 1000).tobytes())
+    s = fluxos[0]
+    assert p.tocando() and s.bloco()[-1] == 1000
+    p.abaixar(0.3)
+    assert s.bloco()[-1] == 300                           # vale no bloco seguinte (20 ms)
+    p.restaurar()
+    assert s.bloco()[-1] == 1000
+    p.parar()
+    assert not p.tocando() and s.bloco().max() == 0
+    p.fechar()
+    assert s.fechado
+
+
+def test_player_reamostra_16k_para_24k():
+    fluxos = []
+    p = cn.PlayerFluxo(stream_fabrica=lambda cb: fluxos.append(StreamFalso(cb)) or fluxos[-1])
+    p.tocar(np.ones(1600, np.int16).tobytes(), taxa=16000)
+    assert sum(len(x) for x in p._fila) == 2400
+
+
+def test_sinal_feito_e_curto_suave_e_fica_em_cache(tmp_path):
+    arq = tmp_path / "sons" / "sinal_feito.wav"
+    pcm = cn.carregar_sinal(str(arq))
+    x = np.frombuffer(pcm, np.int16)
+    assert arq.exists() and 0.15 <= len(x) / 24000 <= 0.35 and np.abs(x).max() < 8000
+    assert cn.carregar_sinal(str(arq)) == pcm
+
+
+def test_motor_disponivel_so_olha_se_a_chave_existe():
+    conf = {"conversa_motores": ["gemini_live", "cascata"]}
+    assert cn.motor_disponivel(conf, segredo=lambda n: "x" if n == "GROQ_API_KEY" else None)
+    assert not cn.motor_disponivel(conf, segredo=lambda n: None)
+
+
+def test_sistema_pede_frases_curtas_pergunta_na_duvida_e_proibe_o_entendi_vou():
+    s = cn.SISTEMA
+    assert "português do Brasil" in s and "curtas" in s and "Entendi: vou" in s
+    assert "pergunte" in s and "silencioso=true" in s
+    assert {f["name"] for f in cn.FERRAMENTAS} == {"fazer", "abrir_app", "hora", "volume",
+                                                    "abrir_pasta", "confirmar"}
