@@ -28,7 +28,7 @@ no painel web não substitui. O que o porteiro e os caminhos protegidos recusam 
 `POST /agente/voz/pedido` (acesso `maquina`). Corpo EXATO: `{"tipo":"enfileirar_conserto","alerta_id":"<=200","resumo":"<=300"}`
 (chave extra = 400). Resposta 200: `{"ok":true,"tarefa_id":"regra:usuario:alerta","pedido":true|false,"aviso":""}`;
 `pedido:false` = já existia. A tarefa nasce PENDENTE do "Pode fazer" do dono no painel e nunca roda sozinha.
-404 = alerta inexistente ou de outra conta; 403 = regra que a IA não conserta ou projeto bloqueado;
+404 = alerta inexistente ou de outra conta; 403 = regra que a IA não conserta por aqui (desde 15/10, PR #42 do dervs, nenhum projeto é bloqueado);
 429 = 10 pedidos por 15 min. Cliente: `PonteWeb.pedir_conserto`. Hoje só `memoria_crlf` e `env_drift` passam.
 
 ## Recusa da máquina (painel desde 09/10, PRs #38/#39)

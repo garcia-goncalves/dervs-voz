@@ -264,8 +264,8 @@ class PonteWeb:
         try:
             r = self._falar("POST", "/agente/voz/pedido", corpo, erros={
                 404: "O painel não conhece esse alerta (ou ele é de outra conta).",
-                403: "Esse alerta é de um tipo que a IA não conserta (segurança ou dependência) "
-                     "ou o projeto está bloqueado.",
+                403: "Esse alerta é de um tipo que a IA não conserta por aqui "
+                     "(segurança ou dependência).",
                 429: "Muitos pedidos de conserto seguidos; espere alguns minutos.",
                 400: "O painel recusou o pedido por formato."})
         except PonteIndisponivel as e:
