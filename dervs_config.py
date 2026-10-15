@@ -171,6 +171,16 @@ PADRAO = {
     # centavos de dólar por mês. Voltar é trocar esta palavra.
     "cerebro_openai_modelo": "gpt-4.1-mini",
 
+    # --- CONVERSA NATURAL (dervs_conversa.py) ---------------------------------
+    # Ordem dos motores de voz direta; o primeiro que funcionar fica, e o DERVS
+    # passa ao próximo sozinho ao bater limite, rede, chave ou teto de gasto.
+    # Nomes: "gemini_live" (grátis), "cascata" (Groq + cérebro + voz em fluxo),
+    # "openai_realtime" (premium, pago).
+    "conversa_motores": ["gemini_live", "cascata"],
+    "voz_gemini": "Charon",
+    "conversa_realtime_modelo": "gpt-realtime-2.1-mini",
+    "voz_realtime": "cedar",
+
     # Motor de voz: "openai" (voz de nuvem, a mais natural e com sotaque
     # brasileiro de verdade; custa centavos por fala e precisa de internet),
     # "kokoro" (humana, offline, grátis — a RESERVA da nuvem), "piper"
@@ -325,6 +335,20 @@ def _validar(conf: dict) -> dict:
         conf["cerebro"] = PADRAO["cerebro"]
     if not isinstance(conf.get("cerebro_openai_modelo"), str) or not conf["cerebro_openai_modelo"]:
         conf["cerebro_openai_modelo"] = PADRAO["cerebro_openai_modelo"]
+    # --- conversa natural ---
+    motores = conf.get("conversa_motores")
+    if not isinstance(motores, list):
+        motores = []
+    motores = [m for i, m in enumerate(motores)
+               if m in ("gemini_live", "cascata", "openai_realtime") and m not in motores[:i]]
+    conf["conversa_motores"] = motores or list(PADRAO["conversa_motores"])
+    if not isinstance(conf.get("voz_gemini"), str) or not conf["voz_gemini"].isalpha()             or len(conf["voz_gemini"]) > 30:
+        conf["voz_gemini"] = PADRAO["voz_gemini"]
+    if not isinstance(conf.get("conversa_realtime_modelo"), str)             or not conf["conversa_realtime_modelo"]:
+        conf["conversa_realtime_modelo"] = PADRAO["conversa_realtime_modelo"]
+    if conf.get("voz_realtime") not in ("alloy", "ash", "ballad", "coral", "echo", "sage",
+                                        "shimmer", "verse", "marin", "cedar"):
+        conf["voz_realtime"] = PADRAO["voz_realtime"]
     if conf.get("motor") not in ("openai", "kokoro", "piper", "xtts"):
         conf["motor"] = PADRAO["motor"]
     if conf.get("voz_openai") not in ("alloy", "ash", "ballad", "coral", "echo", "fable",
