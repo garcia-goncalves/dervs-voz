@@ -95,7 +95,7 @@ def test_slug_nunca_escapa_da_pasta(perfis, tmp_path, nome):
     assert os.path.dirname(os.path.realpath(os.path.join(pasta_vozes, p.slug))) == pasta_vozes
     assert os.listdir(tmp_path) == ["vozes"]
     assert perfis.apagar(nome) is True
-    assert os.listdir(pasta_vozes) == []
+    assert os.listdir(pasta_vozes) == [".ja_teve_perfil"]    # só o marcador sobra
 
 
 def test_listar_ativar_apagar(perfis, tmp_path):

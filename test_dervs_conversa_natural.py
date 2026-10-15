@@ -588,8 +588,10 @@ class CnFalsa:
     def __init__(self, recente):
         self.recente = recente
         self.atualizou = 0
+        self.janelas = []
 
-    def dono_confirmado_recente(self):
+    def dono_confirmado_recente(self, janela_s=None):
+        self.janelas.append(janela_s)
         return self.recente
 
     def atualizar_trava(self):
@@ -603,14 +605,20 @@ def test_vozes_gravar_listar_ativar_apagar(tmp_path):
     assert v.gravar("André", "dono", progresso=progresso.append)["ok"] is True   # 1º dono
     assert progresso == [1.0]
     assert v.listar() == [{"nome": "André", "papel": "dono", "ativo": True}]
+    v._conversa = lambda: CnFalsa(recente=True)         # mexer em dono exige dono confirmado
     assert v.ativar("André", False)["perfil"]["ativo"] is False
+    v._conversa = lambda: None
     assert v.estado()["locutor_aviso"] == "nenhum perfil ativo"
     assert v.estado()["dono_confirmado"] is False       # sem conversa, ninguém confirmou o dono
     assert sorted(p.name for p in (tmp_path / "vozes" / "andre").iterdir()) == \
         ["perfil.json", "voz.bin"]                         # só a impressão (cifrada)
+    v._conversa = lambda: CnFalsa(recente=True)
     assert v.apagar("André") == {"ok": True}
+    v._conversa = lambda: None
     assert not (tmp_path / "vozes" / "andre").exists()
-    assert v.estado()["locutor_aviso"] == "grave sua voz"
+    # já houve perfil: zerar NÃO abre a trava (antes voltava a "grave sua voz" e ouvia todo mundo)
+    e = v.estado()
+    assert e["locutor_aviso"] == "grave sua voz de novo" and e["locutor_ativo"] is True
 
 
 def test_novo_dono_so_de_sessao_confirmada_como_dono(tmp_path):
@@ -1132,5 +1140,84 @@ def test_transcricao_de_um_turno_antigo_nao_confirma_o_turno_novo():
     _chamar(c, "fazer", {"pedido": "pede pro Codex olhar o projeto", "clareza": "clara"})
     c.conv.cb(dc.FimResposta())
     _turno_do(c)                                              # a pessoa não disse sim
-    r =_chamar(c, "confirmar", {"resposta": "sim"}, id_="2")
+    r = _chamar(c, "confirmar", {"resposta": "sim"}, id_="2")
     assert r["ok"] is False and all(a[2] is False for a in acoes)
+
+
+# ---- mexer em perfil de dono e zerar os perfis ----------------------------------------
+
+def _vozes_com_dono_e_convidado(tmp_path, sessao, conf=None):
+    perfis = L.Perfis(str(tmp_path / "vozes"), extrator=extrator_falso)
+    perfis.gravar("André", "dono", tom(250, 20))
+    perfis.gravar("Lia", "convidado", tom(700, 20))
+    return perfis, cn.Vozes(perfis, conversa=lambda: sessao, conf=conf)
+
+
+@pytest.mark.parametrize("sessao", [None, CnFalsa(recente=False)])
+def test_apagar_ou_desativar_dono_exige_dono_confirmado_recente(tmp_path, sessao):
+    perfis, v = _vozes_com_dono_e_convidado(tmp_path, sessao)
+    r = v.apagar("André")
+    assert r["ok"] is False and "dono" in r["erro"] and "fale comigo" in r["erro"]
+    r = v.ativar("André", False)
+    assert r["ok"] is False and "dono" in r["erro"]
+    assert [(p.nome, p.ativo) for p in perfis.listar()] == [("André", True), ("Lia", True)]
+
+
+def test_dono_confirmado_nos_ultimos_5_minutos_pode_apagar_e_desativar(tmp_path):
+    sessao = CnFalsa(recente=True)
+    perfis, v = _vozes_com_dono_e_convidado(tmp_path, sessao)
+    assert v.ativar("André", False)["ok"] is True
+    assert v.apagar("André") == {"ok": True}
+    assert set(sessao.janelas) == {300}                  # a janela é de 5 min, não os 10 min
+
+
+def test_convidado_e_ativar_nao_pedem_dono(tmp_path):
+    perfis, v = _vozes_com_dono_e_convidado(tmp_path, CnFalsa(recente=False))
+    assert v.ativar("Lia", False)["ok"] is True
+    assert v.ativar("Lia", True)["ok"] is True
+    assert v.apagar("Lia") == {"ok": True}
+
+
+def test_trava_explicitamente_desligada_na_config_libera_mexer_em_dono(tmp_path):
+    perfis, v = _vozes_com_dono_e_convidado(tmp_path, None, conf={"locutor_ligado": False})
+    assert v.apagar("André") == {"ok": True}
+
+
+class PerfisZerados(PerfisFalsos):
+    """Já teve perfil, hoje não tem nenhum."""
+
+    def ja_teve_perfil(self):
+        return True
+
+
+def test_zerar_os_perfis_mantem_a_trava_fechada_e_pede_para_gravar_de_novo():
+    c = Cena(perfis=PerfisZerados(perfis=()), fim=10)
+    c.falar([("sil", 0.3), ("dono", 3.0), ("sil", 0.6)])
+    assert len(c.conv.audio) == 0 and "fim" not in c.conv.log
+    assert c.avisos == [cn.AVISO_REGRAVAR]
+    e = c.cn.estado()
+    assert e["locutor_ativo"] is True and e["locutor_aviso"] == "grave sua voz de novo"
+
+
+def test_zerar_os_perfis_com_a_trava_desligada_na_config_abre():
+    c = Cena(perfis=PerfisZerados(perfis=()), fim=10, conf={"locutor_ligado": False})
+    c.falar([("sil", 0.3), ("dono", 1.0), ("sil", 0.6)])
+    assert len(c.conv.audio) > 0 and c.cn.estado()["locutor_aviso"] == "trava de voz desligada"
+
+
+def test_perfis_lembra_que_ja_teve_perfil_mesmo_depois_de_apagar(tmp_path):
+    perfis = L.Perfis(str(tmp_path / "vozes"), extrator=extrator_falso)
+    assert perfis.ja_teve_perfil() is False
+    perfis.gravar("André", "dono", tom(250, 20))
+    assert perfis.apagar("André") is True
+    assert perfis.listar() == [] and perfis.ja_teve_perfil() is True
+    assert L.Perfis(str(tmp_path / "vozes")).ja_teve_perfil() is True     # sobrevive ao reinício
+
+
+def test_perfil_de_antes_do_marcador_tambem_conta_como_ja_teve(tmp_path):
+    perfis = L.Perfis(str(tmp_path / "vozes"), extrator=extrator_falso)
+    perfis.gravar("André", "dono", tom(250, 20))
+    (tmp_path / "vozes" / ".ja_teve_perfil").unlink()          # gravado por versão antiga
+    assert L.Perfis(str(tmp_path / "vozes")).listar() != []
+    perfis.apagar("André")
+    assert L.Perfis(str(tmp_path / "vozes")).ja_teve_perfil() is True

@@ -33,6 +33,7 @@
   const AVISOS = {
     "grave sua voz": "Grave sua voz para o DERVS só atender você.",
     "nenhum perfil ativo": "Nenhuma voz está ativa. Ative uma para o DERVS te ouvir.",
+    "grave sua voz de novo": "Todas as vozes foram apagadas. Grave a sua de novo: até lá o DERVS não atende ninguém.",
     "trava de voz desligada": "A trava de voz está desligada: o DERVS ouve qualquer pessoa.",
   };
 
@@ -52,6 +53,7 @@
     const ativos = Array.isArray(estado.perfis_ativos) ? estado.perfis_ativos : [];
     if (estado.locutor_ativo && ativos.length) return `Trava de voz ligada: só escuto ${ativos.join(", ")}.`;
     if (estado.locutor_aviso === "grave sua voz") return "Trava de voz sem nenhuma voz gravada: escuto qualquer pessoa.";
+    if (estado.locutor_aviso === "grave sua voz de novo") return "Trava de voz ligada, sem nenhuma voz gravada: não escuto ninguém até você gravar a sua de novo.";
     if (estado.locutor_aviso === "trava de voz desligada") return "Trava de voz desligada: escuto qualquer pessoa.";
     return "Trava de voz ligada, mas sem nenhuma voz ativa.";
   }

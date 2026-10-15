@@ -73,7 +73,9 @@ RECUSA_CONVIDADO = ("Isso eu só faço para o dono. Com você eu converso e faç
                     "como abrir um programa ou dizer a hora.")
 AVISO_TRAVA = "Não consegui conferir a sua voz, então não mandei nada. Tente de novo."
 AVISO_SEM_ATIVO = "Nenhum perfil de voz está ativo; ative um no painel para eu te ouvir."
-AVISO_CAIU = "A conversa rápida caiu. Voltei ao jeito de antes."
+AVISO_REGRAVAR = "Não há nenhuma voz gravada. Grave a sua de novo no painel para eu te ouvir."
+DONO_APAGAR_S = 300                         # mexer em perfil de dono: dono confirmado há <= 5 min
+AVISO_CAIU ="A conversa rápida caiu. Voltei ao jeito de antes."
 
 SISTEMA = (
     "Você é o DERVS, assistente de voz pessoal, e conversa em português do Brasil como uma "
@@ -484,8 +486,32 @@ class Vozes:
         self._depois()
         return {"ok": True, "perfil": self._dict(p)}
 
+    def _recusa_dono(self, nome, acao):
+        """Apagar/desativar a voz de um DONO exige um dono confirmado pela voz há <= 5 min
+        (o painel é alcançável sem passar pela trava). Devolve o erro, ou None se pode."""
+        import dervs_locutor
+        if self._conf.get("locutor_ligado") is False:
+            return None
+        try:
+            alvo = next((p for p in self.perfis.listar()
+                         if p.slug == dervs_locutor._slug(nome)), None)
+        except dervs_locutor.ErroLocutor:
+            return None                               # nome inválido: o próprio Perfis recusa
+        if alvo is None or alvo.papel != "dono":
+            return None
+        cn = self._conversa()
+        if cn is not None and cn.dono_confirmado_recente(DONO_APAGAR_S):
+            return None
+        return {"ok": False, "erro": "Para %s a voz de um dono, fale comigo antes com a voz de um "
+                                     "dono já cadastrado (nos últimos 5 minutos) e tente de novo."
+                                     % acao}
+
     def ativar(self, nome, ativo):
         import dervs_locutor
+        if not ativo:
+            recusa = self._recusa_dono(nome, "desativar")
+            if recusa:
+                return recusa
         try:
             p = self.perfis.ativar(nome, bool(ativo))
         except dervs_locutor.ErroLocutor as e:
@@ -495,6 +521,9 @@ class Vozes:
 
     def apagar(self, nome):
         import dervs_locutor
+        recusa = self._recusa_dono(nome, "apagar")
+        if recusa:
+            return recusa
         try:
             apagou = self.perfis.apagar(nome)
         except dervs_locutor.ErroLocutor as e:
@@ -508,19 +537,31 @@ class Vozes:
             return cn.estado()
         lista = self.perfis.listar()
         ligada = self._conf.get("locutor_ligado", True) is not False
-        return {"motor_ativo": None, "motor_nome": None, "locutor_ativo": bool(lista) and ligada,
+        zerado = ligada and not lista and _ja_teve(self.perfis)
+        return {"motor_ativo": None, "motor_nome": None,
+                "locutor_ativo": (bool(lista) or zerado) and ligada,
                 "perfis_ativos": [p.nome for p in lista if p.ativo],
-                "locutor_aviso": _aviso_da_trava(("ligada" if lista else "sem_perfis")
+                "locutor_aviso": _aviso_da_trava(("ligada" if lista or zerado else "sem_perfis")
                                                  if ligada else "desligada",
-                                                 any(p.ativo for p in lista)),
+                                                 any(p.ativo for p in lista), zerado),
                 "dono_confirmado": False}
 
 
-def _aviso_da_trava(trava, tem_ativo):
+def _ja_teve(perfis):
+    """O repositório de perfis lembra que já existiu algum? (dublê sem o método: não)."""
+    try:
+        return bool(getattr(perfis, "ja_teve_perfil", lambda: False)())
+    except Exception:
+        return True                                  # na dúvida a trava fica fechada
+
+
+def _aviso_da_trava(trava, tem_ativo, zerado=False):
     if trava == "sem_perfis":
         return "grave sua voz"
     if trava == "desligada":
         return "trava de voz desligada"
+    if zerado:
+        return "grave sua voz de novo"
     return None if tem_ativo else "nenhum perfil ativo"
 
 
@@ -566,6 +607,7 @@ class ConversaNatural:
         self.conversa = None
         self.falhou = False
         self.trava = "sem_perfis"
+        self._zerado = False                          # já teve perfil e hoje não tem nenhum
         self._ativos = []
         self._avisou_trava = False
         self._limiar_original = getattr(arbitro, "limiar_fala", None)
@@ -604,12 +646,14 @@ class ConversaNatural:
         except Exception:
             lista = None                     # erro de disco também fecha
         with self._trava_estado:
+            self._zerado = False
             if self.perfis is None or self.conf.get("locutor_ligado") is False:
                 self.trava = "desligada"
-            elif lista == []:
+            elif lista == [] and not _ja_teve(self.perfis):
                 self.trava = "sem_perfis"
             else:
-                self.trava = "ligada"
+                self.trava = "ligada"                 # zerar os perfis não abre a trava
+                self._zerado = lista == []
             self._ativos = [p.nome for p in (lista or []) if p.ativo]
 
     def iniciar(self) -> bool:
@@ -660,7 +704,7 @@ class ConversaNatural:
             return {"motor_ativo": motor, "motor_nome": NOMES_DOS_MOTORES.get(motor),
                     "locutor_ativo": self.trava == "ligada",
                     "perfis_ativos": list(self._ativos),
-                    "locutor_aviso": _aviso_da_trava(self.trava, bool(self._ativos)),
+                    "locutor_aviso": _aviso_da_trava(self.trava, bool(self._ativos), self._zerado),
                     "dono_confirmado": self.dono_confirmado_recente()}
 
     def ocupado(self) -> bool:
@@ -829,7 +873,8 @@ class ConversaNatural:
                 self._enviar(bytes(len(bruto)))     # janela de outra pessoa no meio: silêncio
             elif lote.status == "erro" and not self._avisou_trava:
                 self._avisou_trava = True
-                self._avisar(AVISO_SEM_ATIVO if not self._ativos else AVISO_TRAVA)
+                self._avisar(AVISO_REGRAVAR if self._zerado else
+                             AVISO_SEM_ATIVO if not self._ativos else AVISO_TRAVA)
         if self._fim_pendente and not self._lotes and not self._em_fala:
             self._fim_pendente = False
             if self._interrupcao is not None and not self._houve_ok:

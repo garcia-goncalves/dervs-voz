@@ -12,7 +12,9 @@ com SHA-256 conferido; o arquivo baixado é só lido pelo onnxruntime, nunca
 executado. Sem o modelo (sem rede, hash errado), `disponivel()` é falso e a
 trava de perfil FECHA (fail-closed) quando já existe perfil gravado: nenhum áudio
 vai ao motor e quem chama avisa o dono. Só com ZERO perfis gravados a conversa
-segue sem trava (como antes), com o aviso "grave sua voz" no painel.
+segue sem trava (como antes), com o aviso "grave sua voz" no painel. Depois que JÁ houve um
+perfil (o marcador `.ja_teve_perfil`, que o painel não apaga), zerar os perfis não reabre a
+trava: ela fica fechada até gravar a voz de novo (só `locutor_ligado=false` abre).
 
 A impressão numérica é dado biométrico (pode ser de menor de idade): `voz.bin`
 é cifrado com a DPAPI do Windows (`dervs_dpapi`, escopo do usuário). Um
@@ -42,6 +44,7 @@ JANELA_S = 3.0
 MIN_FALA_S = 15.0          # fala útil mínima para cadastrar um perfil
 MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024     # teto do download (o modelo tem ~38 MB)
 PAPEIS = ("dono", "convidado")
+MARCADOR_JA_TEVE = ".ja_teve_perfil"
 
 MODELO_NOME = "3dspeaker_eres2net_base_16k.onnx"
 MODELO_URL = ("https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
@@ -265,10 +268,24 @@ class Perfis:
         media = _normalizar(np.mean(embs, axis=0))
         d = self._dir(nome)
         os.makedirs(d, exist_ok=True)
+        self._marcar_ja_teve()
         _salvar_voz(d, media)
         perfil = Perfil(nome, os.path.basename(d), papel, True)
         self._gravar_json(d, perfil)
         return perfil
+
+    def _marcar_ja_teve(self):
+        """Grava (melhor possível) o marcador de que já existiu um perfil."""
+        with contextlib.suppress(OSError):
+            os.makedirs(self.pasta, exist_ok=True)
+            with open(os.path.join(self.pasta, MARCADOR_JA_TEVE), "a"):
+                pass
+
+    def ja_teve_perfil(self) -> bool:
+        """Já existiu algum perfil aqui? Zerar os perfis não pode abrir a trava de voz."""
+        if os.path.exists(os.path.join(self.pasta, MARCADOR_JA_TEVE)):
+            return True
+        return bool(self.listar())                   # perfil de antes do marcador: listar() marca
 
     @staticmethod
     def _gravar_json(d: str, p: Perfil):
@@ -282,6 +299,8 @@ class Perfis:
             return []
         achados = (self._ler(os.path.join(self.pasta, n)) for n in nomes)
         perfis = [p for p in achados if p]
+        if perfis and not os.path.exists(os.path.join(self.pasta, MARCADOR_JA_TEVE)):
+            self._marcar_ja_teve()
         for p in perfis:
             _migrar_claro(os.path.join(self.pasta, p.slug))
         return perfis

@@ -17,6 +17,7 @@ test("avisoDaTrava: traduz o aviso do Python e ignora texto desconhecido", () =>
   assert.equal(V.avisoDaTrava({ locutor_aviso: "grave sua voz" }), "Grave sua voz para o DERVS só atender você.");
   assert.match(V.avisoDaTrava({ locutor_aviso: "nenhum perfil ativo" }), /Nenhuma voz está ativa/);
   assert.match(V.avisoDaTrava({ locutor_aviso: "trava de voz desligada" }), /desligada/);
+  assert.match(V.avisoDaTrava({ locutor_aviso: "grave sua voz de novo" }), /Grave a sua de novo/);
   assert.equal(V.avisoDaTrava({ locutor_aviso: null }), "");
   assert.equal(V.avisoDaTrava({ locutor_aviso: "<b>x</b>" }), "");
   assert.equal(V.avisoDaTrava(undefined), "");
@@ -27,6 +28,7 @@ test("statusDaTrava: diz quem o DERVS escuta", () => {
     "Trava de voz ligada: só escuto Thiago, Lia.");
   assert.match(V.statusDaTrava({ locutor_ativo: false, perfis_ativos: [], locutor_aviso: "grave sua voz" }), /qualquer pessoa/);
   assert.match(V.statusDaTrava({ locutor_ativo: true, perfis_ativos: [], locutor_aviso: "nenhum perfil ativo" }), /sem nenhuma voz ativa/);
+  assert.match(V.statusDaTrava({ locutor_ativo: true, perfis_ativos: [], locutor_aviso: "grave sua voz de novo" }), /não escuto ninguém/);
   assert.equal(V.statusDaTrava(null), "Carregando...");
 });
 
