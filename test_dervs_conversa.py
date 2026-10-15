@@ -218,8 +218,8 @@ def test_gemini_interromper_descarta_audio_na_fila_e_na_volta():
     ws.servidor({"serverContent": {"interrupted": True}})
     novo = base64.b64encode(b"\x03\x00" * 10).decode()
     ws.servidor({"serverContent": {"modelTurn": {"parts": [{"inlineData": {"data": novo}}]}}})
-    esperar_ate(lambda: len(col.de(dc.AudioSaida)) >= 1)
-    time.sleep(0.1)
+    # o leitor é uma thread só e processa na ordem: quando o "novo" chega, o "velho" já foi decidido
+    esperar_ate(lambda: any(a.pcm == b"\x03\x00" * 10 for a in col.de(dc.AudioSaida)))
     assert [a.pcm for a in col.de(dc.AudioSaida)] == [b"\x03\x00" * 10]
     m.encerrar()
 
@@ -515,7 +515,8 @@ def test_realtime_interromper_cancela_trunca_e_descarta():
     ws.servidor({"type": "response.output_audio.delta", "item_id": "it1",
                  "delta": base64.b64encode(b"\x00\x00" * 10).decode()})
     ws.servidor({"type": "response.done", "response": {"status": "cancelled"}})
-    time.sleep(0.15)
+    ws.servidor({"type": "conversation.item.input_audio_transcription.completed", "transcript": "marca"})
+    col.esperar(dc.TextoEntrada)                  # sentinela: o leitor já passou pelos dois eventos acima
     assert len(col.de(dc.AudioSaida)) == 1 and not col.de(dc.FimResposta)
     m.encerrar()
 
@@ -801,7 +802,8 @@ def test_cascata_interromper_cala_o_turno_velho(srv):
     col.esperar(dc.AudioSaida)
     m.interromper()
     liberar.set()
-    time.sleep(0.3)
+    esperar_ate(lambda: not any(t.name == "conversa-cascata" and t.is_alive()    # o turno velho acabou
+                                for t in threading.enumerate()))
     assert len(col.de(dc.AudioSaida)) == 1 and not col.de(dc.FimResposta)
     m.encerrar()
 
