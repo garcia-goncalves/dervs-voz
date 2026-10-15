@@ -24,9 +24,10 @@ Três motores: `MotorGeminiLive` (padrão, faixa grátis), `MotorCascata` (reser
 Groq transcreve, cérebro responde, voz em fluxo) e `MotorOpenAIRealtime` (premium,
 só por config). `Conversa` troca de um para o próximo sozinho.
 
-SEGURANÇA: a chave do Gemini vai NA URL do WebSocket. Por isso nenhuma URL,
-cabeçalho nem corpo de erro bruto entra em log, em mensagem de `Erro` ou em
-exceção: as mensagens são frases fixas escolhidas pelo TIPO do erro.
+SEGURANÇA: as chaves vão em cabeçalho (`x-goog-api-key` no Gemini Live, medido em
+15/10: o servidor aceita; a URL com `?key=` pararia em log de proxy). Mesmo assim
+nenhuma URL, cabeçalho nem corpo de erro bruto entra em log, em mensagem de `Erro`
+ou em exceção: as mensagens são frases fixas escolhidas pelo TIPO do erro.
 
 Ferramentas na cascata (sem voz direta, o "cérebro" é texto): o prompt pede que,
 quando uma ação for necessária, o cérebro escreva UMA linha só com JSON
@@ -63,6 +64,7 @@ USD_REALTIME_CACHE = 0.30 / 1_000_000
 USD_GROQ_POR_HORA = 0.04
 MOTORES_PAGOS = ("cascata", "openai_realtime")
 TURNOS_DE_CONTEXTO = 6
+MIN_COMMIT_MS = 100          # o Realtime recusa commit de menos de 100 ms de áudio
 
 MENSAGENS = {
     "limite": "O limite de uso do serviço de voz acabou.",
@@ -185,7 +187,11 @@ class _WsReal:
     def __init__(self, url, cabecalhos, timeout=30):
         import websocket
         self._abnf = websocket.ABNF
+        # o timeout vale até o handshake acabar (`pronto()`); sem ele um servidor mudo prende a thread
         self._ws = websocket.create_connection(url, header=list(cabecalhos), timeout=timeout)
+
+    def pronto(self):
+        """Handshake feito: a partir daqui o recv espera quanto for preciso."""
         self._ws.settimeout(None)
 
     def send(self, texto):
@@ -339,12 +345,42 @@ class _MotorWS(MotorConversa):
             raise ErroTransporte("chave")
         return self._chave
 
+    @staticmethod
+    def _fechar_ws(ws):
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _pronto(ws):
+        """Tira o timeout do handshake, se o transporte tem (o dublê dos testes não tem)."""
+        pronto = getattr(ws, "pronto", None)
+        if pronto:
+            pronto()
+
+    def _instalar(self, ws):
+        """Publica o ws pronto. Se `encerrar()` rodou enquanto conectava, fecha o ws e devolve False."""
+        with self._trava:
+            if self._encerrado:
+                antigo, aceito = ws, False
+            else:
+                antigo, self._ws, aceito = self._ws, ws, True
+        self._fechar_ws(antigo)
+        return aceito
+
     def _rodar(self):
         try:
-            self._ws = self._abrir()
+            if not self._instalar(self._abrir()):
+                return
             while not self._encerrado:
+                with self._trava:
+                    ws = self._ws
+                if ws is None:
+                    return
                 try:
-                    bruto = self._ws.recv()
+                    bruto = ws.recv()
                 except Exception as exc:
                     if self._encerrado:
                         return
@@ -377,10 +413,10 @@ class _MotorWS(MotorConversa):
                     ws = self._ws
                 if ws is not None:
                     ws.send(item)
-            except Exception as exc:
-                if not self._encerrado:
-                    self._falhar(exc)
-                return
+            except Exception:
+                # socket trocado ou caído: o item se perde; quem decide se a sessão acabou é o
+                # leitor (recv/reconexão). Matar a sessão daqui derrubava a reconexão em curso.
+                log.debug("envio descartado (socket trocado ou caído)")
 
     def _falhar(self, exc):
         if self._encerrado:
@@ -392,14 +428,11 @@ class _MotorWS(MotorConversa):
         self._fila.put(json.dumps(obj), audio=audio)
 
     def encerrar(self):
-        self._encerrado = True
+        with self._trava:
+            self._encerrado = True
+            ws, self._ws = self._ws, None
         self._fila.fechar()
-        ws, self._ws = self._ws, None
-        if ws is not None:
-            try:
-                ws.close()
-            except Exception:
-                pass
+        self._fechar_ws(ws)
 
 
 # --- Gemini Live -----------------------------------------------------------------
@@ -450,11 +483,12 @@ class MotorGeminiLive(_MotorWS):
         return {"setup": setup}
 
     def _abrir(self):
-        url = self._url + "?key=" + self._obter_chave()
         try:
-            ws = self._transporte(url, [])
+            ws = self._transporte(self._url, ["x-goog-api-key: " + self._obter_chave()])
+        except ErroTransporte:
+            raise
         except Exception as exc:
-            raise ErroTransporte(classificar_excecao(exc)) from None   # corta a cadeia: a URL tem a chave
+            raise ErroTransporte(classificar_excecao(exc)) from None   # corta a cadeia da exceção original
         try:
             ws.send(json.dumps(self._setup()))
             while True:
@@ -474,6 +508,8 @@ class MotorGeminiLive(_MotorWS):
             turnos = [{"role": r, "parts": [{"text": t}]} for r, t in semear]
             ws.send(json.dumps({"clientContent": {"turns": turnos, "turnComplete": False}}))
         self._contexto = []
+        self._pronto(ws)
+        self._reconexoes = 0                 # sessão de pé: só falhas SEGUIDAS contam para o teto
         return ws
 
     @staticmethod
@@ -578,14 +614,7 @@ class MotorGeminiLive(_MotorWS):
         if self._reconexoes >= self.MAX_RECONEXOES:
             raise ErroTransporte("rede")
         self._reconexoes += 1
-        novo = self._abrir()
-        with self._trava:
-            antigo, self._ws = self._ws, novo
-        if antigo is not None:
-            try:
-                antigo.close()
-            except Exception:
-                pass
+        self._instalar(self._abrir())
 
     def _ao_fechar_inesperado(self, exc):
         if classificar_excecao(exc) in ("limite", "chave"):
@@ -622,6 +651,8 @@ class MotorOpenAIRealtime(_MotorWS):
         self._item_atual = None
         self._ms_enviados = 0
         self._ignorar_audio = False
+        self._resposta_ativa = False         # só então response.cancel faz sentido
+        self._ms_buffer = 0.0                # áudio no buffer de entrada; commit exige >= 100 ms
 
     def _nome_chave(self):
         return "OPENAI_API_KEY"
@@ -647,13 +678,18 @@ class MotorOpenAIRealtime(_MotorWS):
         if self._ferramentas:
             sessao["tools"] = [dict(f, type="function") for f in self._ferramentas]
             sessao["tool_choice"] = "auto"
-        ws.send(json.dumps({"type": "session.update", "session": sessao}))
-        for papel, texto in self._contexto:
-            tipo = "input_text" if papel == "user" else "output_text"
-            ws.send(json.dumps({"type": "conversation.item.create", "item": {
-                "type": "message", "role": "user" if papel == "user" else "assistant",
-                "content": [{"type": tipo, "text": texto}]}}))
+        try:
+            ws.send(json.dumps({"type": "session.update", "session": sessao}))
+            for papel, texto in self._contexto:
+                tipo = "input_text" if papel == "user" else "output_text"
+                ws.send(json.dumps({"type": "conversation.item.create", "item": {
+                    "type": "message", "role": "user" if papel == "user" else "assistant",
+                    "content": [{"type": tipo, "text": texto}]}}))
+        except Exception as exc:
+            self._fechar_ws(ws)                  # não deixa o socket aberto sem dono
+            raise ErroTransporte(classificar_excecao(exc)) from None
         self._contexto = []
+        self._pronto(ws)
         return ws
 
     def enviar_audio(self, pcm):
@@ -662,18 +698,29 @@ class MotorOpenAIRealtime(_MotorWS):
         self._enfileirar({"type": "input_audio_buffer.append",
                           "audio": base64.b64encode(reamostrar_16k_para_24k(pcm)).decode()},
                          audio=True)
+        with self._trava:
+            self._ms_buffer += len(pcm) / 32.0
         self.uso["seg_in"] += len(pcm) / 32000.0
 
     def fim_da_vez(self):
-        self._ignorar_audio = False
-        self._enfileirar({"type": "input_audio_buffer.commit"})
-        self._enfileirar({"type": "response.create"})
+        with self._trava:
+            self._ignorar_audio = False
+            curto = self._ms_buffer < MIN_COMMIT_MS
+            self._ms_buffer = 0.0
+            if not curto:
+                self._resposta_ativa = True      # a resposta já foi pedida; cancel passa a valer
+                self._enfileirar({"type": "input_audio_buffer.commit"})
+                self._enfileirar({"type": "response.create"})
+        if curto:                                # o servidor recusa commit de < 100 ms: nada a responder
+            self._emitir(FimResposta())
 
     def interromper(self):
         with self._trava:
             self._fila.purgar_audio()
             self._ignorar_audio = True
-            self._enfileirar({"type": "response.cancel"})
+            self._ms_buffer = 0.0                # o clear abaixo esvazia o buffer do servidor
+            if self._resposta_ativa:
+                self._enfileirar({"type": "response.cancel"})
             if self._item_atual:
                 self._enfileirar({"type": "conversation.item.truncate",
                                   "item_id": self._item_atual, "content_index": 0,
@@ -681,6 +728,8 @@ class MotorOpenAIRealtime(_MotorWS):
             self._enfileirar({"type": "input_audio_buffer.clear"})
 
     def responder_ferramenta(self, id_, resultado):
+        with self._trava:
+            self._resposta_ativa = True
         self._enfileirar({"type": "conversation.item.create", "item": {
             "type": "function_call_output", "call_id": id_,
             "output": json.dumps(resultado, ensure_ascii=False)}})
@@ -690,10 +739,17 @@ class MotorOpenAIRealtime(_MotorWS):
         tipo = ev.get("type", "")
         if tipo == "error":
             e = ev.get("error") or {}
-            achado = classificar_texto("%s %s" % (e.get("code", ""), e.get("type", "")))
+            codigo = str(e.get("code") or "")
+            if codigo.endswith(("_not_active", "_empty")):
+                log.debug("erro recuperável do servidor: %s", codigo[:60])    # cancel/commit sem o que cancelar
+                return
+            achado = classificar_texto("%s %s" % (codigo, e.get("type", "")))
             raise ErroTransporte(achado or "outro")
+        if tipo == "response.created":
+            self._resposta_ativa = True
         if tipo in ("response.output_audio.delta", "response.audio.delta"):
             self._item_atual = ev.get("item_id") or self._item_atual
+            self._resposta_ativa = True
             if self._ignorar_audio:
                 return
             pcm = base64.b64decode(ev.get("delta", ""))
@@ -718,6 +774,7 @@ class MotorOpenAIRealtime(_MotorWS):
             resp = ev.get("response") or {}
             self._registrar_uso(resp.get("usage"))
             self._item_atual, self._ms_enviados = None, 0
+            self._resposta_ativa = False
             if resp.get("status") != "cancelled":
                 self._emitir(FimResposta())
 
