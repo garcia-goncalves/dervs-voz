@@ -279,3 +279,15 @@ def test_auto_desligar_fica_entre_1_e_240(tmp_path, monkeypatch, bruto, esperado
     caminho.write_text('{"escuta_auto_desligar_min": %s}' % bruto, encoding="utf-8")
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
     assert cfg.carregar()["escuta_auto_desligar_min"] == esperado
+
+
+@pytest.mark.parametrize("chave,bruto,esperado", [
+    ("turno_prob_fim", "0.7", 0.7), ("turno_prob_fim", "1.5", 0.5), ("turno_prob_fim", '"x"', 0.5),
+    ("turno_espera_max_s", "5", 5), ("turno_espera_max_s", "0.1", 3.0), ("turno_espera_max_s", "true", 3.0),
+    ("turno_silencio_min_ms", "500", 500), ("turno_silencio_min_ms", "50", 300),
+])
+def test_turno_valor_torto_cai_no_padrao(tmp_path, monkeypatch, chave, bruto, esperado):
+    caminho = tmp_path / "config.json"
+    caminho.write_text('{"%s": %s}' % (chave, bruto), encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(caminho))
+    assert cfg.carregar()[chave] == esperado

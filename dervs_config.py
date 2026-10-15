@@ -282,6 +282,13 @@ PADRAO = {
     # liga um modelo local (~240 MB de download na 1ª vez, ~600 MB de RAM enquanto em uso) e exige
     # `pip install -r requirements-semantica.txt`. Tudo roda no PC; nada de nota sai por causa dela.
     "cofre_semantica": False,
+
+    # Árbitro de vez (`dervs_turno.py`): decide quando você TERMINOU de falar, em vez de cortar na
+    # primeira pausa. Silêncio >= turno_silencio_min_ms faz o modelo Smart Turn avaliar a frase; se a
+    # chance de "acabou" for >= turno_prob_fim, é a vez dele; senão espera mais, até turno_espera_max_s.
+    "turno_prob_fim": 0.5,
+    "turno_espera_max_s": 3.0,
+    "turno_silencio_min_ms": 300,
 }
 
 
@@ -407,6 +414,11 @@ def _validar(conf: dict) -> dict:
     teto = conf.get("teto_gasto_dia_usd")
     if isinstance(teto, bool) or not isinstance(teto, (int, float)) or not 0.01 <= teto <= 1000:
         conf["teto_gasto_dia_usd"] = PADRAO["teto_gasto_dia_usd"]
+    for chave, minimo, maximo in (("turno_prob_fim", 0.0, 1.0), ("turno_espera_max_s", 0.5, 10.0),
+                                  ("turno_silencio_min_ms", 100, 2000)):
+        v = conf.get(chave)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not minimo <= v <= maximo:
+            conf[chave] = PADRAO[chave]
     return conf
 
 
