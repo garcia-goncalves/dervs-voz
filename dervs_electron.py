@@ -190,6 +190,7 @@ class Motor(dervs.PopUp):
         self.infra_apelidos = lambda: []
         self.aprovacao = None        # o Motor da onda C: só a ponte do painel o vê
         self._trava_motor = threading.Lock()   # três threads o pedem; nasce um só
+        self._trava_vozes = threading.Lock()   # uma gravação de perfil por vez
         self.claude = claude_code.SessaoClaudeCode(
             ao_evento=lambda verbo, dados: self.ponte.enviar_claude(verbo, dados),
             ao_texto_final=self._claude_texto_final,
@@ -252,6 +253,51 @@ class Motor(dervs.PopUp):
                     self._claude_falar_na_tela(_AINDA_TRABALHANDO + dica)
                 return
         super().executar()
+
+    def _cn_especial(self, texto) -> bool:
+        """Na voz direta, pedido que iria ao cofre, ao Codex, à infra, à Central ou ao Claude Code
+        só roda depois de um sim (ver `dervs_conversa_natural.acao_por_texto`). Na dúvida, é."""
+        try:
+            if self.cofre is not None and cofre_voz.interpretar(texto) is not None:
+                return True
+            if self.codex_voz is not None and codex_voz.interpretar(texto) is not None:
+                return True
+            if self.infra_voz is not None and \
+                    voz_infra.interpretar(texto, self.infra_apelidos()) is not None:
+                return True
+            if central_painel.eh_pergunta_de_saude(texto):
+                return True
+            return roteador.rotear(texto)["executor"] == "claude_code"
+        except Exception:
+            return True
+
+    # ---- perfis de voz: verbos `vozes_*` do painel ----------------------------
+    def tratar_vozes(self, verbo, dados):
+        """Chega na thread de leitura da ponte, já validado. Disco e microfone (a gravação leva
+        ~30 s) rodam numa thread própria; a resposta volta por `ponte.enviar_vozes`."""
+        def corpo():
+            try:
+                if verbo == "vozes_gravar":
+                    if not self._trava_vozes.acquire(blocking=False):
+                        r = {"ok": False, "erro": "Já estou gravando uma voz."}
+                    else:
+                        try:
+                            r = self.vozes_gravar(dados["nome"], dados["papel"], progresso=lambda f:
+                                                  self.ponte.enviar_vozes({"gravando": round(f, 2)}))
+                        finally:
+                            self._trava_vozes.release()
+                elif verbo == "vozes_ativar":
+                    r = self.vozes_ativar(dados["nome"], dados["ativo"])
+                elif verbo == "vozes_apagar":
+                    r = self.vozes_apagar(dados["nome"])
+                else:
+                    r = {"ok": True}
+                self.ponte.enviar_vozes({"resultado": r, "lista": self.vozes_listar(),
+                                         "estado": self.conversa_estado()})
+            except Exception as erro:
+                self.ponte.enviar_vozes({"resultado": {
+                    "ok": False, "erro": "Algo falhou por dentro (%s)." % type(erro).__name__}})
+        threading.Thread(target=corpo, name="dervs-vozes", daemon=True).start()
 
     def _tentar_cofre_voz(self, texto) -> bool:
         """Segundo cérebro por voz ("anota que…", "o que eu sei sobre…", "abre o cofre"). True quando
@@ -959,6 +1005,7 @@ def main():
     ao_central_alvo = []
     ao_integracao_alvo = []
     ao_permissoes_alvo = []
+    ao_vozes_alvo = []
 
     def _ao_central_inicial(verbo, dados):
         if ao_central_alvo:
@@ -971,6 +1018,10 @@ def main():
     def _ao_permissoes_inicial(verbo, dados):
         if ao_permissoes_alvo:
             ao_permissoes_alvo[0](verbo, dados)
+
+    def _ao_vozes_inicial(verbo, dados):
+        if ao_vozes_alvo:
+            ao_vozes_alvo[0](verbo, dados)
 
     def _ao_microfone_inicial(ligar):
         if ao_microfone_alvo:
@@ -993,7 +1044,7 @@ def main():
                           ao_reuniao=_ao_reuniao_inicial, ao_claude=_ao_claude_inicial,
                           ao_central=_ao_central_inicial, ao_integracao=_ao_integracao_inicial,
                           ao_permissoes=_ao_permissoes_inicial,
-                          ao_modo_escuta=_ao_modo_escuta_inicial)
+                          ao_modo_escuta=_ao_modo_escuta_inicial, ao_vozes=_ao_vozes_inicial)
     motor = Motor(ponte)
     motor.voz.preparar_acuses()          # áudios de "Certo." etc., uma vez, em segundo plano
     ao_claude_alvo.append(_construir_ao_claude(motor))
@@ -1001,6 +1052,7 @@ def main():
     ao_microfone_alvo.append(motor.pedir_microfone)
     ao_reuniao_alvo.append(motor.pedir_reuniao)
     ao_modo_escuta_alvo.append(motor.pedir_modo_escuta)
+    ao_vozes_alvo.append(motor.tratar_vozes)
     ao_plano_alvo.append(_construir_ao_plano(motor))
     ponte_alvo.append(_construir_me_chamaram(ponte))
 

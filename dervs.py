@@ -41,6 +41,7 @@ from dervs_listen import (Endpointer, Microfone, VigiaDeSilencio,
                           FRAME_AMOSTRAS, TAXA)
 import dervs_nivel
 import dervs_modos_escuta as modos
+import dervs_conversa_natural as conversa_natural
 
 HOME = os.path.expanduser("~")
 AQUI = os.path.dirname(os.path.abspath(__file__))
@@ -378,12 +379,19 @@ class Escuta(QtCore.QThread):
         self._rodando = False
         self.pausado = False
         self._mic = None
+        # Ganchos que tomam o quadro no lugar do Endpointer: a conversa natural
+        # (desperto) e a gravação de um perfil de voz (tem a vez). O microfone
+        # continua com um dono só, esta thread. Gancho que devolve False (a
+        # conversa caiu) deixa o quadro seguir o caminho antigo.
+        self.desvio = None
+        self.gravacao = None
 
     def run(self):
         self._rodando = True
         ep = Endpointer()
         vigia = VigiaDeSilencio()
         estava_pausado = False
+        desviado = False
         while self._rodando:
             self._mic = Microfone()
             try:
@@ -412,6 +420,21 @@ class Escuta(QtCore.QThread):
                         ep.aquecer(frame)
                         continue
                     estava_pausado = False
+                    gancho = self.gravacao or self.desvio
+                    if gancho is not None:
+                        try:
+                            tratado = bool(gancho(frame))
+                        except Exception as e:
+                            sys.stderr.write("dervs: gancho da escuta falhou (%s)\n" % e)
+                            tratado = False
+                        if tratado:
+                            if not desviado:
+                                ep.reset()  # nada de frase pela metade no caminho antigo
+                                desviado = True
+                            ep.aquecer(frame)
+                            self.nivel.emit(dervs_nivel.nivel_do_frame(frame))
+                            continue
+                    desviado = False
                     self.nivel.emit(dervs_nivel.nivel_do_frame(frame))
                     pcm = ep.processar(frame)
                     if pcm:
@@ -438,6 +461,11 @@ class Escuta(QtCore.QThread):
 
 class PopUp(QtWidgets.QWidget):
     """Janela central: gravar, conversa, e as três ações (copiar/enviar/executar)."""
+    # A conversa natural fala de outras threads (microfone, rede, ferramenta);
+    # o sinal leva cada evento para a thread da tela.
+    _cn_evento = QtCore.pyqtSignal(str, object)
+    CN_PAUSA_APOS_QUEDA = 600.0    # caiu: 10 min no caminho antigo antes de tentar de novo
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DERVS")
@@ -489,6 +517,13 @@ class PopUp(QtWidgets.QWidget):
         self._tarefa = None            # thread lógica em andamento (cérebro/execução)
         self._threads = []             # referência forte a TODA thread viva (senão o Qt aborta)
         self._auto_seguidos = 0        # passos rodados sozinhos desde a última fala sua (trava anti-loop)
+        # Conversa natural (voz direta): liga ao acordar, desliga ao dormir.
+        self._cn = None
+        self._cn_bloqueada_ate = 0.0
+        self._cn_pcm = None            # a frase que acordou, para virar a 1ª vez da conversa
+        self._cn_arbitro = None
+        self._vozes = None
+        self._cn_evento.connect(self._cn_tratar)
 
         # motor de voz (Whisper): sobe o cérebro já no arranque
         self._stt_pronto = False
@@ -888,6 +923,8 @@ class PopUp(QtWidgets.QWidget):
         if evento == "apertou":
             self._atalho_soltou_em = None
             self.voz.calar()               # barge-in: se está falando, cala para te ouvir
+            if self._cn is not None:
+                self._cn.calar()
             self._microfone_do_atalho(True)
             self._acordar(novo=True)       # falou com ele de propósito: sem porteiro
             self.status.setText("🔴 ouvindo — fale e solte " + modos.NOME_DO_ATALHO)
@@ -965,6 +1002,7 @@ class PopUp(QtWidgets.QWidget):
             return       # teto estourado: só volta a atender se o nome for dito
         self._desperto = True
         self._desperto_ate = agora + self.JANELA_DESPERTO
+        self._cn_ligar()
 
     def _fala_continua(self, wav):
         """Chegou uma frase da conversa contínua. Manda transcrever e, quando o
@@ -1013,6 +1051,7 @@ class PopUp(QtWidgets.QWidget):
     def _entrada_continua(self, texto):
         """Aplica a palavra de acordar. Dormindo, só reage se ouvir 'DERVS'.
         Desperto (janela de alguns segundos), atende tudo — como a Siri."""
+        pcm, self._cn_pcm = self._cn_pcm, None
         tem_nome, resto = separar_chamada(
             texto, estrito=self._conf.get("chamada_estrita") is not False)
         agora = time.time()
@@ -1035,6 +1074,11 @@ class PopUp(QtWidgets.QWidget):
             self._diz("dervs", "Oi! Pode falar.")
             if self.voz.ligada:
                 self.voz.falar("Oi! Pode falar.")
+            return
+        if self._cn is not None and pcm:
+            # a voz direta acordou com esta frase: ela mesma é a 1ª vez da conversa
+            self._diz("dono", texto)
+            self._cn.turno_gravado(pcm)
             return
         self.entrada.setPlainText(texto)
         self.executar()
@@ -1265,6 +1309,10 @@ class PopUp(QtWidgets.QWidget):
                 except Exception:
                     texto = ""
                 # a transcrição chegou: a gravação já cumpriu o papel e some
+                # (o som fica só na memória, para a voz direta, se ela for atender)
+                self._cn_pcm = (conversa_natural.ler_pcm_wav(self._wav_no_porteiro)
+                                if self._auto_submeter and self._conf.get("conversa_natural")
+                                and self._wav_no_porteiro else None)
                 self._descartar_wav(self._wav_no_porteiro)
                 self._wav_no_porteiro = None
                 auto = self._auto_submeter
@@ -1283,6 +1331,147 @@ class PopUp(QtWidgets.QWidget):
                     self.status.setText("não peguei nada — fale um pouco mais alto")
                     self.status.setStyleSheet(f"color:{REC};")
 
+    # ---- conversa natural (voz direta) ----
+    def _cn_ligar(self):
+        """Acordou: a voz direta assume o microfone, se der. Qualquer falha = caminho antigo."""
+        if self._cn is not None or self.escuta is None or time.time() < self._cn_bloqueada_ate:
+            return
+        conf = cfg.carregar()
+        if not conf.get("conversa_natural") or not conversa_natural.motor_disponivel(conf):
+            return
+        emitir = self._cn_evento.emit
+        try:
+            import dervs_turno
+            if self._cn_arbitro is None:
+                self._cn_arbitro = dervs_turno.criar(conf, baixar=False)
+                if isinstance(self._cn_arbitro, dervs_turno.ArbitroEnergia):
+                    conversa_natural.baixar_modelos_em_fundo()
+            else:
+                self._cn_arbitro.reset()
+            self._cn = conversa_natural.criar_padrao(
+                conf, self._cn_executar, lambda t: emitir("aviso", t), arbitro=self._cn_arbitro,
+                ao_cair=lambda m: emitir("caiu", m), ao_turno=lambda: emitir("turno", None),
+                ao_feito=lambda: emitir("feito", None))
+        except Exception as e:
+            sys.stderr.write("dervs: conversa natural não montou (%s)\n" % type(e).__name__)
+            self._cn = None
+            return
+        if self._cn.iniciar() and self._cn is not None and self.escuta is not None:
+            self.escuta.desvio = self._cn.quadro
+
+    def _cn_executar(self, pedido, papel, confirmado):
+        """Thread da conversa natural: decide aqui; o que mexe na tela vai por sinal."""
+        conf = cfg.carregar()
+        emitir = self._cn_evento.emit
+        return conversa_natural.acao_por_texto(
+            pedido, papel, confirmado,
+            atalho=lambda t: atalhos.tentar(t) if self._atalhos_ligados else None,
+            especial=self._cn_especial,
+            planejar=lambda t: brain.pensar([{"papel": "dono", "texto": t}]),
+            pede_confirmacao=lambda passos: plano_pede_confirmacao(
+                passos, conf.get("confirmar_plano", "grave")),
+            rodar_plano=lambda f: emitir("plano", f), mostrar_plano=lambda f: emitir("plano", f),
+            delegar=lambda t: emitir("delegar", t))
+
+    def _cn_especial(self, texto) -> bool:
+        """Pedido que vai a um executor à parte (Claude Code, Codex, cofre, infra)? Aqui
+        não há nenhum; o Motor do painel (`dervs_electron`) sabe deles."""
+        return False
+
+    def _cn_tratar(self, tipo, dado):
+        """Eventos da conversa natural, já na thread da tela. Exceção aqui não derruba o app."""
+        try:
+            if tipo == "turno":
+                self._acordar()
+            elif tipo == "aviso":
+                self._diz("dervs", dado)
+                self._toast(dado)
+                if self.voz.ligada and (self._cn is None or not self._cn.player.tocando()):
+                    self.voz.falar(dado)
+            elif tipo == "caiu":
+                self._cn_desligar()
+                self._cn_bloqueada_ate = time.time() + self.CN_PAUSA_APOS_QUEDA
+            elif tipo == "feito":
+                self._toast("feito ✓")
+            elif tipo == "plano":
+                # o mesmo caminho do cérebro: `plano_pede_confirmacao` decide se vira cartão
+                self._cerebro_respondeu(dado)
+            elif tipo == "delegar":
+                self.entrada.setPlainText(dado)
+                self.executar()
+        except Exception as e:
+            sys.stderr.write("dervs: conversa natural (%s) falhou: %s\n" % (tipo, e))
+
+    def _cn_desligar(self):
+        cn_atual, self._cn = self._cn, None
+        if self.escuta is not None:
+            self.escuta.desvio = None
+        if cn_atual is not None:
+            cn_atual.encerrar()
+            cn_atual.player.fechar()
+
+    def _cn_vigiar(self):
+        """Relógio de 500 ms: dormiu (ou o microfone fechou) e ela não está no meio de nada."""
+        try:
+            cn_atual = self._cn
+            if cn_atual is None:
+                return
+            cn_atual.tique()
+            if not cn_atual.ocupado() and (self.escuta is None or not self._esta_desperto()):
+                self._cn_desligar()
+        except Exception as e:
+            sys.stderr.write("dervs: vigia da conversa natural falhou: %s\n" % e)
+
+    # ---- perfis de voz (API do painel) ----
+    def _vozes_api(self):
+        if self._vozes is None:
+            import dervs_locutor
+            self._vozes = conversa_natural.Vozes(
+                dervs_locutor.Perfis(), conversa=lambda: self._cn, gravar_audio=self._gravar_voz,
+                conf=cfg.carregar())
+        return self._vozes
+
+    def vozes_listar(self):
+        return self._vozes_api().listar()
+
+    def vozes_gravar(self, nome, papel, progresso=None):
+        """Bloqueia ~30 s: chame fora da thread da tela."""
+        return self._vozes_api().gravar(nome, papel, progresso)
+
+    def vozes_ativar(self, nome, ativo):
+        return self._vozes_api().ativar(nome, ativo)
+
+    def vozes_apagar(self, nome):
+        return self._vozes_api().apagar(nome)
+
+    def conversa_estado(self):
+        return self._vozes_api().estado()
+
+    def _gravar_voz(self, segundos, progresso):
+        """~30 s do microfone. Com a escuta aberta, toma os quadros dela (o microfone tem um
+        dono só); fechada, abre e fecha um microfone só para isto, nesta mesma thread."""
+        g = conversa_natural.Gravador(segundos, progresso)
+        escuta = self.escuta
+        if escuta is not None:
+            escuta.gravacao = g.quadro
+            try:
+                if not g.pronto.wait(segundos + 10):
+                    raise RuntimeError("o microfone parou de mandar som")
+            finally:
+                escuta.gravacao = None
+        else:
+            mic = Microfone()
+            mic.abrir()
+            try:
+                while not g.pronto.is_set():
+                    q = mic.ler()
+                    if not q:
+                        raise RuntimeError("o microfone caiu")
+                    g.quadro(q)
+            finally:
+                mic.fechar()
+        return g.audio()
+
     def atualizar(self):
         # Conversa contínua: só fica SURDO quando ouvir atrapalharia de verdade —
         # ele falando (senão escuta a própria voz) ou você gravando à mão.
@@ -1292,6 +1481,7 @@ class PopUp(QtWidgets.QWidget):
         if self.escuta is not None:
             self.escuta.pausado = (self.voz.falando() or gravando())
         self._puxar_da_fila()
+        self._cn_vigiar()
         if self._trava > 0:
             self._trava -= 1
             if self._trava > 0:
@@ -1442,8 +1632,8 @@ class PopUp(QtWidgets.QWidget):
     def _cerebro_respondeu(self, ficha):
         fala = ficha.get("fala", "")
         self.conversa.append({"papel": "dervs", "texto": fala})
-        self._diz("dervs", fala)
         if fala:
+            self._diz("dervs", fala)
             self.voz.falar(fala)
         # segue desperto após responder: você emenda sem repetir "DERVS".
         # `_acordar` respeita o teto absoluto — passado ele, a janela não
@@ -1866,8 +2056,13 @@ def encerrar_tudo(pop):
         for t in list(pop._threads):
             t.wait(3000)
 
+    def _desligar_conversa_natural():
+        if getattr(pop, "_cn", None) is not None:
+            pop._cn_desligar()
+
     passos = (
         ("parar a gravação", _parar_gravacao),
+        ("desligar a conversa natural", _desligar_conversa_natural),
         ("parar a escuta", _parar_escuta),
         ("desligar a voz", pop.voz.desligar),
         ("esperar as threads", _esperar_threads),

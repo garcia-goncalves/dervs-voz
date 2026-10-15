@@ -574,6 +574,7 @@ class ConversaNatural:
         self._retido = []
         self._t_fim = -1e9
         self._ultima_voz = -1e9
+        self._quadro_em = None            # relógio do último quadro do microfone
         self._descartar = False
         self._mudo = False
         self._interrupcao = None          # instante em que alguém começou a falar por cima
@@ -626,7 +627,20 @@ class ConversaNatural:
                 return
             self.falhou = True
         self.encerrar()
+        self._avisar(AVISO_CAIU)
         self._ao_cair(motivo)
+
+    def calar(self):
+        """Interrupção explícita (o atalho apertado): a resposta em curso para na hora."""
+        with self._trava_estado:
+            if self._resposta_em_curso():
+                self._interromper()
+
+    def tique(self):
+        """Chamado pelo relógio do app: solta a resposta retida quando o microfone parou de
+        mandar quadros (o modo Atalho fecha o microfone logo depois da fala)."""
+        with self._trava_estado:
+            self._relogio_interno()
 
     def estado(self) -> dict:
         with self._trava_estado:
@@ -658,6 +672,7 @@ class ConversaNatural:
             pcm = self._eco.limpar(pcm)
         with self._trava_estado:
             self._n += 1
+            self._quadro_em = self._relogio()
             tocando = self.player.tocando()
             if self.trava != "ligada" and tocando:
                 if not self._ignorando:      # sem trava não há interrupção: surdo enquanto fala
@@ -826,8 +841,12 @@ class ConversaNatural:
             c.interromper()
 
     def _pode_tocar(self):
-        return not self._em_fala and (self._t - self._ultima_voz >= self.segurar_s - 1e-9
-                                      or self._t - self._t_fim >= SEGURAR_MAX_S - 1e-9)
+        if self._em_fala:
+            return False
+        if self._quadro_em is None or self._relogio() - self._quadro_em > 0.5:
+            return True                             # microfone parado: não há o que esperar
+        return (self._t - self._ultima_voz >= self.segurar_s - 1e-9
+                or self._t - self._t_fim >= SEGURAR_MAX_S - 1e-9)
 
     def _relogio_interno(self):
         if self._interrupcao is not None and self._t - self._interrupcao >= ESPERA_CONFIRMAR_S:
@@ -872,7 +891,6 @@ class ConversaNatural:
         elif isinstance(ev, dc.Troca):
             self._avisar("Mudei a voz para o modo %s." % NOMES_DOS_MOTORES.get(ev.para, ev.para))
         elif isinstance(ev, dc.Erro):
-            self._avisar(AVISO_CAIU)
             self._cair(ev.tipo)
 
     def _papel(self):
@@ -963,6 +981,31 @@ class ConversaNatural:
         if tipo == "recusado":
             return {"ok": False, "recusado": True, "diga": RECUSA_CONVIDADO}
         return {"ok": False, "diga": r.get("fala") or "Não consegui fazer isso agora."}
+
+
+def ler_pcm_wav(caminho):
+    """PCM int16 16 kHz mono de um .wav da escuta (None se não for isso)."""
+    try:
+        with wave.open(caminho) as w:
+            if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (TAXA, 1, 2):
+                return None
+            return w.readframes(w.getnframes())
+    except (OSError, wave.Error, EOFError, TypeError):
+        return None
+
+
+def baixar_modelos_em_fundo():
+    """Baixa (uma vez, SHA-256 conferido) os modelos do árbitro e do locutor, sem travar nada:
+    a sessão de agora segue com o que há; a próxima já usa os modelos."""
+    def corpo():
+        try:
+            import dervs_locutor
+            for nome in dt.MODELOS:
+                dt.garantir_modelo(nome)
+            dervs_locutor.caminho_modelo()
+        except Exception:
+            log.exception("baixar modelos da conversa natural")
+    threading.Thread(target=corpo, name="dervs-modelos-conversa", daemon=True).start()
 
 
 def criar_padrao(conf, executar_acao, avisar, arbitro=None, **kw):
