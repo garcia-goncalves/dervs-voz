@@ -541,6 +541,8 @@ class PopUp(QtWidgets.QWidget):
         self._cn_pcm = None            # a frase que acordou, para virar a 1ª vez da conversa
         self._cn_arbitro = None
         self._cn_frase = None          # texto da frase que acordou (refeita no antigo se a voz direta cair sem falar)
+        self._cn_frase_pcm = None      # o áudio dela: o replay no caminho antigo só vale se a voz passar na trava
+        self._pedidos_em_espera = []   # pedidos feitos com o cérebro ocupado: nunca somem calados
         self._plano_grave = False      # o cartão aberto é de coisa grave: só o clique confirma
         self._vozes_trava = threading.Lock()
         self._vozes = None
@@ -1088,6 +1090,21 @@ class PopUp(QtWidgets.QWidget):
         if modos.eh_pare_de_ouvir(texto):
             self._pare_de_ouvir()
             return
+        # Trava de voz do caminho antigo. A voz direta confere o falante por conta própria; quando
+        # ela não vai atender esta frase (ou não há áudio), quem confere é aqui. Com perfil cadastrado
+        # a regra é a mesma da voz direta: só atende voz confirmada de um perfil ativo.
+        papel = "dono"
+        if self._cn is None or not pcm:
+            estado, papel = self._conferir_voz(pcm)
+            if estado in ("sem_audio", "recusada") or (estado == "curta" and not tem_nome):
+                self._dizer_e_falar(self.AVISO_NAO_RECONHECI)
+                return
+            if estado == "curta":
+                # fala curta demais para provar quem é: o nome acorda, o pedido não passa
+                self._acordar(novo=True)
+                self._cn_ligar()
+                self._dizer_e_falar("Oi! Pode falar.")
+                return
         self._acordar(novo=tem_nome)
         self._cn_ligar()
 
@@ -1101,14 +1118,65 @@ class PopUp(QtWidgets.QWidget):
             # a voz direta acordou com esta frase: ela mesma é a 1ª vez da conversa
             self._diz("dono", texto)
             self._cn_frase = texto
+            self._cn_frase_pcm = pcm
             self._cn.turno_gravado(pcm)
             return
         if self._cn is not None:
             # sem o áudio da frase a voz direta não a ouviu, e o caminho antigo vai atender: os
             # dois juntos responderiam em dobro. Sai a voz direta, uma vez, com aviso.
             self._cn._cair("sem áudio da frase")
-        self.entrada.setPlainText(texto)
-        self.executar()
+        self._atender_no_antigo(texto, papel)
+
+    AVISO_NAO_RECONHECI = "Não reconheci a sua voz."
+    VOZ_MINIMA_S = 1.5                 # fala útil mínima para o quem_fala decidir quem é
+
+    def _dizer_e_falar(self, msg):
+        self._diz("dervs", msg)
+        if self.voz.ligada:
+            self.voz.falar(msg)
+
+    def _conferir_voz(self, pcm):
+        """(estado, papel) da frase no caminho antigo. estado: "livre" (nenhum perfil: sem trava),
+        "ok" (voz de perfil ativo; papel dele), "curta" (menos de 1,5 s de fala), "sem_audio" ou
+        "recusada". Com perfil cadastrado (ou que já existiu) a trava é fail-closed: erro = recusada."""
+        import numpy as np
+        import dervs_locutor
+        try:
+            if cfg.carregar().get("locutor_ligado", True) is False:
+                return "livre", "dono"
+            perfis = self._vozes_api().perfis
+            if not (perfis.listar() or conversa_natural._ja_teve(perfis)):
+                return "livre", "dono"
+        except Exception:
+            return "sem_audio", None
+        if not pcm:
+            return "sem_audio", None
+        try:
+            audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768.0
+            if len(dervs_locutor._fala_util(audio)) < self.VOZ_MINIMA_S * conversa_natural.TAXA:
+                return "curta", None
+            perfil, _score = perfis.quem_fala(audio[-10 * conversa_natural.TAXA:])
+        except Exception:
+            return "recusada", None
+        if perfil is None or not perfil.ativo:
+            return "recusada", None
+        return "ok", perfil.papel
+
+    def _atender_no_antigo(self, texto, papel):
+        """Entrega a frase ao caminho de sempre. Convidado só faz o fácil e reversível (os atalhos
+        locais: hora, data, abrir app), como na voz direta; o resto é só do dono."""
+        if papel != "convidado":
+            self.entrada.setPlainText(texto)
+            self.executar()
+            return
+        self._diz("dono", texto)
+        ficha = atalhos.tentar(texto, agenda=self.agenda) if self._atalhos_ligados else None
+        passos = (ficha or {}).get("passos") or []
+        if ficha is None or (ficha.get("modo") == "planejar" and passos and plano_pede_confirmacao(
+                passos, cfg.carregar().get("confirmar_plano", "grave"))):
+            self._dizer_e_falar("Isso só o dono pode pedir.")
+            return
+        self._cerebro_respondeu(ficha)
 
     # ---- gravar / parar ----
     def toggle_gravar(self):
@@ -1338,8 +1406,7 @@ class PopUp(QtWidgets.QWidget):
                 # a transcrição chegou: a gravação já cumpriu o papel e some
                 # (o som fica só na memória, para a voz direta, se ela for atender)
                 self._cn_pcm = (conversa_natural.ler_pcm_wav(self._wav_no_porteiro)
-                                if self._auto_submeter and self._conf.get("conversa_natural")
-                                and self._wav_no_porteiro else None)
+                                if self._auto_submeter and self._wav_no_porteiro else None)
                 self._descartar_wav(self._wav_no_porteiro)
                 self._wav_no_porteiro = None
                 auto = self._auto_submeter
@@ -1421,11 +1488,16 @@ class PopUp(QtWidgets.QWidget):
                 refazer = (self._cn_frase if self._cn is not None
                            and self._cn.frase_sem_resposta() else None)
                 self._cn_frase = None
+                pcm_frase, self._cn_frase_pcm = self._cn_frase_pcm, None
                 self._cn_desligar()
                 self._cn_bloqueada_ate = time.time() + self.CN_PAUSA_APOS_QUEDA
                 if refazer:
-                    self.entrada.setPlainText(refazer)
-                    self.executar()
+                    # só refaz se a voz que a disse passa na trava (sem perfil, passa)
+                    estado, papel = self._conferir_voz(pcm_frase)
+                    if estado in ("livre", "ok"):
+                        self._atender_no_antigo(refazer, papel)
+                    else:
+                        self._dizer_e_falar(self.AVISO_NAO_RECONHECI)
             elif tipo == "quebrou":
                 if self._cn is not None:
                     self._cn._cair("quadro")
@@ -1525,6 +1597,7 @@ class PopUp(QtWidgets.QWidget):
         if self.escuta is not None:
             self.escuta.pausado = (self.voz.falando() or gravando())
         self._puxar_da_fila()
+        self._atender_pedidos_em_espera()
         self._cn_vigiar()
         if self._trava > 0:
             self._trava -= 1
@@ -1604,7 +1677,10 @@ class PopUp(QtWidgets.QWidget):
     def executar(self):
         """Manda o que você falou para a conversa e chama o cérebro."""
         texto = self.entrada.toPlainText().strip()
-        if not texto or self._tarefa is not None:
+        if not texto:
+            return
+        if self._tarefa is not None:
+            self._guardar_pedido(texto)
             return
         # ESPERANDO O OK DE UM PLANO? A fala curta é 'ok' (roda), 'não' (cancela),
         # ou uma correção (frase maior → re-planeja com o cérebro).
@@ -1637,6 +1713,30 @@ class PopUp(QtWidgets.QWidget):
                 self._cerebro_respondeu(ficha)
                 return
         self._pensar()
+
+    MAX_PEDIDOS_EM_ESPERA = 3
+
+    def _guardar_pedido(self, texto):
+        """O cérebro está no meio de outro pedido: este entra na fila (até 3) e roda quando ele
+        terminar. Nunca some calado: se não couber, o dono ouve e repete."""
+        if atalhos.eh_confirmacao(texto) is not None:
+            # um 'sim'/'não' dito agora não pode virar a confirmação de um plano que ainda nem existe
+            self.entrada.clear()
+            self._dizer_e_falar("Ainda estou fazendo o pedido anterior; diga de novo quando eu terminar.")
+        elif len(self._pedidos_em_espera) >= self.MAX_PEDIDOS_EM_ESPERA:
+            self._dizer_e_falar("Ainda estou fazendo o pedido anterior e a fila está cheia; "
+                                "peça de novo quando eu terminar.")
+        else:
+            self._pedidos_em_espera.append(texto)
+            self.entrada.clear()
+            self._dizer_e_falar("Ainda estou terminando um pedido; deixei o seu na fila.")
+
+    def _atender_pedidos_em_espera(self):
+        """Livre de novo (e sem plano esperando o ok): atende o próximo pedido da fila."""
+        if not self._pedidos_em_espera or self._tarefa is not None or self._aguardando_ok:
+            return
+        self.entrada.setPlainText(self._pedidos_em_espera.pop(0))
+        self.executar()
 
     def _registrar(self, t):
         """Guarda uma referência forte à thread até ela terminar de verdade —

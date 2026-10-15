@@ -1355,3 +1355,166 @@ def test_escuta_gancho_que_quebra_20_vezes_seguidas_aciona_a_queda(monkeypatch):
     escuta.run()
     assert len(chamadas) == dervs.Escuta.GANCHO_FALHAS_MAX and quebrou == [1]
     assert escuta.desvio is None
+
+
+# ---- revisão de 15/10: o caminho antigo também confere a voz; pedido não se perde calado ----
+
+LONGO = quadro("dono") * 80          # 2,4 s de fala do dono
+CURTO = quadro("dono") * 40          # 1,2 s: pouco para o quem_fala decidir
+ESTRANHO = quadro("filha") * 80      # voz que não é de nenhum perfil do dono
+
+
+def _caminho_antigo(motor_app, monkeypatch, perfis):
+    """Voz direta fora (sem motor) e perfis dublês no porteiro do caminho antigo."""
+    import types
+    monkeypatch.setattr(cn, "motor_disponivel", lambda conf: False)
+    if perfis is not None:
+        motor_app._vozes = types.SimpleNamespace(perfis=perfis)
+    rodados, ditos = [], []
+    monkeypatch.setattr(motor_app, "executar", lambda: rodados.append(motor_app.entrada.toPlainText()))
+    monkeypatch.setattr(motor_app, "_diz", lambda papel, texto, cor=None: ditos.append((papel, texto)))
+    return rodados, ditos
+
+
+def test_antigo_com_perfil_e_frase_sem_audio_nunca_atende(motor_app, monkeypatch):
+    rodados, ditos = _caminho_antigo(motor_app, monkeypatch, PerfisFalsos())
+    motor_app._cn_pcm = None
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert rodados == [] and not motor_app._esta_desperto()
+    assert any("não reconheci" in t.lower() for _, t in ditos)
+
+
+def test_antigo_com_perfil_voz_estranha_nao_acorda_nem_atende(motor_app, monkeypatch):
+    rodados, ditos = _caminho_antigo(motor_app, monkeypatch, PerfisFalsos())
+    motor_app._cn_pcm = ESTRANHO
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert rodados == [] and not motor_app._esta_desperto()
+    assert any("não reconheci" in t.lower() for _, t in ditos)
+
+
+def test_antigo_com_perfil_voz_do_dono_atende(motor_app, monkeypatch):
+    rodados, _ = _caminho_antigo(motor_app, monkeypatch, PerfisFalsos())
+    motor_app._cn_pcm = LONGO
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert rodados == ["abre o Chrome"] and motor_app._esta_desperto()
+
+
+def test_antigo_fala_curta_com_o_nome_acorda_mas_nao_atende_o_pedido(motor_app, monkeypatch):
+    rodados, ditos = _caminho_antigo(motor_app, monkeypatch, PerfisFalsos())
+    motor_app._cn_pcm = CURTO
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert rodados == [] and motor_app._esta_desperto()      # acordou, mas o pedido não passou
+    assert any("Pode falar" in t for _, t in ditos)
+
+
+def test_antigo_fala_curta_sem_o_nome_e_recusada_mesmo_desperto(motor_app, monkeypatch):
+    rodados, ditos = _caminho_antigo(motor_app, monkeypatch, PerfisFalsos())
+    motor_app._acordar(novo=True)
+    motor_app._cn_pcm = CURTO
+    motor_app._entrada_continua("abre o Chrome")
+    assert rodados == [] and any("não reconheci" in t.lower() for _, t in ditos)
+
+
+def test_antigo_sem_perfil_nenhum_continua_como_sempre(motor_app, monkeypatch):
+    rodados, _ = _caminho_antigo(motor_app, monkeypatch, PerfisFalsos(perfis=()))
+    motor_app._cn_pcm = None
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert rodados == ["abre o Chrome"]
+
+
+def test_antigo_perfis_zerados_depois_de_ter_existido_seguem_trancados(motor_app, monkeypatch):
+    perfis = PerfisFalsos(perfis=())
+    perfis.ja_teve_perfil = lambda: True
+    rodados, _ = _caminho_antigo(motor_app, monkeypatch, perfis)
+    motor_app._cn_pcm = LONGO
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert rodados == []
+
+
+def test_antigo_trava_de_voz_desligada_na_config_nao_confere(motor_app, monkeypatch):
+    rodados, _ = _caminho_antigo(motor_app, monkeypatch, PerfisFalsos())
+    import dervs
+    monkeypatch.setattr(dervs.cfg, "carregar", lambda: dict(dervs.cfg.PADRAO, locutor_ligado=False))
+    motor_app._cn_pcm = None
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    assert rodados == ["abre o Chrome"]
+
+
+def test_antigo_convidado_so_faz_o_facil_e_reversivel(motor_app, monkeypatch):
+    perfis = PerfisFalsos(perfis=(("André", "dono"), ("Filha", "convidado")))
+    rodados, ditos = _caminho_antigo(motor_app, monkeypatch, perfis)
+    respondidos = []
+    monkeypatch.setattr(motor_app, "_cerebro_respondeu", respondidos.append)
+    motor_app._cn_pcm = ESTRANHO                        # no dublê, amplitude 9000 = a convidada
+    motor_app._entrada_continua("DERVS, que horas são")
+    assert rodados == [] and len(respondidos) == 1      # o atalho local respondeu, sem o cérebro
+    motor_app._cn_pcm = ESTRANHO
+    motor_app._entrada_continua("DERVS, apaga a pasta de fotos")
+    assert rodados == [] and len(respondidos) == 1      # o resto é só do dono
+    assert any("dono" in t.lower() for _, t in ditos)
+
+
+def test_antigo_replay_da_frase_que_acordou_exige_ter_passado_na_trava(motor_app, monkeypatch):
+    cenas = _cn_do_app(monkeypatch, {"perfis": PerfisFalsos(perfis=())})
+    import types
+    motor_app._vozes = types.SimpleNamespace(perfis=PerfisFalsos())
+    rodados, ditos = [], []
+    monkeypatch.setattr(motor_app, "executar", lambda: rodados.append(motor_app.entrada.toPlainText()))
+    monkeypatch.setattr(motor_app, "_diz", lambda papel, texto, cor=None: ditos.append((papel, texto)))
+    _acordar_app(motor_app)                              # a voz direta já está de pé
+    motor_app._cn_pcm = ESTRANHO
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    cenas[0].conv.cb(dc.Erro("rede", "sem rede"))        # caiu antes de responder
+    assert rodados == []                                 # voz que não passou NÃO é refeita
+    cenas = _cn_do_app(monkeypatch, {"perfis": PerfisFalsos(perfis=())})
+    motor_app._cn_bloqueada_ate = 0.0
+    _acordar_app(motor_app)
+    motor_app._cn_pcm = LONGO
+    motor_app._entrada_continua("DERVS, abre o Chrome")
+    cenas[-1].conv.cb(dc.Erro("rede", "sem rede"))
+    assert rodados == ["abre o Chrome"]                  # a do dono é
+
+
+def test_pedido_durante_tarefa_ocupada_vai_para_a_fila_e_roda_depois(motor_app, monkeypatch):
+    ditos = []
+    monkeypatch.setattr(motor_app, "_diz", lambda papel, texto, cor=None: ditos.append((papel, texto)))
+    pensados = []
+    monkeypatch.setattr(motor_app, "_pensar", lambda: pensados.append(motor_app.conversa[-1]["texto"]))
+    monkeypatch.setattr(motor_app, "_tentar_cofre_voz", lambda t: False)
+    motor_app._atalhos_ligados = False
+    motor_app._tarefa = object()                          # o cérebro está no meio de um pedido
+    motor_app.entrada.setPlainText("abre o bloco de notas")
+    motor_app.executar()
+    assert motor_app.entrada.toPlainText() == "" and pensados == []
+    assert any("fila" in t.lower() for _, t in ditos)
+    motor_app._tarefa = None
+    motor_app._atender_pedidos_em_espera()
+    assert pensados == ["abre o bloco de notas"]
+
+
+def test_fila_de_pedidos_tem_no_maximo_tres_e_o_quarto_e_avisado_nao_calado(motor_app, monkeypatch):
+    ditos = []
+    monkeypatch.setattr(motor_app, "_diz", lambda papel, texto, cor=None: ditos.append((papel, texto)))
+    motor_app._tarefa = object()
+    for n in range(4):
+        motor_app.entrada.setPlainText("pedido %d" % n)
+        motor_app.executar()
+    assert list(motor_app._pedidos_em_espera) == ["pedido 0", "pedido 1", "pedido 2"]
+    assert any("cheia" in t.lower() for _, t in ditos)
+
+
+def test_sim_solto_com_tarefa_ocupada_nao_entra_na_fila(motor_app, monkeypatch):
+    """Um 'sim' dito antes do plano existir não pode virar a confirmação de um plano futuro."""
+    ditos = []
+    monkeypatch.setattr(motor_app, "_diz", lambda papel, texto, cor=None: ditos.append((papel, texto)))
+    motor_app._tarefa = object()
+    motor_app.entrada.setPlainText("sim")
+    motor_app.executar()
+    assert list(motor_app._pedidos_em_espera) == [] and any("de novo" in t.lower() for _, t in ditos)
+
+
+def test_pedido_delegado_ja_confirmado_com_tarefa_ocupada_nao_some(motor_app, monkeypatch):
+    monkeypatch.setattr(motor_app, "_diz", lambda *a, **k: None)
+    motor_app._tarefa = object()
+    motor_app._cn_tratar("delegar", "pede pro Codex analisar a ponte")
+    assert list(motor_app._pedidos_em_espera) == ["pede pro Codex analisar a ponte"]
