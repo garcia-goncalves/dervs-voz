@@ -455,6 +455,11 @@ def _validar(conf: dict) -> dict:
         v = conf.get(chave)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not minimo <= v <= maximo:
             conf[chave] = PADRAO[chave]
+    # cada um é válido sozinho, mas a espera máxima tem de passar do silêncio mínimo (+300 ms, o passo
+    # da reavaliação); senão o árbitro fecha a vez sem consultar o modelo. Incoerente: volta os dois.
+    if conf["turno_espera_max_s"] <= conf["turno_silencio_min_ms"] / 1000 + 0.3:
+        conf["turno_espera_max_s"] = PADRAO["turno_espera_max_s"]
+        conf["turno_silencio_min_ms"] = PADRAO["turno_silencio_min_ms"]
     return conf
 
 
