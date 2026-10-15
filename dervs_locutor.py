@@ -18,6 +18,7 @@ A impressão numérica é dado biométrico (pode ser de menor de idade): `voz.bi
 é cifrado com a DPAPI do Windows (`dervs_dpapi`, escopo do usuário). Um
 `voz.npy` em claro, de antes da cifra, ainda é lido uma vez e migrado.
 """
+import contextlib
 import hashlib
 import io
 import http.client
@@ -167,13 +168,16 @@ def _salvar_voz(d: str, vetor: np.ndarray):
     buf = io.BytesIO()
     np.save(buf, np.asarray(vetor, dtype=np.float32), allow_pickle=False)
     cifrado = dervs_dpapi.proteger(buf.getvalue())
-    tmp = os.path.join(d, "voz.bin.tmp")
-    with open(tmp, "wb") as f:
-        f.write(cifrado)
-    os.replace(tmp, os.path.join(d, "voz.bin"))
-    claro = os.path.join(d, "voz.npy")
-    if os.path.exists(claro):
-        os.remove(claro)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix="voz-", suffix=".tmp")     # nome único: sem colisão
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(cifrado)
+        os.replace(tmp, os.path.join(d, "voz.bin"))
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)                       # só sobra se o replace não aconteceu
+    with contextlib.suppress(OSError):
+        os.remove(os.path.join(d, "voz.npy"))
 
 
 def _ler_voz(d: str) -> np.ndarray:
@@ -184,8 +188,24 @@ def _ler_voz(d: str) -> np.ndarray:
             bruto = dervs_dpapi.desproteger(f.read())
         return np.load(io.BytesIO(bruto), allow_pickle=False)
     vetor = np.load(os.path.join(d, "voz.npy"), allow_pickle=False)
-    _salvar_voz(d, vetor)
+    with contextlib.suppress(OSError, dervs_dpapi.ErroDpapi):    # migrar é o melhor possível:
+        _salvar_voz(d, vetor)                                    # a leitura não pode morrer por isso
     return vetor
+
+
+def _migrar_claro(d: str):
+    """Cifra o `voz.npy` de um perfil (ativo ou não) sem ninguém precisar falar; se já existe
+    o `voz.bin`, o claro que sobrou é só apagado. Falha de disco/DPAPI deixa tudo como está."""
+    claro = os.path.join(d, "voz.npy")
+    if not os.path.exists(claro):
+        return
+    try:
+        if os.path.exists(os.path.join(d, "voz.bin")):
+            os.remove(claro)
+        else:
+            _salvar_voz(d, np.load(claro, allow_pickle=False))
+    except (OSError, ValueError, dervs_dpapi.ErroDpapi):
+        pass
 
 
 class Perfis:
@@ -261,7 +281,10 @@ class Perfis:
         except OSError:
             return []
         achados = (self._ler(os.path.join(self.pasta, n)) for n in nomes)
-        return [p for p in achados if p]
+        perfis = [p for p in achados if p]
+        for p in perfis:
+            _migrar_claro(os.path.join(self.pasta, p.slug))
+        return perfis
 
     def ativar(self, nome: str, ativo: bool) -> Perfil:
         d = self._dir(nome)
