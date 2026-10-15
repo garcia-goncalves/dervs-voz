@@ -5,6 +5,7 @@ frequência do tom puro usado como voz), então nada aqui precisa do modelo nem
 de rede. O teste marcado `modelo_real` usa o ERes2Net de verdade e é pulado se
 o arquivo não estiver na máquina.
 """
+import io
 import json
 import os
 
@@ -12,6 +13,7 @@ import numpy as np
 import pytest
 
 import dervs_config
+import dervs_dpapi
 import dervs_locutor as L
 
 TAXA = L.TAXA
@@ -41,8 +43,11 @@ def test_gravar_cria_perfil_sem_guardar_audio(perfis, tmp_path):
     p = perfis.gravar("André", "dono", voz(250, 16))
     assert (p.nome, p.slug, p.papel, p.ativo) == ("André", "andre", "dono", True)
     arquivos = sorted(os.listdir(tmp_path / "vozes" / "andre"))
-    assert arquivos == ["perfil.json", "voz.npy"]
-    v = np.load(tmp_path / "vozes" / "andre" / "voz.npy")
+    assert arquivos == ["perfil.json", "voz.bin"]
+    bruto = (tmp_path / "vozes" / "andre" / "voz.bin").read_bytes()
+    with pytest.raises(ValueError):                     # cifrado: não é um .npy legível
+        np.load(io.BytesIO(bruto), allow_pickle=False)
+    v = np.load(io.BytesIO(dervs_dpapi.desproteger(bruto)), allow_pickle=False)
     assert abs(float(np.linalg.norm(v)) - 1.0) < 1e-5
     assert json.load(open(tmp_path / "vozes" / "andre" / "perfil.json", encoding="utf-8")) == \
         {"nome": "André", "papel": "dono", "ativo": True}
@@ -234,3 +239,23 @@ def test_modelo_real_separa_vozes_diferentes(tmp_path):
     b = L._normalizar(ext(voz(120, 3)))
     c = L._normalizar(ext(voz(900, 3)))
     assert float(a @ b) > float(a @ c)
+
+
+def test_voz_npy_em_claro_de_antes_da_cifra_e_lida_e_migrada(perfis, tmp_path):
+    perfis.gravar("André", "dono", voz(250, 16))
+    d = tmp_path / "vozes" / "andre"
+    vetor = np.load(io.BytesIO(dervs_dpapi.desproteger((d / "voz.bin").read_bytes())))
+    (d / "voz.bin").unlink()
+    np.save(d / "voz.npy", vetor)                       # como gravava a versão anterior
+    p, score = perfis.quem_fala(voz(250, 3))
+    assert p is not None and p.nome == "André" and score > 0.9
+    assert sorted(os.listdir(d)) == ["perfil.json", "voz.bin"]   # migrou e apagou o claro
+
+
+def test_dpapi_ida_e_volta():
+    segredo = b"impressao numerica"
+    cifrado = dervs_dpapi.proteger(segredo)
+    assert cifrado != segredo and segredo not in cifrado
+    assert dervs_dpapi.desproteger(cifrado) == segredo
+    with pytest.raises(dervs_dpapi.ErroDpapi):
+        dervs_dpapi.desproteger(cifrado[:-4] + b"xxxx")

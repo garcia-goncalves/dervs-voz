@@ -10,9 +10,16 @@ quem é (ou None) e a similaridade.
 O modelo (~38 MB) é baixado sob demanda para `%LOCALAPPDATA%\\dervs\\modelos\\`,
 com SHA-256 conferido; o arquivo baixado é só lido pelo onnxruntime, nunca
 executado. Sem o modelo (sem rede, hash errado), `disponivel()` é falso e a
-trava de perfil fica desligada — quem chama avisa o dono.
+trava de perfil FECHA (fail-closed) quando já existe perfil gravado: nenhum áudio
+vai ao motor e quem chama avisa o dono. Só com ZERO perfis gravados a conversa
+segue sem trava (como antes), com o aviso "grave sua voz" no painel.
+
+A impressão numérica é dado biométrico (pode ser de menor de idade): `voz.bin`
+é cifrado com a DPAPI do Windows (`dervs_dpapi`, escopo do usuário). Um
+`voz.npy` em claro, de antes da cifra, ainda é lido uma vez e migrado.
 """
 import hashlib
+import io
 import json
 import os
 import re
@@ -25,6 +32,7 @@ from dataclasses import dataclass
 import numpy as np
 
 import dervs_config
+import dervs_dpapi
 
 TAXA = 16000
 JANELA_S = 3.0
@@ -143,6 +151,32 @@ def _fala_util(audio: np.ndarray) -> np.ndarray:
     return b[rms > max(0.1 * teto, 0.003)].reshape(-1)
 
 
+def _salvar_voz(d: str, vetor: np.ndarray):
+    """Grava a impressão cifrada (DPAPI) em `voz.bin`, de forma atômica; apaga o `voz.npy` antigo."""
+    buf = io.BytesIO()
+    np.save(buf, np.asarray(vetor, dtype=np.float32), allow_pickle=False)
+    cifrado = dervs_dpapi.proteger(buf.getvalue())
+    tmp = os.path.join(d, "voz.bin.tmp")
+    with open(tmp, "wb") as f:
+        f.write(cifrado)
+    os.replace(tmp, os.path.join(d, "voz.bin"))
+    claro = os.path.join(d, "voz.npy")
+    if os.path.exists(claro):
+        os.remove(claro)
+
+
+def _ler_voz(d: str) -> np.ndarray:
+    """Lê `voz.bin` (cifrado); um `voz.npy` em claro, de antes da cifra, é lido e migrado."""
+    cifrado = os.path.join(d, "voz.bin")
+    if os.path.exists(cifrado):
+        with open(cifrado, "rb") as f:
+            bruto = dervs_dpapi.desproteger(f.read())
+        return np.load(io.BytesIO(bruto), allow_pickle=False)
+    vetor = np.load(os.path.join(d, "voz.npy"), allow_pickle=False)
+    _salvar_voz(d, vetor)
+    return vetor
+
+
 class Perfis:
     def __init__(self, pasta: str | None = None, extrator=None):
         self.pasta = pasta or os.path.join(dervs_config.CONFIG_DIR, "vozes")
@@ -190,7 +224,7 @@ class Perfis:
         media = _normalizar(np.mean(embs, axis=0))
         d = self._dir(nome)
         os.makedirs(d, exist_ok=True)
-        np.save(os.path.join(d, "voz.npy"), media)
+        _salvar_voz(d, media)
         perfil = Perfil(nome, os.path.basename(d), papel, True)
         self._gravar_json(d, perfil)
         return perfil
@@ -231,8 +265,8 @@ class Perfis:
         for p in self.listar():
             if p.ativo:
                 try:
-                    candidatos.append((p, np.load(os.path.join(self.pasta, p.slug, "voz.npy"))))
-                except (OSError, ValueError):
+                    candidatos.append((p, _ler_voz(os.path.join(self.pasta, p.slug))))
+                except (OSError, ValueError, dervs_dpapi.ErroDpapi):
                     continue
         if not candidatos or len(audio16k) == 0:
             return None, 0.0
