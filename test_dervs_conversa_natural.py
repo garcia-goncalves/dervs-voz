@@ -961,3 +961,72 @@ def test_chamada_marcada_pelo_motor_como_vinda_de_ferramenta_pede_confirmacao():
     c.conv.cb(dc.ChamadaFerramenta("9", "abrir_app", {"nome": "Chrome"}, "ferramenta"))
     r = c.conv.respostas[-1][1]
     assert r["precisa_confirmacao"] is True and c.acoes == []
+
+
+# ---- revisão de 15/10: saída de áudio, stream depois do desligamento ------------------
+
+def _fabrica_que_quebra(cb):
+    raise OSError("sem dispositivo de saída")
+
+
+def _tocar_que_quebra(pcm, taxa=24000):
+    raise OSError("sem dispositivo de saída")
+
+
+def test_player_que_nao_abre_limpa_a_fila_e_propaga_o_erro():
+    p = cn.PlayerFluxo(stream_fabrica=_fabrica_que_quebra)
+    with pytest.raises(OSError):
+        p.tocar(b"\x01\x00" * 100)
+    assert not p._fila and not p.tocando()
+
+
+def test_player_so_esta_tocando_com_o_stream_aberto():
+    p = cn.PlayerFluxo(stream_fabrica=lambda cb: StreamFalso(cb))
+    p._fila.append(np.ones(10, np.int16))               # fila cheia, mas ninguém para tocar
+    assert p.tocando() is False
+
+
+def test_player_fechado_ignora_o_pcm_e_nao_reabre_o_stream():
+    abertos = []
+    p = cn.PlayerFluxo(stream_fabrica=lambda cb: abertos.append(1) or StreamFalso(cb))
+    p.fechar()
+    p.tocar(b"\x01\x00" * 100)
+    assert abertos == [] and not p.tocando()
+
+
+def test_saida_de_audio_quebrada_derruba_para_o_caminho_antigo():
+    c = Cena(fim=10, atraso=99)
+    _turno_do(c)
+    c.falar([("sil", 1.5)])                             # passou a pausa para pensar
+    c.player.tocar = _tocar_que_quebra
+    c.responder()
+    assert c.caidas == ["saída de áudio"] and c.cn.falhou
+    assert cn.AVISO_CAIU in c.avisos
+
+
+def test_saida_quebrada_na_resposta_retida_tambem_derruba():
+    c = Cena(fim=10, atraso=99)
+    _turno_do(c)
+    c.responder()                                       # retida: ele ainda "pensa"
+    assert c.cn._retido
+    c.player.tocar = _tocar_que_quebra
+    c.cn._relogio = lambda: 99.0
+    c.cn.tique()
+    assert c.caidas == ["saída de áudio"]
+
+
+def test_conversa_que_falhou_nao_fica_ocupada_para_sempre():
+    c = Cena(fim=10, atraso=99)
+    _turno_do(c)
+    assert c.cn.ocupado() is True                       # esperando a resposta
+    c.cn._cair("teste")
+    assert c.cn.ocupado() is False
+
+
+def test_ferramenta_que_termina_depois_do_desligamento_nao_toca_o_sinal():
+    c = Cena(fim=10, atraso=99, executar=lambda p, pa, conf: (c.cn.encerrar(), {"tipo": "facil"})[1])
+    _turno_do(c)
+    antes = len(c.player.log)
+    c.conv.cb(dc.ChamadaFerramenta("1", "abrir_app", {"nome": "Chrome"}))
+    assert not [e for e in c.player.log[antes:] if e[0] == "tocar"]
+    assert c.feitos == []

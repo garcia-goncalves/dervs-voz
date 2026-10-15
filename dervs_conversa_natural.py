@@ -321,6 +321,7 @@ class PlayerFluxo:
         self._alvo = 1.0
         self._trava = threading.Lock()
         self._stream = None
+        self._fechado = False
 
     def _abrir(self):
         if self._fabrica is not None:
@@ -336,12 +337,20 @@ class PlayerFluxo:
         if taxa != self.taxa:
             x = np.clip(reamostrar(x, taxa, self.taxa), -32768, 32767).astype(np.int16)
         with self._trava:
+            if self._fechado:
+                return                            # depois de fechar() não abre stream novo
             self._fila.append(x)
             precisa_abrir = self._stream is None
         if precisa_abrir:
-            s = self._abrir()
+            try:
+                s = self._abrir()
+            except Exception:
+                with self._trava:                 # sem caixa de som: não sobra fila fantasma
+                    self._fila.clear()
+                    self._resto = np.zeros(0, np.int16)
+                raise
             with self._trava:
-                if self._stream is None:
+                if self._stream is None and not self._fechado:
                     self._stream, s = s, None
             if s is not None:                     # outra thread abriu antes: fecha o meu
                 s.abort()
@@ -387,11 +396,12 @@ class PlayerFluxo:
 
     def tocando(self) -> bool:
         with self._trava:
-            return bool(self._fila) or len(self._resto) > 0
+            return self._stream is not None and (bool(self._fila) or len(self._resto) > 0)
 
     def fechar(self):
         """Tomar, abortar, fechar: só uma thread sai daqui com o stream na mão."""
         with self._trava:
+            self._fechado = True
             s, self._stream = self._stream, None
             self._fila.clear()
             self._resto = np.zeros(0, np.int16)
@@ -654,6 +664,8 @@ class ConversaNatural:
 
     def ocupado(self) -> bool:
         with self._trava_estado:
+            if self.falhou or self.conversa is None:
+                return False                         # morta não segura a janela acordada
             return (self._em_fala or self._aguardando or bool(self._retido)
                     or self.player.tocando())
 
@@ -857,8 +869,19 @@ class ConversaNatural:
         if self._retido and self._pode_tocar():
             retido, self._retido = self._retido, []
             for pcm, taxa in retido:
-                self.player.tocar(pcm, taxa)
+                if not self._tocar(pcm, taxa):
+                    return
             self._aguardando = False
+
+    def _tocar(self, pcm, taxa):
+        """Toca; se a saída de áudio não abre, cai para o caminho antigo (nunca surdo e mudo)."""
+        try:
+            self.player.tocar(pcm, taxa)
+            return True
+        except Exception:
+            log.exception("a saída de áudio falhou")
+            self._cair("saída de áudio")
+            return False
 
     # ---- saída: eventos do motor (thread de rede) ----
     def _evento(self, ev):
@@ -873,8 +896,8 @@ class ConversaNatural:
                 if self._descartar or self._mudo:
                     return
                 if self.player.tocando() or (not self._retido and self._pode_tocar()):
-                    self.player.tocar(ev.pcm, ev.taxa)
-                    self._aguardando = False
+                    if self._tocar(ev.pcm, ev.taxa):
+                        self._aguardando = False
                 else:
                     self._retido.append((ev.pcm, ev.taxa))
         elif isinstance(ev, dc.FimResposta):
@@ -917,11 +940,12 @@ class ConversaNatural:
                 self._mudo = True                     # nada do que ele falar depois toca
             self._desde_ferramenta = True
             c = self.conversa
+            viva = c is not None and not self.falhou
         if c is not None:
             c.responder_ferramenta(ev.id, resultado)
-        if sinal:
+        if sinal and viva:                            # desligou no meio: nem sinal, nem stream novo
             if self._sinal:
-                self.player.tocar(self._sinal, TAXA_SAIDA)
+                self._tocar(self._sinal, TAXA_SAIDA)
             self._ao_feito()
 
     def _decidir_ferramenta(self, ev, ctx):
