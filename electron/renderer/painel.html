@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="painel-central.css">
 <link rel="stylesheet" href="painel-integracao.css">
 <link rel="stylesheet" href="painel-permissoes.css">
+<link rel="stylesheet" href="painel-vozes.css">
 </head>
 <body class="painel">
   <div class="cantos" aria-hidden="true">
@@ -89,6 +90,11 @@
     <button type="button" class="p-chip" id="p-abrir-permissoes" title="Abre &quot;O que o DERVS pode fazer&quot;: permissões e teto de gasto">
       <span class="p-chip-ponto" aria-hidden="true"></span>
       <span class="p-chip-rotulo">O QUE O DERVS PODE FAZER</span>
+    </button>
+    <!-- Vozes: quem o DERVS escuta (perfis) e a gravação da sua voz. Só a tela PEDE. -->
+    <button type="button" class="p-chip" id="p-abrir-vozes" title="Abre as Vozes: grave a sua voz para o DERVS só atender você">
+      <span class="p-chip-ponto" aria-hidden="true"></span>
+      <span class="p-chip-rotulo">VOZES</span>
     </button>
     <!-- Segundo cérebro: quantas notas o cofre tem; o clique abre a pasta (main.js, shell.openPath). -->
     <button type="button" class="p-chip" id="p-abrir-cofre" title="Abre a pasta do cofre de notas. Diga: &quot;DERVS, anota que…&quot;">
@@ -390,11 +396,57 @@
     </section>
   </dialog>
 
+  <!-- Vozes: perfis de voz da conversa natural. Lista e estado vêm do Python; texto só por textContent. -->
+  <dialog id="p-dialogo-vozes" class="p-dialogo p-dialogo-largo" aria-labelledby="voz-titulo">
+    <section class="cartao central voz">
+      <header class="central-topo">
+        <div>
+          <h2 class="p-titulo" id="voz-titulo" tabindex="-1">VOZES</h2>
+          <p class="central-nota-pequena">Com a sua voz gravada, o DERVS só atende quem estiver na lista e ativo.</p>
+        </div>
+        <button type="button" id="voz-fechar" class="p-mini">FECHAR</button>
+      </header>
+      <div class="central-corpo">
+        <p class="central-detalhe voz-mensagem" id="voz-mensagem" role="status" aria-live="polite">Carregando...</p>
+        <dl class="voz-resumo" aria-label="Estado da conversa">
+          <div><dt>CONVERSA</dt><dd id="voz-motor">--</dd></div>
+          <div><dt>TRAVA</dt><dd id="voz-trava" aria-live="polite">--</dd></div>
+        </dl>
+        <p class="voz-aviso" id="voz-aviso" role="status" hidden></p>
+
+        <h3 class="central-sub">VOZES GRAVADAS</h3>
+        <ul class="central-lista" id="voz-lista" aria-label="Vozes gravadas"></ul>
+        <p class="p-vazio central-vazio" id="voz-vazio">Nenhuma voz gravada ainda.</p>
+
+        <h3 class="central-sub">GRAVAR UMA VOZ <span class="p-titulo-nota">cerca de 30 segundos</span></h3>
+        <p class="central-nota-pequena">Fique num lugar sem barulho, perto do microfone. Clique em Começar e leia o texto abaixo em voz alta, no seu jeito normal. Preciso de pelo menos 15 segundos de fala.</p>
+        <p class="voz-texto" id="voz-texto" lang="pt-BR"></p>
+        <form class="integ-form voz-form" id="voz-form" autocomplete="off">
+          <label class="integ-campo" for="voz-nome"><span class="central-nota-pequena">Nome</span>
+            <input id="voz-nome" class="integ-entrada" type="text" maxlength="40" spellcheck="false" required></label>
+          <label class="integ-campo" for="voz-papel"><span class="central-nota-pequena">Quem é</span>
+            <select id="voz-papel" class="integ-entrada" aria-describedby="voz-papel-ajuda">
+              <option value="dono">Dono (pode tudo)</option>
+              <option value="convidado" selected>Convidado (só coisa fácil)</option>
+            </select></label>
+          <button type="submit" id="voz-iniciar" class="p-mini p-mini-forte">COMEÇAR A GRAVAR</button>
+          <button type="button" id="voz-cancelar" class="p-mini voz-cancelar" hidden>CANCELAR</button>
+        </form>
+        <p class="central-nota-pequena voz-ajuda" id="voz-papel-ajuda"></p>
+        <div class="voz-progresso-area" id="voz-progresso-area" hidden>
+          <p class="central-detalhe" id="voz-progresso-texto" role="status" aria-live="polite"></p>
+          <progress class="voz-barra" id="voz-barra" value="0" max="30" aria-label="Segundos gravados"></progress>
+        </div>
+      </div>
+    </section>
+  </dialog>
+
   <script src="painel-formato.js"></script>
   <script src="painel-markdown.js"></script>
   <script src="painel.js"></script>
   <script src="painel-central.js"></script>
   <script src="painel-integracao.js"></script>
   <script src="painel-permissoes.js"></script>
+  <script src="painel-vozes.js"></script>
 </body>
 </html>

@@ -1,0 +1,42 @@
+/* "Vozes". Reaproveita o vocabulário da Central e da Integração (.central-*, .integ-*)
+   e só os tokens do painel; sem cor nova. */
+
+.voz-mensagem { min-height: 1.4em; }
+.voz-mensagem[data-ok="0"] { color: var(--erro); }
+.voz-mensagem[data-ok="1"] { color: var(--acento); }
+
+.voz-resumo { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; }
+.voz-resumo dt { color: var(--texto-secundario); font-size: 12px; letter-spacing: .1em; }
+.voz-resumo dd { margin: 0 0 0 6px; color: var(--texto-primario); }
+.voz-resumo > div { display: flex; align-items: baseline; gap: 4px; }
+
+.voz-aviso { margin: 8px 0 0; padding: 8px 12px; border: 1px solid var(--acento); color: var(--acento); }
+.voz-aviso[hidden] { display: none; }
+
+.voz-item { justify-content: space-between; }
+.voz-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.voz-ativo, .voz-apagar, .voz-sim, .voz-nao { min-height: 36px; padding: 6px 12px; float: none; }
+.voz-ativo[aria-pressed="true"] { border-color: var(--acento); background: rgba(0, 229, 255, .12); color: var(--acento); }
+
+.voz-texto {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--acento-fraco);
+  background: var(--bg);
+  font-size: 17px;
+  line-height: 1.6;
+  user-select: text;
+}
+.voz-form { margin-top: 8px; }
+.voz-progresso-area[hidden], .voz-cancelar[hidden] { display: none; }
+.voz-progresso-area { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.voz-barra { width: 100%; height: 12px; accent-color: var(--acento); }
+.voz-ajuda { margin: 4px 0 0; }
+
+/* 360 px: item e formulário viram coluna, botões ocupam a largura toda */
+@media (max-width: 480px) {
+  .voz-item { flex-direction: column; align-items: stretch; }
+  .voz-item .integ-item-corpo { flex: 0 0 auto; }
+  .voz-acoes .p-mini { flex: 1 1 100%; }
+  .voz-form .integ-campo, .voz-form .p-mini { flex: 1 1 100%; }
+}

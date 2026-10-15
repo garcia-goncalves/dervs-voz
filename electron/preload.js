@@ -184,4 +184,23 @@ contextBridge.exposeInMainWorld("dervs", {
   permissoesTeto: (valor) => {
     if (typeof valor === "number" && Number.isFinite(valor)) ipcRenderer.send("dervs:permissoes-teto", valor);
   },
+
+  // ---- Vozes (perfis de voz da conversa natural) — lista ESTREITA --------------
+  // Python -> tela: {lista?, estado?, gravando?, resultado?}. Tela -> Python: só estes quatro
+  // pedidos; nome/papel/ativo são conferidos de novo no main.js e no Python.
+  aoVozes: aoCanal("dervs:vozes"),
+  vozesPedir: () => { ipcRenderer.send("dervs:vozes-pedir"); },
+  vozesGravar: (nome, papel) => {
+    if (typeof nome === "string" && nome.trim() && nome.length <= 40 && (papel === "dono" || papel === "convidado")) {
+      ipcRenderer.send("dervs:vozes-gravar", { nome, papel });
+    }
+  },
+  vozesAtivar: (nome, ativo) => {
+    if (typeof nome === "string" && nome && typeof ativo === "boolean") {
+      ipcRenderer.send("dervs:vozes-ativar", { nome, ativo });
+    }
+  },
+  vozesApagar: (nome) => {
+    if (typeof nome === "string" && nome) ipcRenderer.send("dervs:vozes-apagar", nome);
+  },
 });

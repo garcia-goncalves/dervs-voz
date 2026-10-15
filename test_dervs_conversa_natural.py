@@ -204,7 +204,7 @@ def test_sem_perfis_tudo_vai_ao_motor_e_o_painel_pede_para_gravar_a_voz():
     assert np.abs(c.enviado()).max() > 5000
     e = c.cn.estado()
     assert e["locutor_ativo"] is False and e["locutor_aviso"] == "grave sua voz"
-    assert e["motor_ativo"] == "gemini_live"
+    assert e["motor_ativo"] == "gemini_live" and e["dono_confirmado"] is False
 
 
 def test_sem_perfis_nao_ha_interrupcao_microfone_surdo_enquanto_ele_fala():
@@ -603,6 +603,7 @@ def test_vozes_gravar_listar_ativar_apagar(tmp_path):
     assert v.listar() == [{"nome": "André", "papel": "dono", "ativo": True}]
     assert v.ativar("André", False)["perfil"]["ativo"] is False
     assert v.estado()["locutor_aviso"] == "nenhum perfil ativo"
+    assert v.estado()["dono_confirmado"] is False       # sem conversa, ninguém confirmou o dono
     assert sorted(p.name for p in (tmp_path / "vozes" / "andre").iterdir()) == \
         ["perfil.json", "voz.bin"]                         # só a impressão (cifrada)
     assert v.apagar("André") == {"ok": True}
@@ -917,7 +918,8 @@ def test_conversa_estado_sem_sessao_vem_dos_perfis(motor_app, tmp_path):
     motor_app._vozes = cn.Vozes(L.Perfis(str(tmp_path / "vozes"), extrator=extrator_falso))
     assert motor_app.conversa_estado() == {"motor_ativo": None, "motor_nome": None,
                                            "locutor_ativo": False, "perfis_ativos": [],
-                                           "locutor_aviso": "grave sua voz"}
+                                           "locutor_aviso": "grave sua voz",
+                                           "dono_confirmado": False}
 
 
 @pytest.mark.parametrize("linha, esperado", [

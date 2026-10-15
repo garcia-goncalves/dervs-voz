@@ -301,7 +301,12 @@ um sinal curto, sem falar. Pedido com dúvida ele pergunta antes. Coisa grave co
 pedindo o clique. Pedido ao Claude Code, ao Codex, ao cofre ou ao servidor ele confirma
 com você antes ("Quer que eu faça isto…?" — responda "sim").
 
-**Grave a sua voz** (tela Vozes do painel, quando ela chegar): com uma voz gravada, ele só
+**Grave a sua voz** (botão **VOZES** no painel): clique em *Começar a gravar* e leia em voz alta
+o texto que aparece, uns 30 segundos, num lugar sem barulho (precisa de pelo menos 15 segundos
+de fala). Na mesma tela você vê qual conversa está ativa (Google grátis, Econômico, Premium ou
+modo antigo), liga e desliga cada voz e apaga (com um "sim, apagar" antes). O primeiro cadastro
+é sempre do dono; para cadastrar outro dono, fale com o DERVS antes com a voz de um dono já
+gravado. Com uma voz gravada, ele só
 ouve quem está cadastrado e ativo — conversa de outras pessoas por perto não sai do
 computador. Sem nenhuma voz gravada ele ouve qualquer um, como antes, e o painel avisa.
 Quem for gravado como convidado (por exemplo a sua filha) conversa e faz só coisa fácil.

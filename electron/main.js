@@ -569,6 +569,14 @@ function tratarLinhaDoPython(linha) {
         console.error("electron: verbo permissoes com parte desconhecida, ignorado");
       }
       break;
+    // Tela Vozes: só as chaves conhecidas seguem; a tela desenha com textContent.
+    case "vozes": {
+      const { verbo: _v, ...resto } = mensagem;
+      const parte = {};
+      for (const k of ["lista", "estado", "gravando", "resultado"]) if (k in resto) parte[k] = resto[k];
+      difundir("dervs:vozes", parte);
+      break;
+    }
     default:
       console.error(`electron: verbo desconhecido do Python, ignorado: ${String(verbo)}`);
   }
@@ -795,6 +803,39 @@ ipcMain.on("dervs:permissoes-teto", (evento, valor) => {
     return;
   }
   enviarAoPython({ verbo: "permissoes_teto", valor });
+});
+
+// Tela Vozes: a tela só PEDE (e só da janela do painel). O Python valida de novo
+// (dervs_ponte_electron.py) e o dervs_locutor confere o nome contra o caminho da pasta.
+ipcMain.on("dervs:vozes-pedir", () => { enviarAoPython({ verbo: "vozes_pedir" }); });
+
+function nomeDeVozValido(nome) {
+  return typeof nome === "string" && nome.trim().length > 0 && nome.length <= 40;
+}
+
+ipcMain.on("dervs:vozes-gravar", (evento, dado) => {
+  if (!veioDoPainel(evento) || !dado || !nomeDeVozValido(dado.nome)
+      || (dado.papel !== "dono" && dado.papel !== "convidado")) {
+    console.error("electron: vozes-gravar inválido ou de origem estranha, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "vozes_gravar", nome: dado.nome, papel: dado.papel });
+});
+
+ipcMain.on("dervs:vozes-ativar", (evento, dado) => {
+  if (!veioDoPainel(evento) || !dado || !nomeDeVozValido(dado.nome) || typeof dado.ativo !== "boolean") {
+    console.error("electron: vozes-ativar inválido ou de origem estranha, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "vozes_ativar", nome: dado.nome, ativo: dado.ativo });
+});
+
+ipcMain.on("dervs:vozes-apagar", (evento, nome) => {
+  if (!veioDoPainel(evento) || !nomeDeVozValido(nome)) {
+    console.error("electron: vozes-apagar inválido ou de origem estranha, ignorado");
+    return;
+  }
+  enviarAoPython({ verbo: "vozes_apagar", nome });
 });
 
 ipcMain.on("dervs:integracao-pedir", () => { enviarAoPython({ verbo: "integracao_pedir" }); });

@@ -502,7 +502,8 @@ class Vozes:
                 "perfis_ativos": [p.nome for p in lista if p.ativo],
                 "locutor_aviso": _aviso_da_trava(("ligada" if lista else "sem_perfis")
                                                  if ligada else "desligada",
-                                                 any(p.ativo for p in lista))}
+                                                 any(p.ativo for p in lista)),
+                "dono_confirmado": False}
 
 
 def _aviso_da_trava(trava, tem_ativo):
@@ -648,7 +649,8 @@ class ConversaNatural:
             return {"motor_ativo": motor, "motor_nome": NOMES_DOS_MOTORES.get(motor),
                     "locutor_ativo": self.trava == "ligada",
                     "perfis_ativos": list(self._ativos),
-                    "locutor_aviso": _aviso_da_trava(self.trava, bool(self._ativos))}
+                    "locutor_aviso": _aviso_da_trava(self.trava, bool(self._ativos)),
+                    "dono_confirmado": self.dono_confirmado_recente()}
 
     def ocupado(self) -> bool:
         with self._trava_estado:
