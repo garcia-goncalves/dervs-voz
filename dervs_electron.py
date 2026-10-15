@@ -76,6 +76,16 @@ _CASO_SEM_INTERNET = ("Sem internet agora, e o DERVS precisa dela para "
                        "conexão e tente de novo assim que voltar.")
 _APOIO_PADRAO = ("Isso costuma resolver na hora. Se insistir, feche e abra "
                   "o DERVS de novo.")
+def _qual_pendencia(fala):
+    """Qual dos dois pedidos pendentes o dono nomeou: "codex", "infra", "ambos" ou None."""
+    t = voz_infra._norm(fala)
+    codex = "codex" in t
+    infra = any(p in t for p in ("servidor", "infra", "vps", "github", "projeto"))
+    if codex and infra:
+        return "ambos"
+    return "codex" if codex else "infra" if infra else None
+
+
 _AINDA_TRABALHANDO = "Ainda estou trabalhando na pergunta anterior. Diga 'para' se quiser interromper."
 
 
@@ -365,12 +375,30 @@ class Motor(dervs.PopUp):
         infra_espera = infra is not None and infra.tem_pendencia()
         if acoes.tem_pendencia():
             resposta = voz_infra.resposta_de_envio(texto)
+            if infra_espera and getattr(self, "_escolhendo_pendencia", False):
+                # a pergunta "o Codex ou o servidor?" foi feita: quem responde escolhe UM dos dois
+                alvo = _qual_pendencia(texto)
+                if alvo == "ambos":
+                    resposta = "sim"             # dois nomes numa frase só: pergunta de novo
+                elif alvo is not None:
+                    self._escolhendo_pendencia = False
+                    self._diz("dono", texto)
+                    self.entrada.clear()
+                    if alvo == "codex":
+                        self._falar_de_thread(lambda: acoes.responder_pendencia(True))
+                    else:
+                        self._falar_de_thread(lambda: infra.responder_pendencia(True))
+                    return True
             if resposta == "sim" and infra_espera:
-                # o "confirma" nunca consome o pedido de dois módulos de uma vez
+                # o "confirma" nunca consome o pedido de dois módulos de uma vez, nem escolhe um
+                # sozinho: pergunta qual, e o outro segue esperando
+                self._escolhendo_pendencia = True
                 self._diz("dono", texto)
                 self.entrada.clear()
-                self._claude_fala.emit("Há dois pedidos esperando; diga cancela e repita o que quer.")
+                self._claude_fala.emit("Há dois pedidos esperando: confirmar o Codex ou o servidor? "
+                                       "Diga o nome, ou cancela.")
                 return True
+            self._escolhendo_pendencia = False
             if resposta is None:
                 self._claude_fala.emit(acoes.responder_pendencia(False))   # falou outra coisa: o pedido caiu
             else:

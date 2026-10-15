@@ -383,6 +383,46 @@ def test_motor_confirma_nunca_consome_dois_modulos(tmp_path, mundo, repo):
     assert m.infra_voz.respostas == [False] and not a.tem_pendencia()
 
 
+def _dois_esperando(tmp_path, mundo):
+    a = _acoes(tmp_path, mundo, CodexEscritor())
+    m = _MotorFalso(a, a.codex)
+    m.infra_voz = _InfraFalsa(espera=False)
+    _tentar(m, "no projeto dervs voz pede pro Codex criar o arquivo novo")
+    m.infra_voz.espera = True
+    return a, m
+
+
+def test_confirma_com_dois_pedidos_pergunta_qual_e_nao_escolhe_sozinho(tmp_path, mundo, repo):
+    a, m = _dois_esperando(tmp_path, mundo)
+    assert _tentar(m, "confirma") is True
+    assert "Codex ou o servidor" in m.faladas[-1]
+    assert not a.codex.chamadas and a.tem_pendencia() and m.infra_voz.respostas == []
+
+
+def test_resposta_codex_confirma_so_o_codex_e_o_servidor_segue_esperando(tmp_path, mundo, repo):
+    a, m = _dois_esperando(tmp_path, mundo)
+    _tentar(m, "confirma")
+    assert _tentar(m, "o Codex") is True
+    assert a.codex.chamadas and a.codex.chamadas[0][2] == "escrita"
+    assert m.infra_voz.respostas == [] and m.infra_voz.espera
+
+
+def test_resposta_servidor_confirma_so_o_servidor_e_o_codex_segue_esperando(tmp_path, mundo, repo):
+    a, m = _dois_esperando(tmp_path, mundo)
+    _tentar(m, "confirma")
+    assert _tentar(m, "o servidor") is True
+    assert m.infra_voz.respostas == [True]
+    assert not a.codex.chamadas and a.tem_pendencia()
+
+
+def test_resposta_ambigua_ou_estranha_nao_confirma_nada(tmp_path, mundo, repo):
+    a, m = _dois_esperando(tmp_path, mundo)
+    _tentar(m, "confirma")
+    assert _tentar(m, "o codex e o servidor") is True            # os dois nomes: não escolhe
+    assert "Codex ou o servidor" in m.faladas[-1]
+    assert not a.codex.chamadas and m.infra_voz.respostas == []
+
+
 # ------------------------------------------------ revisão: worktree, .git, git seguro
 
 def test_git_do_dervs_roda_sem_hook_sem_fsmonitor_e_com_ambiente_enxuto(monkeypatch):
