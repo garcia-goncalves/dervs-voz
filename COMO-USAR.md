@@ -291,6 +291,23 @@ Se você disser só "DERVS", ele responde "Oi! Pode falar" e fica esperando.
 
 ---
 
+## Conversa natural: falar com ele como com uma pessoa (15/10/2026)
+
+Depois que ele acorda (você disse "DERVS" ou segurou o atalho), a conversa passa para a
+voz direta: ele espera você terminar de verdade (pausa para pensar, "éé… hum…" e gagueira
+não cortam você), responde em pouco mais de um segundo e você pode falar por cima dele
+para mudar o pedido. Pedido fácil (abrir programa, abrir pasta, volume) ele só faz e toca
+um sinal curto, sem falar. Pedido com dúvida ele pergunta antes. Coisa grave continua
+pedindo o clique. Pedido ao Claude Code, ao Codex, ao cofre ou ao servidor ele confirma
+com você antes ("Quer que eu faça isto…?" — responda "sim").
+
+**Grave a sua voz** (tela Vozes do painel, quando ela chegar): com uma voz gravada, ele só
+ouve quem está cadastrado e ativo — conversa de outras pessoas por perto não sai do
+computador. Sem nenhuma voz gravada ele ouve qualquer um, como antes, e o painel avisa.
+Quem for gravado como convidado (por exemplo a sua filha) conversa e faz só coisa fácil.
+
+Para desligar e voltar ao jeito antigo: `"conversa_natural": false` no `config.json`.
+
 ## Trocar a voz
 
 Foram geradas 6 amostras para você ouvir, na pasta `amostras_voz` dentro do

@@ -57,5 +57,15 @@ playwright==1.63.0
 # assinatura do dono, já logada no CLI. Traz o `mcp` e outras dependências junto.
 claude-agent-sdk==0.2.161
 
+# --- conversa natural (dervs_conversa.py, dervs_locutor.py, dervs_conversa_natural.py) ---
+# WebSocket da voz direta (Gemini Live / OpenAI Realtime) e o reconhecimento de quem
+# fala (ERes2Net, roda no PC; o onnxruntime já vem com o kokoro-onnx).
+websocket-client==1.9.2
+sherpa-onnx==1.13.8
+# Opcional, NÃO instalado por padrão: cancelamento de eco do WebRTC (caixa de som em
+# vez de fone). Medido em 15/10/2026 nesta máquina: 31 dB de atenuação num eco
+# sintético, 13 ms de CPU por segundo. Sem ele vale a trava de voz por perfil.
+#   dervs-venv\Scripts\python.exe -m pip install livekit==1.1.20
+
 # --- testes ---
 pytest==9.1.1
