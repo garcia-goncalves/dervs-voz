@@ -6,7 +6,7 @@ em `requirements.txt` (ver `requirements-semantica.txt`). Sem o pacote, sem o mo
 na primeira vez, o cofre funciona exatamente como antes: nada aqui levanta erro para quem chama.
 
 Como funciona: cada nota vira um vetor de 384 números (float32, guardado em
-`<cofre>/.indice/vetores.sqlite`); a pergunta vira outro vetor; as notas mais parecidas (produto
+`vetores.sqlite` na pasta do índice, fora do cofre — ver `dervs_cofre.pasta_indice_padrao`); a pergunta vira outro vetor; as notas mais parecidas (produto
 escalar, numpy, força bruta) se juntam ao resultado da busca por palavras (FTS5) pela fusão RRF.
 
 Privacidade: tudo roda no computador. A única coisa que sai é o download do modelo (~240 MB) na

@@ -6,7 +6,9 @@ Obsidian, no Logseq, no Bloco de Notas: o formato é o do próprio texto, nada p
 O DERVS escreve e acha notas; quem decide o que vale é o dono.
 
 Por dentro, só a biblioteca padrão: a busca usa o FTS5 do SQLite (já embutido no Python), com
-índice em `<cofre>/.indice/` (pasta com ponto é ignorada pelos editores e por este índice).
+índice FORA do cofre, em `%LOCALAPPDATA%/dervs/cofre-indice/<cofre>/` (ver `pasta_indice_padrao`):
+o Acesso Controlado a Pastas do Windows barra o Python de gravar em Documentos, e o índice é só
+uma cópia derivada das notas. Pasta com ponto (`.obsidian`, o `.indice` antigo) não é indexada.
 
 Três travas que não são enfeite:
 
@@ -19,6 +21,7 @@ Três travas que não são enfeite:
 * **Nota é dado.** Texto de nota não manda em nada: o que está escrito lá nunca vira ordem.
 """
 import datetime
+import hashlib
 import os
 import re
 import sqlite3
@@ -197,7 +200,8 @@ class Cofre:
         self.raiz = criar_cofre(raiz)
         self._trava = threading.Lock()
         self._ultima_varredura = float("-inf")
-        self._db = self.raiz / ".indice" / "indice.sqlite"
+        self.pasta_indice = pasta_indice_padrao(self.raiz)
+        self._db = self.pasta_indice / "indice.sqlite"
         # busca por significado: OPCIONAL e desligada por padrão (ver `dervs_cofre_semantica.py`)
         self._semantica = bool(semantica)
         self._embedder = embedder
@@ -457,7 +461,7 @@ class Cofre:
             import dervs_cofre_semantica as sem
             with self._trava_vetores:
                 if self._vetores is None:
-                    self._vetores = sem.IndiceVetorial(self.raiz / ".indice" / "vetores.sqlite")
+                    self._vetores = sem.IndiceVetorial(self.pasta_indice / "vetores.sqlite")
                 emb = self._emb()
                 con = self._conectar()
                 try:
@@ -529,7 +533,7 @@ class Cofre:
                 return []
             import dervs_cofre_semantica as sem
             if self._vetores is None:
-                self._vetores = sem.IndiceVetorial(self.raiz / ".indice" / "vetores.sqlite")
+                self._vetores = sem.IndiceVetorial(self.pasta_indice / "vetores.sqlite")
             cache = self._cache_vetores
             if cache is None:
                 cache = self._cache_vetores = self._vetores.carregar(emb.modelo)
@@ -640,6 +644,20 @@ class Cofre:
 def pasta_padrao() -> Path:
     """Onde o cofre mora se o dono não escolheu outra: a pasta DERVS-Cofre em Documentos."""
     return _documentos() / "DERVS-Cofre"
+
+
+def pasta_indice_padrao(raiz) -> Path:
+    """Onde mora o índice de um cofre: uma pasta por cofre (pelo caminho dele) dentro da pasta local
+    do DERVS. `DERVS_COFRE_INDICE` sobrepõe a base (os testes usam). Fora de Documentos de
+    propósito: lá o Acesso Controlado a Pastas do Windows barra o Python (15/10/2026)."""
+    base = os.environ.get("DERVS_COFRE_INDICE")
+    if not base:
+        local = os.environ.get("LOCALAPPDATA")
+        base = (os.path.join(local, "dervs", "cofre-indice") if local
+                else os.path.expanduser("~/.local/state/dervs/cofre-indice"))
+    chave = os.path.normcase(str(Path(raiz).resolve()))
+    nome = Path(raiz).name or "cofre"
+    return Path(base) / f"{nome}-{hashlib.sha1(chave.encode('utf-8')).hexdigest()[:12]}"
 
 
 def _documentos() -> Path:

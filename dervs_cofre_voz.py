@@ -91,7 +91,13 @@ def executar(intencao, cv, abrir_pasta=None):
         if cofre.parece_segredo(texto):
             return "Não anotei: isso parece um segredo, como senha ou chave. Segredo não vai para o cofre."
         privado = bool(intencao.get("privado"))
-        rel = cv.escrever(_titulo(texto), texto, pasta=cofre.PASTA_PRIVADA if privado else "entrada", origem="voz")
+        try:
+            rel = cv.escrever(_titulo(texto), texto, pasta=cofre.PASTA_PRIVADA if privado else "entrada",
+                              origem="voz")
+        except PermissionError:
+            # o cofre padrão mora em Documentos, que o Acesso Controlado a Pastas do Windows protege
+            return ("Não anotei: o Windows não deixou eu gravar na pasta do cofre. Abra Segurança do "
+                    "Windows, Acesso controlado a pastas, e permita o Python.")
         cv.indexar_nota(rel)
         return "Anotei em privado." if privado else "Anotei."
     if tipo == "cofre_buscar":

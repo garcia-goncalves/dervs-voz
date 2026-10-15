@@ -166,3 +166,12 @@ def test_senha_falada_nao_e_anotada(cv):
 
 def test_abriu_do_reconhecedor_vale_como_abre():
     assert voz.interpretar("Dervs abriu o cofre.") == {"tipo": "cofre_abrir"}
+
+
+def test_anotar_barrado_pelo_windows_explica_em_vez_de_falhar(cv, monkeypatch):
+    # Acesso Controlado a Pastas (Documentos) responde PermissionError ao Python (15/10/2026)
+    def barra(*a, **k):
+        raise PermissionError(13, "Acesso negado")
+    monkeypatch.setattr(cv, "escrever", barra)
+    fala = voz.executar({"tipo": "cofre_anotar", "texto": "ligar para o contador", "privado": False}, cv)
+    assert fala.startswith("Não anotei") and "Acesso controlado a pastas" in fala

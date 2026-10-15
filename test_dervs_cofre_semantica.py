@@ -92,7 +92,7 @@ def test_desligada_por_padrao_e_igual_a_antes(tmp_path):
     assert c.buscar_hibrido("dentista") == c.buscar("dentista") == []
     assert c.indexar_vetores() == 0
     assert c.vetorizar_em_fundo() is None
-    assert not (c.raiz / ".indice" / "vetores.sqlite").exists()
+    assert not (c.pasta_indice / "vetores.sqlite").exists()
 
 
 def test_sem_o_pacote_nada_levanta(tmp_path, monkeypatch):
@@ -120,7 +120,7 @@ def test_embedder_quebrado_degrada_em_silencio(cv):
 # ------------------------------------------------------------- vetores incrementais
 def test_vetoriza_so_o_que_e_novo_ou_mudou(cv):
     assert cv.indexar_vetores() == 3
-    assert (cv.raiz / ".indice" / "vetores.sqlite").exists()
+    assert (cv.pasta_indice / "vetores.sqlite").exists()
     assert cv._embedder.embutidos == 3
     assert cv.indexar_vetores() == 0                    # nada mudou: nenhum cálculo
     assert cv._embedder.embutidos == 3
@@ -136,14 +136,14 @@ def test_nota_apagada_perde_o_vetor(cv):
     (cv.raiz / "entrada" / "oficina.md").unlink()
     cv.reindexar()
     cv.indexar_vetores()
-    con = sqlite3.connect(cv.raiz / ".indice" / "vetores.sqlite")
+    con = sqlite3.connect(cv.pasta_indice / "vetores.sqlite")
     assert sorted(c for (c,) in con.execute("SELECT caminho FROM vetores")) == ["entrada/consulta.md", "entrada/ovh.md"]
     con.close()
 
 
 def test_vetor_guardado_como_float32(cv):
     cv.indexar_vetores()
-    con = sqlite3.connect(cv.raiz / ".indice" / "vetores.sqlite")
+    con = sqlite3.connect(cv.pasta_indice / "vetores.sqlite")
     dim, blob = con.execute("SELECT dim, vec FROM vetores LIMIT 1").fetchone()
     con.close()
     assert len(blob) == dim * 4
@@ -215,7 +215,7 @@ def test_privada_achada_por_significado_continua_privada(cv):
     achados = cv.buscar_hibrido("dentista")
     priv = [a for a in achados if a["caminho"] == "privado/saude.md"]
     assert priv and priv[0]["privado"] is True
-    con = sqlite3.connect(cv.raiz / ".indice" / "vetores.sqlite")
+    con = sqlite3.connect(cv.pasta_indice / "vetores.sqlite")
     assert con.execute("SELECT privado FROM vetores WHERE caminho='privado/saude.md'").fetchone() == (1,)
     con.close()
 
@@ -224,7 +224,7 @@ def test_etiqueta_privado_tambem_marca_no_indice_vetorial(cv):
     _nota(cv, "entrada/x.md", "Dente", "dentista de novo #privado")
     cv.reindexar()
     cv.indexar_vetores()
-    con = sqlite3.connect(cv.raiz / ".indice" / "vetores.sqlite")
+    con = sqlite3.connect(cv.pasta_indice / "vetores.sqlite")
     assert con.execute("SELECT privado FROM vetores WHERE caminho='entrada/x.md'").fetchone() == (1,)
     con.close()
 
@@ -267,7 +267,7 @@ def test_vetorizar_em_fundo_nao_bloqueia_e_conclui(tmp_path):
     rel = c.escrever("Dentista", "consulta odontológica", pasta="entrada")
     c.indexar_nota(rel)
     c._fio_vetores.join(5)
-    assert (c.raiz / ".indice" / "vetores.sqlite").exists()
+    assert (c.pasta_indice / "vetores.sqlite").exists()
     assert [a["caminho"] for a in c.buscar_hibrido("dente")] == [rel]
 
 

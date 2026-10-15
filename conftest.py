@@ -35,6 +35,9 @@ _APPDATA_REAL = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roami
 _CASA_DE_TESTE = tempfile.mkdtemp(prefix="dervs-teste-")
 os.environ["APPDATA"] = os.path.join(_CASA_DE_TESTE, "Roaming")
 os.makedirs(os.path.join(os.environ["APPDATA"], "dervs"), exist_ok=True)
+# o índice do cofre mora no LOCALAPPDATA real (dervs_cofre.pasta_indice_padrao): os testes
+# usam a casa de teste, para não deixar um índice por pasta temporária na máquina do dono
+os.environ["DERVS_COFRE_INDICE"] = os.path.join(_CASA_DE_TESTE, "cofre-indice")
 
 # Parte da configuração real (não tem segredo: a chave mora no .env), para o
 # teste exercitar o mesmo motor e as mesmas vozes que o dono usa, mas com a

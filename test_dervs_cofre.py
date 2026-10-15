@@ -283,7 +283,7 @@ def test_varredura_pula_arquivo_travado_e_segue(cv, monkeypatch):
 def test_indice_corrompido_se_reconstroi(cv):
     cv.escrever("Nota", "palavrachave")
     cv.reindexar()
-    (cv.raiz / ".indice" / "indice.sqlite").write_bytes(b"isto nao e um banco sqlite" * 50)
+    (cv.pasta_indice / "indice.sqlite").write_bytes(b"isto nao e um banco sqlite" * 50)
     assert cv.reindexar() == 1
     assert cv.buscar("palavrachave")
 
@@ -407,3 +407,27 @@ def test_rotulo_de_senha_leva_a_linha_de_baixo(cv):
 
 def test_titulo_com_segredo_nao_vai():
     assert cofre.parece_segredo("chave " + SK_FALSA)
+
+
+def test_indice_mora_fora_do_cofre(cv):
+    # o Acesso Controlado a Pastas do Windows barra o Python de gravar em Documentos (15/10/2026):
+    # o índice é cópia derivada, então mora na pasta local do DERVS, não junto das notas
+    cv.escrever("Nota", "palavrachave")
+    cv.reindexar()
+    assert not (cv.raiz / ".indice").exists()
+    assert (cv.pasta_indice / "indice.sqlite").exists()
+    assert not cv.pasta_indice.resolve().is_relative_to(cv.raiz.resolve())
+
+
+def test_cada_cofre_tem_o_proprio_indice(tmp_path):
+    a = cofre.Cofre(tmp_path / "a")
+    b = cofre.Cofre(tmp_path / "b")
+    assert a.pasta_indice != b.pasta_indice
+    assert cofre.Cofre(tmp_path / "a").pasta_indice == a.pasta_indice
+
+
+def test_indice_padrao_na_pasta_local(monkeypatch, tmp_path):
+    monkeypatch.delenv("DERVS_COFRE_INDICE", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    p = cofre.pasta_indice_padrao(tmp_path / "x")
+    assert p.is_relative_to(tmp_path / "local" / "dervs" / "cofre-indice")
