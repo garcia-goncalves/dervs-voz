@@ -927,6 +927,7 @@ class PopUp(QtWidgets.QWidget):
                 self._cn.calar()
             self._microfone_do_atalho(True)
             self._acordar(novo=True)       # falou com ele de propósito: sem porteiro
+            self._cn_ligar()
             self.status.setText("🔴 ouvindo — fale e solte " + modos.NOME_DO_ATALHO)
         elif evento == "soltou":
             self._atalho_soltou_em = agora
@@ -1002,7 +1003,6 @@ class PopUp(QtWidgets.QWidget):
             return       # teto estourado: só volta a atender se o nome for dito
         self._desperto = True
         self._desperto_ate = agora + self.JANELA_DESPERTO
-        self._cn_ligar()
 
     def _fala_continua(self, wav):
         """Chegou uma frase da conversa contínua. Manda transcrever e, quando o
@@ -1068,6 +1068,7 @@ class PopUp(QtWidgets.QWidget):
             self._pare_de_ouvir()
             return
         self._acordar(novo=tem_nome)
+        self._cn_ligar()
 
         if not texto.strip():
             # você só chamou o nome: atende e fica ouvindo o pedido

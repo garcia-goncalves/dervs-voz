@@ -778,6 +778,12 @@ def motor_app(monkeypatch):
     dervs.encerrar_tudo(m)
 
 
+def _acordar_app(m):
+    """O que o app faz ao ouvir o nome (ou o atalho apertado): acorda e liga a voz direta."""
+    m._acordar(novo=True)
+    m._cn_ligar()
+
+
 def _cn_do_app(monkeypatch, cena_kw=None):
     cenas = []
 
@@ -793,32 +799,32 @@ def _cn_do_app(monkeypatch, cena_kw=None):
 
 def test_app_ao_acordar_a_voz_direta_assume_o_microfone(motor_app, monkeypatch):
     cenas = _cn_do_app(monkeypatch)
-    motor_app._acordar(novo=True)
+    _acordar_app(motor_app)
     assert motor_app._cn is cenas[0].cn and motor_app.escuta.desvio == cenas[0].cn.quadro
 
 
 def test_app_sem_chave_de_motor_fica_no_caminho_antigo(motor_app, monkeypatch):
     monkeypatch.setattr(cn, "motor_disponivel", lambda conf: False)
-    motor_app._acordar(novo=True)
+    _acordar_app(motor_app)
     assert motor_app._cn is None and motor_app.escuta.desvio is None
 
 
 def test_app_motor_caido_volta_ao_caminho_antigo_com_aviso(motor_app, monkeypatch):
     import time as _time
     cenas = _cn_do_app(monkeypatch)
-    motor_app._acordar(novo=True)
+    _acordar_app(motor_app)
     cenas[0].conv.cb(dc.Erro("rede", "sem rede"))
     assert motor_app._cn is None and motor_app.escuta.desvio is None
     assert motor_app._cn_bloqueada_ate > _time.time() + 500
     falas = [a for nome, a in motor_app.ponte.chamadas if nome == "enviar_fala"]
     assert any(cn.AVISO_CAIU in str(a) for a in falas)
-    motor_app._acordar(novo=True)                         # não tenta de novo logo em seguida
+    _acordar_app(motor_app)                         # não tenta de novo logo em seguida
     assert motor_app._cn is None
 
 
 def test_app_dormiu_desliga_a_voz_direta(motor_app, monkeypatch):
     cenas = _cn_do_app(monkeypatch)
-    motor_app._acordar(novo=True)
+    _acordar_app(motor_app)
     motor_app._desperto_ate = 0.0
     motor_app._cn_vigiar()
     assert motor_app._cn is None and "encerrar" in cenas[0].conv.log
@@ -945,3 +951,11 @@ def test_ponte_enviar_vozes_escreve_o_verbo():
     p.enviar_vozes({"gravando": 0.5, "lista": [{"nome": "Lia", "papel": "convidado", "ativo": True}]})
     assert escritos == [{"verbo": "vozes", "gravando": 0.5,
                          "lista": [{"nome": "Lia", "papel": "convidado", "ativo": True}]}]
+
+
+def test_chamada_marcada_pelo_motor_como_vinda_de_ferramenta_pede_confirmacao():
+    c = Cena(fim=10, atraso=99)
+    _turno_do(c)
+    c.conv.cb(dc.ChamadaFerramenta("9", "abrir_app", {"nome": "Chrome"}, "ferramenta"))
+    r = c.conv.respostas[-1][1]
+    assert r["precisa_confirmacao"] is True and c.acoes == []

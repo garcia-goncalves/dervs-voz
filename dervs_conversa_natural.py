@@ -885,7 +885,10 @@ class ConversaNatural:
                 self._entrada.append(ev.texto)
         elif isinstance(ev, dc.ChamadaFerramenta):
             with self._trava_estado:
-                ctx = {"origem_ferramenta": self._desde_ferramenta, "turno": self._turnos,
+                # o motor marca origem="ferramenta" (pedida logo após um resultado); a nossa
+                # própria conta (resposta de ferramenta desde a última vez do dono) vale também
+                origem = self._desde_ferramenta or getattr(ev, "origem", "modelo") != "modelo"
+                ctx = {"origem_ferramenta": origem, "turno": self._turnos,
                        "papel": self._papel()}
             self._em_fundo(lambda: self._ferramenta(ev, ctx))
         elif isinstance(ev, dc.Troca):
