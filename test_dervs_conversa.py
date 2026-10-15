@@ -125,12 +125,13 @@ def gemini(ws=None, **kw):
 
 # --- Gemini Live ---------------------------------------------------------------
 
-def test_gemini_setup_e_chave_na_url():
+def test_gemini_setup_e_chave_no_cabecalho():
     m, ws, col, tr = gemini()
     m.iniciar("seja breve", [FERRAMENTA])
     esperar_ate(lambda: ws.enviados)
     url, cab = tr.chamadas[0]
-    assert url.startswith(dc.URL_GEMINI_LIVE) and url.endswith("?key=" + CHAVE) and cab == []
+    assert url == dc.URL_GEMINI_LIVE and CHAVE not in url      # a chave não vai na URL (log de proxy)
+    assert cab == ["x-goog-api-key: " + CHAVE]
     s = ws.enviados[0]["setup"]
     assert s["model"] == "models/gemini-3.8-live"
     assert s["generationConfig"]["responseModalities"] == ["AUDIO"]
@@ -330,6 +331,112 @@ def test_gemini_gasto_registra_segundos_com_usd_zero(gasto):
     col.esperar(dc.FimResposta)
     assert gasto == [("conversa", 0.0, "gemini_live 2s/1s")]
     assert m.uso["seg_in"] == pytest.approx(2.0) and m.uso["seg_out"] == pytest.approx(1.0)
+    m.encerrar()
+
+
+# --- transporte: corrida com encerrar(), escritor, reconexões ----------------------------
+
+class TransporteLento:
+    """Bloqueia no connect até `liberar`; entrega os FakeWS depois."""
+
+    def __init__(self, *wss):
+        self.wss = list(wss)
+        self.liberar = threading.Event()
+        self.entrou = threading.Event()
+
+    def __call__(self, url, cabecalhos):
+        self.entrou.set()
+        assert self.liberar.wait(5)
+        return self.wss.pop(0)
+
+
+def test_encerrar_durante_a_conexao_fecha_o_ws_que_chega_depois():
+    ws = FakeWS()
+    ws.servidor({"setupComplete": {}})
+    tr = TransporteLento(ws)
+    m = dc.MotorGeminiLive(Coletor(), dict(CONF), chave=CHAVE, transporte=tr)
+    m.iniciar("x", [])
+    assert tr.entrou.wait(5)
+    m.encerrar()
+    tr.liberar.set()
+    esperar_ate(lambda: ws.fechado)
+    assert m._ws is None
+
+
+def test_encerrar_durante_a_reconexao_fecha_o_ws_novo():
+    ws1, ws2 = FakeWS(), FakeWS()
+    ws1.servidor({"setupComplete": {}})
+    ws2.servidor({"setupComplete": {}})
+    tr = TransporteLento(ws1, ws2)
+    tr.liberar.set()
+    m = dc.MotorGeminiLive(Coletor(), dict(CONF), chave=CHAVE, transporte=tr)
+    m.iniciar("x", [])
+    esperar_ate(lambda: ws1.enviados)
+    tr.liberar.clear()
+    tr.entrou.clear()
+    ws1.servidor({"goAway": {"timeLeft": "30s"}})
+    assert tr.entrou.wait(5)
+    m.encerrar()
+    tr.liberar.set()
+    esperar_ate(lambda: ws2.fechado)
+    assert m._ws is None
+
+
+def test_ws_real_so_tira_o_timeout_depois_do_handshake(monkeypatch):
+    import websocket
+    visto = []
+
+    class Cru:
+        def settimeout(self, t):
+            visto.append(t)
+
+    def cria(url, header=None, timeout=None):
+        visto.append(timeout)
+        return Cru()
+
+    monkeypatch.setattr(websocket, "create_connection", cria)
+    ws = dc._WsReal("wss://x", [])
+    assert visto == [30]                       # sem settimeout(None) enquanto o handshake roda
+    ws.pronto()
+    assert visto == [30, None]
+
+
+class WsEnvioFalha(FakeWS):
+    """O primeiro envio de áudio estoura (socket trocado no meio); os outros passam."""
+
+    def __init__(self):
+        super().__init__()
+        self.falhou = False
+
+    def send(self, texto):
+        if "audio" in texto and not self.falhou:
+            self.falhou = True
+            raise ConnectionResetError("socket velho")
+        super().send(texto)
+
+
+def test_escritor_descarta_item_se_o_envio_falha_e_nao_mata_a_sessao():
+    ws = WsEnvioFalha()
+    m, _, col, _ = gemini(ws)
+    m.iniciar("x", [])
+    m.enviar_audio(PCM)
+    esperar_ate(lambda: ws.falhou)
+    m.enviar_audio(PCM)
+    esperar_ate(lambda: any("audio" in e.get("realtimeInput", {}) for e in ws.enviados))
+    assert not col.de(dc.Erro) and not m._encerrado
+    m.encerrar()
+
+
+def test_reconexoes_so_contam_falhas_seguidas():
+    wss = [FakeWS() for _ in range(6)]
+    for w in wss:
+        w.servidor({"setupComplete": {}})
+    m, _, col, _ = gemini(wss[0], mais=wss[1:])
+    m.iniciar("x", [])
+    for i in range(5):                          # MAX_RECONEXOES = 3: a 4a goAway não pode matar
+        wss[i].servidor({"goAway": {"timeLeft": "30s"}})
+        esperar_ate(lambda: wss[i + 1].enviados)
+    assert not col.de(dc.Erro)
     m.encerrar()
 
 
