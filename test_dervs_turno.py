@@ -135,6 +135,19 @@ def test_caracteristicas_cola_zeros_no_comeco_e_guarda_o_fim():
     assert np.abs(f1[:, :300] - f1[:, :1]).max() < 0.2          # começo é o enchimento de zeros
 
 
+def test_caracteristicas_batem_com_o_whisper_feature_extractor_de_referencia():
+    """Valor de referência gerado UMA vez com o WhisperFeatureExtractor(chunk_length=8) do transformers
+    4/5 (instalado só fora do venv), no mesmo caminho do Pipecat: 0,5 s de sinal + zeros no começo."""
+    rng = np.random.default_rng(20261015)
+    t = np.arange(8000) / 16000.0
+    sinal = (0.3 * np.sin(2 * np.pi * 220 * t) + 0.1 * np.sin(2 * np.pi * 1330 * t)
+             + 0.02 * rng.standard_normal(len(t))).astype(np.float32)
+    ref = np.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata", "mel_referencia.npz"))
+    f = T.caracteristicas(sinal)
+    assert np.allclose(f[:, -60:], ref["fim"], atol=1e-3)         # a fala, no fim da janela
+    assert np.allclose(f[:, :1], ref["inicio"], atol=1e-3)        # o enchimento de zeros, no começo
+
+
 def test_banco_mel_slaney_do_whisper():
     f = T._filtros_mel()
     assert f.shape == (201, 80) and (f >= 0).all()
