@@ -37,8 +37,13 @@ SILENCIO_FINAL_S = 4.0
 
 def ler_wav16k(caminho) -> np.ndarray:
     with wave.open(caminho) as w:
-        taxa, bruto = w.getframerate(), w.readframes(w.getnframes())
+        taxa, canais, largura = w.getframerate(), w.getnchannels(), w.getsampwidth()
+        bruto = w.readframes(w.getnframes())
+    if largura != 2:
+        raise ValueError("%s: o wav precisa ser de 16 bits (este tem %d)" % (caminho, largura * 8))
     x = np.frombuffer(bruto, np.int16).astype(np.float64)
+    if canais > 1:                           # estéreo etc.: média dos canais (senão a taxa sai dobrada)
+        x = x[:len(x) // canais * canais].reshape(-1, canais).mean(axis=1)
     if taxa != T.TAXA:                       # reamostra por FFT (sem scipy)
         n = int(round(len(x) * T.TAXA / taxa))
         espectro = np.fft.rfft(x)
@@ -49,9 +54,14 @@ def ler_wav16k(caminho) -> np.ndarray:
     x = np.clip(x, -32768, 32767).astype(np.int16)
     # corta o silêncio que o TTS deixa no começo e no fim: a pausa do caso tem de ser só a combinada
     passo = T.TAXA // 100
+    if len(x) < passo:
+        return x
     q = x[:len(x) // passo * passo].reshape(-1, passo).astype(float)
     rms = np.sqrt((q ** 2).mean(1))
     voz = np.where(rms > max(60, rms.max() * 0.08))[0]
+    if len(voz) == 0:                        # arquivo mudo: devolve inteiro em vez de estourar
+        print("aviso: %s não tem voz acima do ruído" % caminho, file=sys.stderr)
+        return x
     return x[max(0, voz[0] - 2) * passo:(voz[-1] + 3) * passo]
 
 

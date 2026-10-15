@@ -251,6 +251,51 @@ def test_criar_avisa_o_motivo_quando_o_modelo_nao_carrega(tmp_path, monkeypatch,
     assert "RuntimeError" in caplog.text
 
 
+def _medir_turno():
+    import importlib.util
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "medir_turno.py")
+    spec = importlib.util.spec_from_file_location("medir_turno_sob_teste", caminho)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+def _gravar_wav(caminho, dados, canais=1, largura=2, taxa=16000):
+    import wave
+    with wave.open(str(caminho), "wb") as w:
+        w.setnchannels(canais)
+        w.setsampwidth(largura)
+        w.setframerate(taxa)
+        w.writeframes(dados)
+
+
+def test_medir_turno_le_wav_estereo_como_mono_e_corta_o_silencio(tmp_path):
+    m = _medir_turno()
+    t = np.arange(16000) / 16000.0
+    tom = (8000 * np.sin(2 * np.pi * 300 * t)).astype(np.int16)
+    mudo = np.zeros(8000, np.int16)
+    mono = np.concatenate([mudo, tom, mudo])
+    estereo = np.stack([mono, mono], axis=1).reshape(-1)
+    _gravar_wav(tmp_path / "e.wav", estereo.tobytes(), canais=2)
+    x = m.ler_wav16k(str(tmp_path / "e.wav"))
+    assert x.ndim == 1 and 15000 < len(x) < 17000                   # só o tom (o silêncio das pontas saiu)
+
+
+def test_medir_turno_wav_sem_voz_nao_estoura(tmp_path):
+    m = _medir_turno()
+    _gravar_wav(tmp_path / "mudo.wav", np.zeros(16000, np.int16).tobytes())
+    _gravar_wav(tmp_path / "curto.wav", np.zeros(50, np.int16).tobytes())
+    assert len(m.ler_wav16k(str(tmp_path / "mudo.wav"))) == 16000        # sem voz achada: devolve inteiro
+    assert len(m.ler_wav16k(str(tmp_path / "curto.wav"))) == 50
+
+
+def test_medir_turno_recusa_wav_que_nao_e_16_bits_com_mensagem_clara(tmp_path):
+    m = _medir_turno()
+    _gravar_wav(tmp_path / "8b.wav", bytes(100), largura=1)
+    with pytest.raises(ValueError, match="16 bits"):
+        m.ler_wav16k(str(tmp_path / "8b.wav"))
+
+
 @pytest.mark.parametrize("espera,silencio", [(0.5, 300), (2.0, 2000), (1.0, 800)])
 def test_config_espera_max_tem_de_passar_do_silencio_minimo_mais_300ms(espera, silencio):
     """Teto de espera <= silêncio mínimo faria o árbitro fechar a vez sem nunca consultar o modelo."""
