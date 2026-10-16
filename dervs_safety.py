@@ -225,6 +225,7 @@ _SEGUROS = [
     # Windows (PowerShell/cmd) — só leitura ou abrir app de tela.
     r"dir\b", r"Get-ChildItem\b", r"gci\b", r"Get-Content\b", r"gc\b",
     r"Get-Location\b", r"Get-Date\b", r"Get-Process\b", r"Test-Path\b",
+    r"Get-CimInstance\b", r"Get-PSDrive\b",     # "como está meu PC?" (16/10/2026)
     r"where\b", r"hostname\b", r"systeminfo\b",
     r"ipconfig\b", r"explorer\b", r"notepad\b", r"calc\b", r"wt\b",
     r"chrome\b", r"msedge\b", r"start\b",

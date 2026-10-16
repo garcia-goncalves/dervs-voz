@@ -39,7 +39,8 @@
 
   function rotuloDoMotor(estado) {
     const m = estado && estado.motor_ativo;
-    return (typeof m === "string" && MOTORES[m]) || "Modo antigo";
+    // sem motor ativo = ninguém está conversando agora (não é defeito): liga ao chamar o DERVS
+    return (typeof m === "string" && MOTORES[m]) || "Parada — liga quando você chamar o DERVS";
   }
 
   // Aviso do Python em português claro; texto desconhecido não é mostrado como veio.

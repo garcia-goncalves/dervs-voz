@@ -339,7 +339,8 @@ _GIT_PERIGO = re.compile(
 _LEITURA_SEM_ARGUMENTO = re.compile(
     r"^\s*(?:pwd|whoami|hostname|get-location|get-date|date(?:\s+/t)?)\s*$", re.IGNORECASE)
 _LEITURA_COM_ARGUMENTO = re.compile(
-    r"^\s*(?:dir|ls|get-childitem|gci|get-process|test-path|echo)(?:\s+(?P<args>.*))?$",
+    r"^\s*(?:dir|ls|get-childitem|gci|get-process|test-path|echo|get-ciminstance|get-psdrive)"
+    r"(?!.*-(?:computername|cimsession))(?:\s+(?P<args>.*))?$",
     re.IGNORECASE | re.DOTALL)
 # Argumento limpo: só letras, números, espaço e `. _ - \ / : ~ * ? ' " ,`. Fora
 # `$ ; & | > < ` % ^ = @ { } ( ) [ ]` (expansão, encadeamento, redirecionamento,
@@ -372,6 +373,24 @@ def _leitura_de_verdade(comando: str) -> bool:
     return bool(_ARGUMENTO_LIMPO.match(args) and not _UNIDADE_ESTRANHA.search(args))
 
 
+_EMBRULHO_PS = re.compile(
+    r"(?is)^\s*(?:powershell|pwsh)(?:\.exe)?\s+"
+    r"(?:-(?:NoProfile|NonInteractive|NoLogo)\s+)*-(?:Command|c)\s+(?P<dentro>.+?)\s*$")
+
+
+def _sem_embrulho_powershell(comando: str) -> str:
+    """`powershell -NoProfile -Command "Get-Date"` é julgado pelo que está DENTRO: antes, o embrulho
+    fazia "que horas são?" abrir o cartão "Isto muda algo neste PC" (teste de 16/10/2026). Só tira
+    um par de aspas de fora; -EncodedCommand e o resto não casam e seguem como estão."""
+    m = _EMBRULHO_PS.match(comando or "")
+    if not m:
+        return comando
+    dentro = m.group("dentro")
+    if len(dentro) >= 2 and dentro[0] == dentro[-1] and dentro[0] in "\"'":
+        dentro = dentro[1:-1]
+    return dentro if dentro.strip() else comando
+
+
 def classificar(nome: str, entrada: dict) -> dict:
     """`{"nivel": reversivel|muda_estado|destrutivo, "rede": bool}` — a mesma
     régua serve para o gancho, para o diálogo e para a regra "voz não aprova"."""
@@ -379,7 +398,7 @@ def classificar(nome: str, entrada: dict) -> dict:
     if nome in _SO_LEITURA or nome in FERRAMENTAS_DERVS:
         return {"nivel": "reversivel", "rede": False}
     if nome in FERRAMENTAS_DE_COMANDO:
-        comando = str(entrada.get("command", ""))
+        comando = _sem_embrulho_powershell(str(entrada.get("command", "")))
         d = seg.decidir_risco(comando)
         rede = bool(d["toca_alvo"] or _REDE.search(comando) or _ABRE_ALGO.search(comando)
                     or _URL_OU_UNC.search(comando))

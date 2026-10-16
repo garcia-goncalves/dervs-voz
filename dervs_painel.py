@@ -45,6 +45,8 @@ def motor_de_voz(voz) -> str:
     """'nuvem' só se a voz de nuvem está valendo AGORA (chave, internet e sem
     descanso por falha); senão 'local'."""
     try:
+        if voz is not None and voz.motor == "gemini":       # voz única Charon (16/10/2026)
+            return "nuvem" if voz._gemini_disponivel() else "local"
         return "nuvem" if (voz is not None and voz.motor == "openai"
                            and voz._openai_disponivel()) else "local"
     except Exception:

@@ -218,3 +218,12 @@ def test_agenda_nao_pisca_vazia_quando_a_troca_do_arquivo_atrapalha_uma_leitura(
     ag = AgendaTrocandoArquivo()
     assert len(dervs_painel.montar_agenda(ag)) == 1
     assert len(dervs_painel.montar_agenda(ag)) == 1, "a agenda piscou vazia"
+
+
+def test_motor_de_voz_gemini_aparece_como_nuvem():
+    class V:
+        motor = "gemini"
+        _gemini_disponivel = lambda self: True
+    assert painel.motor_de_voz(V()) == "nuvem"
+    V._gemini_disponivel = lambda self: False
+    assert painel.motor_de_voz(V()) == "local"

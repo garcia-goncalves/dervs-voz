@@ -4,13 +4,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const V = require("./painel-vozes.js");
 
-test("rotuloDoMotor: nomes claros e 'Modo antigo' sem motor", () => {
+test("rotuloDoMotor: nomes claros e 'Parada' sem motor", () => {
   assert.equal(V.rotuloDoMotor({ motor_ativo: "gemini_live" }), "Google (grátis)");
   assert.equal(V.rotuloDoMotor({ motor_ativo: "cascata" }), "Econômico");
   assert.equal(V.rotuloDoMotor({ motor_ativo: "openai_realtime" }), "Premium (OpenAI)");
-  assert.equal(V.rotuloDoMotor({ motor_ativo: null }), "Modo antigo");
-  assert.equal(V.rotuloDoMotor({ motor_ativo: "invento" }), "Modo antigo");
-  assert.equal(V.rotuloDoMotor(null), "Modo antigo");
+  assert.equal(V.rotuloDoMotor({ motor_ativo: null }), "Parada — liga quando você chamar o DERVS");
+  assert.equal(V.rotuloDoMotor({ motor_ativo: "invento" }), "Parada — liga quando você chamar o DERVS");
+  assert.equal(V.rotuloDoMotor(null), "Parada — liga quando você chamar o DERVS");
 });
 
 test("avisoDaTrava: traduz o aviso do Python e ignora texto desconhecido", () => {

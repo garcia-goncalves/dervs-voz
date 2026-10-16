@@ -1537,3 +1537,31 @@ def test_perfil_emprestado_segue_a_config_equipe(tmp_path, gasto):
     finally:
         cena.fechar()
     assert cena.clientes[0].opcoes.setting_sources == ["project"]
+
+
+@pytest.mark.parametrize("comando", [
+    "powershell -NoProfile -Command Get-Date",
+    'powershell.exe -NoProfile -NonInteractive -Command "Get-Date"',
+    "pwsh -c Get-Date",
+])
+def test_powershell_embrulhando_leitura_e_leitura(comando):
+    # teste do painel de 16/10/2026: "que horas são?" abria o cartão "Isto muda algo neste PC"
+    assert cc.classificar("Bash", {"command": comando})["nivel"] == "reversivel"
+
+
+@pytest.mark.parametrize("comando", [
+    'powershell -NoProfile -Command "Remove-Item C:/pasta -Recurse"',
+    "powershell -EncodedCommand ZQBjAGgAbwA=",
+    'powershell -Command "Get-Date; Stop-Computer"',
+])
+def test_powershell_embrulhando_o_resto_nao_desce(comando):
+    assert cc.classificar("Bash", {"command": comando})["nivel"] != "reversivel"
+
+
+@pytest.mark.parametrize("comando, nivel", [
+    ('powershell -NoProfile -Command "Get-CimInstance Win32_OperatingSystem"', "reversivel"),
+    ("Get-PSDrive C", "reversivel"),
+    ("Get-CimInstance Win32_OperatingSystem -ComputerName outro", "muda_estado"),
+])
+def test_leituras_do_como_esta_meu_pc(comando, nivel):
+    assert cc.classificar("Bash", {"command": comando})["nivel"] == nivel
