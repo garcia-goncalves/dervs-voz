@@ -156,6 +156,60 @@ def instalar(caminho: str = CAMINHO):
         _arquivo_duro = None
 
 
+class _ComHora(io.TextIOBase):
+    """Prefixa cada linha com a hora. É o `sys.stderr` do app aberto por `pythonw`."""
+
+    def __init__(self, arquivo):
+        self._f = arquivo
+        self._inicio = True
+        self._trava = threading.Lock()
+
+    def writable(self):
+        return True
+
+    def write(self, texto):
+        with self._trava:
+            for parte in texto.splitlines(keepends=True):
+                if self._inicio:
+                    self._f.write(time.strftime("%d/%m %H:%M:%S "))
+                self._f.write(parte)
+                self._inicio = parte.endswith("\n")
+            self._f.flush()
+        return len(texto)
+
+    def flush(self):
+        self._f.flush()
+
+
+def abrir_diario_de_execucao(caminho: str, limite: int = 2_000_000):
+    """O diário do que o app faz por dentro (o que ia para o `stderr`). Aberto por `pythonw` o app
+    não tem stderr, e no teste de voz de 15/10/2026 nenhuma decisão deixou rastro. Passou do
+    `limite`, o atual vira `.1` (um só). Nunca guarda o que o dono falou: só o que o código escreve
+    no stderr. Qualquer falha devolve None e o app segue sem diário."""
+    try:
+        os.makedirs(os.path.dirname(caminho) or ".", exist_ok=True)
+        if os.path.exists(caminho) and os.path.getsize(caminho) > limite:
+            os.replace(caminho, caminho + ".1")
+        return _ComHora(io.open(caminho, "a", encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+
+
+def instalar_diario_de_execucao():
+    """Sem console (pythonw), o stderr e o `logging` vão para %LOCALAPPDATA%\\dervs\\execucao.log."""
+    if sys.stderr is not None and getattr(sys.stderr, "isatty", lambda: False)():
+        return None
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/state")
+    f = abrir_diario_de_execucao(os.path.join(base, "dervs", "execucao.log"))
+    if f is None:
+        return None
+    sys.stderr = f
+    import logging
+    logging.basicConfig(level=logging.INFO, stream=f, format="%(name)s %(levelname)s %(message)s")
+    sys.stderr.write("dervs: --- abriu ---\n")
+    return f
+
+
 def queda_dura(caminho: str = CAMINHO):
     """O que o faulthandler deixou na queda anterior, se deixou algo."""
     try:

@@ -149,3 +149,19 @@ def test_guardar_copia_nunca_levanta(tmp_path):
     arquivo = tmp_path / "e_arquivo"
     arquivo.write_text("x")
     assert reg.guardar_copia("t", str(arquivo / "dentro")) is None
+
+
+def test_diario_de_execucao_grava_com_hora_e_gira(tmp_path):
+    # pythonw não tem stderr: sem isto, nenhuma decisão do app deixava rastro (teste de voz de 15/10)
+    caminho = tmp_path / "execucao.log"
+    caminho.write_text("x" * 50, encoding="utf-8")
+    f = reg.abrir_diario_de_execucao(str(caminho), limite=10)
+    f.write("dervs: conversa natural caiu (motivo)\n")
+    f.flush()
+    assert (tmp_path / "execucao.log.1").read_text(encoding="utf-8") == "x" * 50
+    linha = caminho.read_text(encoding="utf-8")
+    assert "dervs: conversa natural caiu (motivo)" in linha and linha[:2].isdigit()
+
+
+def test_diario_de_execucao_sem_pasta_nao_explode(tmp_path):
+    assert reg.abrir_diario_de_execucao(str(tmp_path / "nao" / "existe" / "\0x.log")) is None

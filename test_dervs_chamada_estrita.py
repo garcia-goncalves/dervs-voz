@@ -105,3 +105,17 @@ def test_estrito_nao_acorda_com_simbolo_ou_numero_antes_do_nome(fala):
 
 def test_e_ai_sai_do_pedido():
     assert separar_chamada("E aí, DERVS, tudo bem?", estrito=True) == (True, "tudo bem?")
+
+
+@pytest.mark.parametrize("fala, resto", [
+    # "Ô DERVS" o Whisper escreve "O Dervs." (teste de voz de 15/10): vocativo, com pontuação logo após
+    ("O Dervs. Como que você pode me ajudar?", "Como que você pode me ajudar?"),
+    ("O Dervs, abre a calculadora", "abre a calculadora"),
+])
+def test_o_vocativo_com_pontuacao_acorda(fala, resto):
+    assert separar_chamada(fala, estrito=True) == (True, resto)
+
+
+def test_o_sem_pontuacao_continua_sendo_falar_sobre_ele():
+    assert separar_chamada("o dervs não acordou hoje", estrito=True)[0] is False
+    assert separar_chamada("o dervs é legal", estrito=True)[0] is False

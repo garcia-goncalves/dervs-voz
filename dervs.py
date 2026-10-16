@@ -1114,6 +1114,8 @@ class PopUp(QtWidgets.QWidget):
             if self.voz.ligada:
                 self.voz.falar("Oi! Pode falar.")
             return
+        sys.stderr.write("dervs: frase acordada -> %s\n" % (
+            "conversa natural" if self._cn is not None and pcm else "caminho antigo"))
         if self._cn is not None and pcm:
             # a voz direta acordou com esta frase: ela mesma é a 1ª vez da conversa
             self._diz("dono", texto)
@@ -1429,9 +1431,13 @@ class PopUp(QtWidgets.QWidget):
     def _cn_ligar(self):
         """Acordou: a voz direta assume o microfone, se der. Qualquer falha = caminho antigo."""
         if self._cn is not None or self.escuta is None or time.time() < self._cn_bloqueada_ate:
+            if self._cn is None:
+                sys.stderr.write("dervs: conversa natural não ligou (%s)\n" % (
+                    "sem escuta" if self.escuta is None else "pausa após queda"))
             return
         conf = cfg.carregar()
         if not conf.get("conversa_natural") or not conversa_natural.motor_disponivel(conf):
+            sys.stderr.write("dervs: conversa natural desligada ou sem chave\n")
             return
         emitir = self._cn_evento.emit
         try:
@@ -1450,6 +1456,7 @@ class PopUp(QtWidgets.QWidget):
             sys.stderr.write("dervs: conversa natural não montou (%s)\n" % type(e).__name__)
             self._cn = None
             return
+        sys.stderr.write("dervs: conversa natural ligando\n")
         if self._cn.iniciar() and self._cn is not None and self.escuta is not None:
             self.escuta.desvio_quebrou = lambda: emitir("quebrou", None)
             self.escuta.desvio = self._cn.quadro
@@ -1484,6 +1491,7 @@ class PopUp(QtWidgets.QWidget):
                 if self.voz.ligada and (self._cn is None or not self._cn.player.tocando()):
                     self.voz.falar(dado)
             elif tipo == "caiu":
+                sys.stderr.write("dervs: conversa natural caiu (%s)\n" % dado)
                 # caiu antes de qualquer som ou ferramenta: a frase que acordou não foi atendida
                 refazer = (self._cn_frase if self._cn is not None
                            and self._cn.frase_sem_resposta() else None)

@@ -144,8 +144,10 @@ PADRAO = {
     # a nuvem. "local" = Whisper pequeno com aviso de vocabulário (medido: 14/14
     # em 0,49s). "porcupine" = detector dedicado, ainda não implementado — exige
     # conta gratuita no picovoice.ai. Ver dervs_porteiro.py.
+    # "base" desde 16/10/2026: o "tiny" errou o nome nas 5 falas REAIS do dono (17:54-17:55 de
+    # 15/10; só fora medido com voz sintética); o "base" acordou nas chamadas seguintes, ~1 s.
     "porteiro": "local",
-    "porteiro_modelo": "tiny",
+    "porteiro_modelo": "base",
     # Guardar, no diário do porteiro (%LOCALAPPDATA%/dervs/porteiro.jsonl), o
     # TEXTO que ele ouviu em cada decisão? Padrão False: o diário só anota hora,
     # se acordou, nº de palavras e duração — o que foi dito na sala (reunião,

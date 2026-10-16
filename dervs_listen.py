@@ -279,7 +279,10 @@ def separar_chamada(texto: str, nomes=NOMES, estrito: bool = False):
         # Tudo que vier antes do nome conta, até número e símbolo: "♪ Dervs ♪" (música)
         # ou "10 dervs" (legenda) não são chamada. Só espaço e pontuação são ignorados.
         antes = re.sub(r"[\s,.!?:;]+", " ", prefixo.lower()).strip()
-        if antes not in _SAUDACOES_ESTRITAS:
+        # "O Dervs." / "O Dervs," é o "Ô DERVS" que o Whisper escreve sem acento (15/10/2026); sem a
+        # pontuação logo depois do nome ("o dervs não acordou") é falar SOBRE ele, e não acorda
+        vocativo = antes == "o" and re.match(r"\s*[,.!?]", sufixo)
+        if antes not in _SAUDACOES_ESTRITAS and not vocativo:
             return False, t
 
     # a saudação ("ei", "oi"...) só existe no INÍCIO da frase inteira — se

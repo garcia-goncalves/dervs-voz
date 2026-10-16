@@ -1022,6 +1022,7 @@ def _raizes_de_projeto() -> list:
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
+    registro.instalar_diario_de_execucao()   # pythonw não tem stderr: sem isto nada deixa rastro
     registro.colher_anterior()
     registro.instalar()
     dervs.faxina_de_audio(dervs.TMP)

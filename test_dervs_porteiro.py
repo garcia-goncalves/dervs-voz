@@ -86,7 +86,7 @@ def test_porteiro_padrao_e_o_local():
 
 
 def test_porteiro_local_usa_o_modelo_medido():
-    assert criar_porteiro({}).tamanho == "tiny"
+    assert criar_porteiro({}).tamanho == "base"
 
 
 def test_porcupine_ainda_nao_existe_e_diz_o_que_fazer():

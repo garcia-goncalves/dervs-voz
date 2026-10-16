@@ -53,7 +53,7 @@ from dervs_listen import separar_chamada
 COLA_PORTEIRO = "Dervs. Ok Dervs. Ei Dervs. O assistente se chama Dervs."
 
 # Medido: 'tiny' acerta igual ao 'base' e é o dobro mais rápido. Ver o docstring.
-MODELO_PADRAO = "tiny"
+MODELO_PADRAO = "base"     # o tiny errava o nome na voz real (16/10/2026)
 
 # O diário: uma linha por decisão, para poder provar onde uma frase sumiu. Sem
 # ele, "não era comigo" apaga o texto e o wav e não sobra pista nenhuma — se o
