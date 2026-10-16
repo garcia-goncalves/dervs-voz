@@ -259,6 +259,59 @@ def sintetizar_openai(texto: str, voz: str, modelo: str, instrucoes: str, chave:
         return None
 
 
+GEMINI_TTS_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
+                  "gemini-3.8-flash-lite-tts:generateContent")
+GEMINI_TTS_TIMEOUT_S = 20
+GEMINI_TTS_TAXA = 24000
+
+
+def aparar_silencio(pcm: bytes, limiar: int = 300, folga_s: float = 0.12) -> bytes:
+    """Tira o silêncio do começo e do fim (PCM 16 bits, 24 kHz), deixando uma folga curta: o
+    Gemini devolve meio segundo mudo que soa como hesitação."""
+    x = np.frombuffer(pcm, np.int16)
+    alto = np.flatnonzero(np.abs(x.astype(np.int32)) > limiar)
+    if alto.size == 0:
+        return b""
+    folga = int(GEMINI_TTS_TAXA * folga_s)
+    return x[max(0, alto[0] - folga):alto[-1] + folga].tobytes()
+
+
+def sintetizar_gemini(texto: str, voz: str, chave: str):
+    """A MESMA voz da conversa natural (Gemini TTS, faixa grátis) para o caminho antigo: uma voz só
+    no DERVS inteiro (16/10/2026). A resposta inteira vai numa ida só — a faixa grátis dá 429 a
+    poucos pedidos por minuto, e frase a frase estouraria. Devolve o wav temporário ou None; nunca
+    escreve a chave nem o erro cru."""
+    import base64
+    import wave
+    try:
+        corpo = json.dumps({
+            "contents": [{"parts": [{"text": "Diga em tom natural e ágil: " + texto}]}],
+            "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
+                "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voz}}}},
+        }).encode("utf-8")
+        req = urllib.request.Request(GEMINI_TTS_URL, data=corpo, method="POST", headers={
+            "x-goog-api-key": chave, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=GEMINI_TTS_TIMEOUT_S) as r:
+            d = json.loads(r.read())
+        pcm = b"".join(base64.b64decode((p.get("inlineData") or {}).get("data") or "")
+                       for c in d.get("candidates", [])
+                       for p in (c.get("content") or {}).get("parts", []))
+        pcm = aparar_silencio(pcm[:len(pcm) // 2 * 2])
+        if len(pcm) < 2:
+            return None
+        tmp = tempfile.NamedTemporaryFile(prefix="dervs_gemini_", suffix=".wav", delete=False)
+        tmp.close()
+        with wave.open(tmp.name, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(GEMINI_TTS_TAXA)
+            w.writeframes(pcm[:len(pcm) // 2 * 2])
+        return tmp.name
+    except Exception as erro:
+        sys.stderr.write("dervs_tts: voz do Gemini falhou (%s)\n" % type(erro).__name__)
+        return None
+
+
 def caminho_voz(nome: str) -> str:
     return f"{VOZES_DIR}/pt_BR-{nome}-medium.onnx"
 
@@ -386,6 +439,8 @@ class Voz:
         self.voz_openai = _conf["voz_openai"]
         self.modelo_openai = _conf["voz_openai_modelo"]
         self.tempo_openai = _conf["voz_openai_tempo"]     # aceleração sem mudar o tom
+        self.voz_gemini = _conf.get("voz_gemini") or "Charon"
+        self.silenciada = False            # a conversa natural está falando: esta voz não abre a boca
         self._openai_descansa_ate = 0.0    # monotonic: até quando a nuvem descansa
         self._synth = None                 # processo de síntese "de reserva" (sem daemon)
         self._play = None                  # processo do player
@@ -433,6 +488,15 @@ class Voz:
         except Exception:
             return None
 
+    def _chave_gemini(self):
+        try:
+            return dervs_config.segredo("GEMINI_API_KEY")
+        except Exception:
+            return None
+
+    def _gemini_disponivel(self):
+        return self.motor == "gemini" and _reproducao_disponivel() and bool(self._chave_gemini())
+
     def _openai_disponivel(self):
         return (self.motor == "openai" and _reproducao_disponivel()
                 and time.monotonic() >= self._openai_descansa_ate
@@ -444,6 +508,8 @@ class Voz:
 
     def disponivel(self) -> bool:
         """Tem como falar por ALGUM motor?"""
+        if self.motor == "gemini":
+            return self._gemini_disponivel()        # voz única: sem reserva em outra voz
         return (self._openai_disponivel() or self._kokoro_disponivel()
                 or self._piper_disponivel()
                 or (self._xtts_instalado() and not self._xtts_morto))
@@ -514,7 +580,7 @@ class Voz:
     def falar(self, texto: str):
         """Fala a frase (sem travar a tela)."""
         texto = (texto or "").strip()
-        if not texto or not self.ligada or not self.disponivel():
+        if not texto or not self.ligada or self.silenciada or not self.disponivel():
             return
         self.calar()
         threading.Thread(target=self._falar_bloqueante, args=(texto,), daemon=True).start()
@@ -524,6 +590,14 @@ class Voz:
         self._evento_atual = evento
         self._gerando = True
         try:
+            if self.motor == "gemini":
+                # voz única (a mesma da conversa natural). Falhou: fica calado — o texto já está na
+                # tela — em vez de trocar para uma segunda voz no meio da conversa.
+                wav = (sintetizar_gemini(texto, self.voz_gemini, self._chave_gemini())
+                       if self._gemini_disponivel() and not evento.is_set() else None)
+                if wav is not None and not evento.is_set():
+                    self._tocar_e_apagar(wav)
+                return
             # 0) Nuvem (padrão): voz humana com sotaque brasileiro. Se a internet
             #    ou a chave falharem, cai no Kokoro (offline) — nunca fica mudo.
             if self.motor == "openai" and self._openai_disponivel():

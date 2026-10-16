@@ -190,8 +190,10 @@ PADRAO = {
     # Motor de voz: "openai" (voz de nuvem, a mais natural e com sotaque
     # brasileiro de verdade; custa centavos por fala e precisa de internet),
     # "kokoro" (humana, offline, grátis — a RESERVA da nuvem), "piper"
-    # (sintética, instantânea) ou "xtts" (humana, mas lenta).
-    "motor": "openai",
+    # (sintética, instantânea) ou "xtts" (humana, mas lenta). "gemini" (PADRÃO desde 16/10/2026):
+    # a MESMA voz da conversa natural (voz_gemini, Charon), grátis, e sem reserva em outra voz —
+    # o dono ouvia "duas vozes" (cedar, Charon e o Kokoro robótico quando a nuvem demorava).
+    "motor": "gemini",
 
     # Voz da nuvem (quando motor="openai"): ash, onyx, echo, sage, verse, ballad
     # (masculinas/neutras) ou coral, nova, shimmer (femininas).
@@ -372,7 +374,7 @@ def _validar(conf: dict) -> dict:
     if conf.get("voz_realtime") not in ("alloy", "ash", "ballad", "coral", "echo", "sage",
                                         "shimmer", "verse", "marin", "cedar"):
         conf["voz_realtime"] = PADRAO["voz_realtime"]
-    if conf.get("motor") not in ("openai", "kokoro", "piper", "xtts"):
+    if conf.get("motor") not in ("gemini", "openai", "kokoro", "piper", "xtts"):
         conf["motor"] = PADRAO["motor"]
     if conf.get("voz_openai") not in ("alloy", "ash", "ballad", "coral", "echo", "fable",
                                       "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar"):

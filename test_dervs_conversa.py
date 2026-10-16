@@ -674,9 +674,9 @@ def srv():
     s.fechar()
 
 
-def cascata(srv, **kw):
+def cascata(srv, conf_extra=None, **kw):
     col = Coletor()
-    m = dc.MotorCascata(col, dict(CONF, stt_dica_vocabulario="DICA DERVS"),
+    m = dc.MotorCascata(col, dict(CONF, stt_dica_vocabulario="DICA DERVS", **(conf_extra or {})),
                         chave_groq=CHAVE, chave_gemini=CHAVE + "g", chave_openai=CHAVE + "o",
                         url_groq=srv.base + "/groq", url_gemini=srv.base + "/gemini",
                         url_openai=srv.base + "/openai", **kw)
@@ -711,7 +711,7 @@ def test_cascata_turno_completo(srv, gasto):
 
 def test_cascata_gemini_tts_com_limite_cai_no_openai_pcm(srv, gasto):
     srv.tts_gemini = (429, [])
-    m, col = cascata(srv)
+    m, col = cascata(srv, {"motor": "openai"})    # só com a voz da OpenAI escolhida há essa reserva
     fala(m, col)
     col.esperar(dc.FimResposta)
     assert not col.de(dc.Erro)
@@ -1165,3 +1165,13 @@ def test_config_motores_filtra_e_remove_repetidos(monkeypatch, tmp_path):
     c = dervs_config.carregar()
     assert c["conversa_motores"] == ["cascata", "openai_realtime"]
     assert c["voz_gemini"] == "Kore" and c["voz_realtime"] == "marin"
+
+
+def test_cascata_voz_unica_nao_cai_na_voz_da_openai(srv, gasto):
+    # 16/10/2026: o dono ouvia duas vozes; com motor "gemini" a reserva não troca de voz
+    srv.tts_gemini = (429, [])
+    m, col = cascata(srv, {"motor": "gemini"})
+    fala(m, col)
+    esperar_ate(lambda: col.de(dc.Erro) or col.de(dc.FimResposta))
+    assert not [x for x in srv.pedidos if x[0].endswith("/audio/speech")]
+    m.encerrar()

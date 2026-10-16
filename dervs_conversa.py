@@ -868,6 +868,11 @@ PROMPT_CASCATA = (
 )
 
 
+# Curta de propósito (16/10/2026): a instrução longa ("natural e caloroso, como um amigo
+# competente") fazia a mesma frase durar 9,2 s em vez de 5,5 s — fala arrastada, "mole".
+INSTRUCAO_TTS_GEMINI = "Diga em tom natural e ágil: "
+
+
 class MotorCascata(MotorConversa):
     """Groq (voz -> texto) -> cérebro (texto em fluxo) -> voz em fluxo (Gemini TTS -> OpenAI TTS)."""
 
@@ -1088,6 +1093,8 @@ class MotorCascata(MotorConversa):
             except ErroServico as e:
                 if e.tipo == "limite":                 # não gasta uma ida e volta por frase
                     self._sem_gemini_ate = time.monotonic() + 60
+        if self.conf().get("motor", "gemini") == "gemini":
+            raise ErroServico("limite")      # voz única: sem a voz da OpenAI no meio (16/10/2026)
         ok, _ = dervs_gasto.pode_gastar(self.conf())
         if not ok:
             raise ErroServico("limite")
@@ -1101,8 +1108,7 @@ class MotorCascata(MotorConversa):
     def _tts_gemini(self, frase, minha):
         c = self.conf()
         corpo = json.dumps({
-            "contents": [{"parts": [{"text": "Fale em português do Brasil, natural e caloroso, "
-                                             "como um amigo competente: " + frase}]}],
+            "contents": [{"parts": [{"text": INSTRUCAO_TTS_GEMINI + frase}]}],
             "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
                 "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": c.get("voz_gemini", "Charon")}}}},
         }).encode()

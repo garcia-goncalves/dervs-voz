@@ -1458,6 +1458,8 @@ class PopUp(QtWidgets.QWidget):
             return
         sys.stderr.write("dervs: conversa natural ligando\n")
         if self._cn.iniciar() and self._cn is not None and self.escuta is not None:
+            self.voz.calar()
+            self.voz.silenciada = True     # uma voz só: enquanto ela está no ar, a antiga não fala
             self.escuta.desvio_quebrou = lambda: emitir("quebrou", None)
             self.escuta.desvio = self._cn.quadro
 
@@ -1527,6 +1529,7 @@ class PopUp(QtWidgets.QWidget):
 
     def _cn_desligar(self):
         cn_atual, self._cn = self._cn, None
+        self.voz.silenciada = False
         if self.escuta is not None:
             self.escuta.desvio = None
         if cn_atual is not None:
