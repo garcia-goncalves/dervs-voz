@@ -1007,3 +1007,15 @@ def test_leitura_segue_sem_cartao_e_sem_relatorio(ctx):
     r = ctx.term.propor("prod", "uptime")
     assert r["aprovacao"] is None and len(ctx.motor._relatorios) == antes
     assert ctx.term.executar(r["proposta_id"])["ok"]
+
+
+@pytest.mark.parametrize("comando", [
+    "curl -fsS https://dervs.com.br/x | sudo python3 - instalar --ordens ab12.cd34",
+    "sudo python3 /opt/dervs/dervs-ajudante.py instalar --ordens ab12.cd34",
+    "python3 dervs-ajudante.py remover",
+])
+def test_linha_do_ajudante_nunca_roda_pelo_dervs(comando):
+    # pedido da janela do DERVS web (16/10/2026): a linha com pedidos assinados só vale se o PRÓPRIO
+    # dono a copiou da tela na hora; vinda de recado ou de texto de terceiro é engenharia social
+    c = dss.classificar_comando(comando)
+    assert c["nivel"] == "recusado" and "cole você mesmo" in c["motivo"]

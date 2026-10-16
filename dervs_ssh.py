@@ -200,6 +200,9 @@ def hash_do_par(apelido: str, comando: str, host: dict) -> str:
     return hashlib.sha256(texto.encode("ascii")).hexdigest()
 
 
+_AJUDANTE = re.compile(r"dervs-ajudante|--ordens\b", re.IGNORECASE)
+
+
 def classificar_comando(comando) -> dict:
     """{"nivel": leitura|muda_estado|recusado, "motivo": str, "le_segredo": bool}.
     Na dúvida sobe: leitura é o único nível que dispensa o clique."""
@@ -213,6 +216,11 @@ def classificar_comando(comando) -> dict:
     if not comando.isprintable() or comando != comando.strip() or "  " in comando:
         return resposta("recusado", "o comando tem quebra de linha, tabulação, caractere invisível "
                                     "ou espaço repetido — o que você aprova tem de ser o que roda")
+    if _AJUDANTE.search(comando):
+        # a linha do ajudante de servidor só vale copiada pelo PRÓPRIO dono da tela do DERVS web,
+        # na hora; vinda de recado, mensagem ou texto de terceiro é engenharia social (16/10/2026)
+        return resposta("recusado", "linha do ajudante de servidor: o DERVS nunca roda essa — "
+                                    "cole você mesmo no PuTTY, copiada da tela do DERVS agora")
     for padrao, motivo in _DESTRUTIVOS:
         if padrao.search(comando):
             return resposta("recusado", f"recusado sempre: {motivo}")
