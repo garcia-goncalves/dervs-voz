@@ -277,8 +277,8 @@ PADRAO = {
     # "Criar e alterar arquivos" está em "Faz sozinho". Caminhos completos. Não vale raiz
     # de disco, o perfil, AppData nem pasta que os contenha; fora delas ele sempre pergunta.
     "pastas_de_projeto": [],
-    # Cofre de notas (segundo cérebro, `dervs_cofre.py`). Vazio = a pasta DERVS-Cofre em
-    # Documentos. O conteúdo nunca sai do computador sem o dono pedir; `privado/` jamais.
+    # Cofre de notas (segundo cérebro, `dervs_cofre.py`). Vazio = a pasta DERVS-Cofre na pasta do
+    # usuário (fora de Documentos desde 16/10/2026: o Acesso Controlado a Pastas barrava). O conteúdo nunca sai do computador sem o dono pedir; `privado/` jamais.
     "cofre_pasta": "",
     # Notas NÃO privadas que casam com a fala do dono (no máximo 3, 1.500 caracteres) acompanham a
     # pergunta ao cérebro da OpenAI. DESLIGADO por padrão: é texto pessoal indo a um terceiro, então

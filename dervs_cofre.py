@@ -188,7 +188,10 @@ def _e_reanalise(entrada) -> bool:
 def criar_cofre(pasta) -> Path:
     raiz = Path(pasta)
     for sub in PASTAS_DE_ESCRITA:
-        (raiz / sub).mkdir(parents=True, exist_ok=True)
+        # só cria o que falta: em Documentos, o Acesso Controlado a Pastas do Windows barra (e
+        # avisa na tela) até o mkdir de uma pasta que já existe (16/10/2026)
+        if not (raiz / sub).is_dir():
+            (raiz / sub).mkdir(parents=True, exist_ok=True)
     leiame = raiz / "LEIAME.md"
     if not leiame.exists():
         leiame.write_text(LEIAME, encoding="utf-8")
@@ -642,8 +645,20 @@ class Cofre:
 
 
 def pasta_padrao() -> Path:
-    """Onde o cofre mora se o dono não escolheu outra: a pasta DERVS-Cofre em Documentos."""
-    return _documentos() / "DERVS-Cofre"
+    """Onde o cofre mora se o dono não escolheu outra: a pasta DERVS-Cofre na pasta do usuário
+    (C:\\Users\\<você>\\DERVS-Cofre). Era em Documentos até 16/10/2026, mas lá o Acesso Controlado a
+    Pastas do Windows barra o Python: aviso na tela e nota perdida em silêncio. Na primeira vez, as
+    notas de Documentos são COPIADAS para cá (nada é apagado lá; o índice antigo não vem)."""
+    novo = Path.home() / "DERVS-Cofre"
+    antigo = _documentos() / "DERVS-Cofre"
+    if not novo.exists() and antigo.is_dir():
+        try:
+            import shutil
+            shutil.copytree(antigo, novo, ignore=shutil.ignore_patterns(".indice"))
+        except OSError as erro:
+            sys.stderr.write("dervs_cofre: não consegui copiar as notas de Documentos (%s)\n"
+                             % type(erro).__name__)
+    return novo
 
 
 def pasta_indice_padrao(raiz) -> Path:
@@ -693,8 +708,8 @@ def iniciar_loop_cofre(ponte, parar: threading.Event, cv, intervalo=60.0, numero
             try:
                 if numeros_fn is not None:
                     cv.gravar_diario(datetime.date.today().isoformat(), numeros_fn())
-            except Exception:
-                pass
+            except Exception as erro:          # não derruba o laço, mas deixa rastro (16/10/2026)
+                sys.stderr.write("dervs_cofre: não gravei o diário (%s)\n" % type(erro).__name__)
             try:
                 ponte.enviar_cofre(cv.contagem(), str(cv.raiz))
             except Exception:

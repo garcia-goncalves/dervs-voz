@@ -431,3 +431,34 @@ def test_indice_padrao_na_pasta_local(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     p = cofre.pasta_indice_padrao(tmp_path / "x")
     assert p.is_relative_to(tmp_path / "local" / "dervs" / "cofre-indice")
+
+
+def test_abrir_cofre_existente_nao_tenta_criar_pasta(tmp_path, monkeypatch):
+    # o Windows avisava "alterações não autorizadas bloqueadas" a cada abertura (16/10/2026)
+    cofre.Cofre(tmp_path / "c")
+    criadas = []
+    original = cofre.Path.mkdir
+    monkeypatch.setattr(cofre.Path, "mkdir", lambda self, *a, **k: criadas.append(self) or original(self, *a, **k))
+    cofre.criar_cofre(tmp_path / "c")
+    assert criadas == []
+
+
+def test_pasta_padrao_fora_de_documentos_e_copia_as_notas_antigas(tmp_path, monkeypatch):
+    # 16/10/2026: o Acesso Controlado a Pastas barra o Python em Documentos (aviso na tela e nota
+    # perdida em silêncio). O cofre padrão mora na pasta do usuário; as notas antigas são COPIADAS
+    # (nada é apagado de Documentos) e o índice antigo não vem junto.
+    casa, docs = tmp_path / "casa", tmp_path / "docs"
+    antigo = docs / "DERVS-Cofre"
+    (antigo / "entrada").mkdir(parents=True)
+    (antigo / "entrada" / "nota.md").write_text("oi", encoding="utf-8")
+    (antigo / ".indice").mkdir()
+    (antigo / ".indice" / "indice.sqlite").write_bytes(b"x")
+    monkeypatch.setattr(cofre.Path, "home", classmethod(lambda cls: casa))
+    monkeypatch.setattr(cofre, "_documentos", lambda: docs)
+    p = cofre.pasta_padrao()
+    assert p == casa / "DERVS-Cofre"
+    assert (p / "entrada" / "nota.md").read_text(encoding="utf-8") == "oi"
+    assert not (p / ".indice").exists() and (antigo / "entrada" / "nota.md").exists()
+    (p / "entrada" / "nota.md").write_text("mudou", encoding="utf-8")
+    assert cofre.pasta_padrao() == p                       # segunda vez não copia por cima
+    assert (p / "entrada" / "nota.md").read_text(encoding="utf-8") == "mudou"

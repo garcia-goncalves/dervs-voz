@@ -636,7 +636,7 @@ Servidores vêm das sessões salvas do PuTTY (precisam de endereço **e** usuár
 
 ## O cofre: o segundo cérebro (05/10/2026)
 
-O cofre é uma **pasta de notas no seu computador**, a pasta `DERVS-Cofre` dentro de *Documentos* (dá para trocar: `cofre_pasta` no `config.json`). Cada nota é um arquivo de texto comum (`.md`), então abre no Bloco de Notas, no **Obsidian** (gratuito: "Abrir pasta como cofre") ou no Logseq. Os links `[[assim]]` ligam uma nota a outra e a busca é instantânea. O DERVS cria a pasta sozinho na primeira vez.
+O cofre é uma **pasta de notas no seu computador**, a pasta `DERVS-Cofre` na sua pasta de usuário, `C:\Users\<você>\DERVS-Cofre` (dá para trocar: `cofre_pasta` no `config.json`). Até 16/10/2026 ela ficava em *Documentos*, mas lá o Acesso Controlado a Pastas do Windows barrava o DERVS ("Alterações não autorizadas bloqueadas"); na primeira abertura depois disso, as notas antigas são **copiadas** para o lugar novo, e a pasta de Documentos fica intacta (pode apagá-la quando quiser). Cada nota é um arquivo de texto comum (`.md`), então abre no Bloco de Notas, no **Obsidian** (gratuito: "Abrir pasta como cofre") ou no Logseq. Os links `[[assim]]` ligam uma nota a outra e a busca é instantânea. O DERVS cria a pasta sozinho na primeira vez.
 
 **Por voz** (com o microfone aberto, no modo Atalho ou Chamar por voz):
 
