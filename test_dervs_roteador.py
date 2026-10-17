@@ -223,3 +223,18 @@ def test_projeto_citado_sem_pedido_de_trabalho_nao_empresta(raizes):
 def test_destino_sem_raizes_e_com_entrada_torta_nao_quebra():
     assert r.destino("", [])["perfil"] == "dervs"
     assert r.destino("corrige o bug no projeto grimoire", [])["executor"] == "falar"
+
+
+def test_projeto_que_faz_do_pedido_um_trabalho_empresta_o_harness(raizes):
+    """3o teste por voz (17/10 16:49): o ouvido escreveu "Dervis Vos" e o projeto foi achado,
+    mas o pedido sem o projeto ("cria um arquivo de teste") não era trabalho sozinho, e o
+    Claude rodou fora do projeto, recusando programar."""
+    d = r.destino("cria um arquivo de teste no projeto Dervis Vos", raizes)
+    assert d["executor"] == "claude_code" and d["perfil"] == "projeto"
+    assert d["projeto"].endswith("dervs-voz")
+    assert d["pedido"] == "cria um arquivo de teste no projeto dervs-voz"
+
+
+def test_pedido_com_o_nome_certo_do_projeto_fica_igual(raizes):
+    d = r.destino("corrige o bug do login no projeto grimoire", raizes)
+    assert d["pedido"] == "corrige o bug do login no projeto grimoire"

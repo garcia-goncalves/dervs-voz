@@ -118,14 +118,19 @@ def destino(texto: str, raizes) -> dict:
     nome, pedido = citado
     rota_projeto = rotear(pedido)
     if rota_projeto["executor"] != "claude_code":
-        return rota                      # cita um projeto mas não pede trabalho: fica com o DERVS
+        if rota["executor"] != "claude_code":
+            return rota                  # cita um projeto mas não pede trabalho: fica com o DERVS
+        rota_projeto = rota              # "cria um arquivo de teste no projeto X": o projeto faz o trabalho
     try:
         pasta, empate = dervs_voz_infra.achar_projeto(nome, raizes or [])
     except Exception:
         pasta, empate = None, []
     if pasta:
+        # o nome como o ouvido escreveu ("Dervis Vos") vira o da pasta, na tela e para o Claude
+        real = os.path.basename(pasta)
+        pedido_dito = re.sub(re.escape(nome), lambda _: real, (texto or "").strip(), flags=re.I)
         return {**rota_projeto, "perfil": "projeto", "projeto": pasta,
-                "pedido": (texto or "").strip(),
+                "pedido": pedido_dito,
                 "motivo": rota_projeto["motivo"] + "; no projeto " + os.path.basename(pasta)}
     fala = ("Achei mais de um projeto parecido: " + ", ".join(empate) + ". Qual deles?"
             if empate else f"Não achei o projeto {nome} nas suas pastas de projeto.")
