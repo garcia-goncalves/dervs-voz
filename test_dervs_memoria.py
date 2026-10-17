@@ -32,7 +32,8 @@ def test_fato_repetido_nao_duplica(m):
 @pytest.mark.parametrize("fato", [
     "minha senha do banco é 1234", "a chave da API é sk-abc123", "o token do github é xyz",
     "meu cartão é 4111 1111 1111 1111", "meu CPF é 123.456.789-00", "o pin é 9988",
-    "o código de segurança é 123",
+    "o código de segurança é 123", "a senha do wifi é casa2020", "anota ghp_abcdefghij",
+    "o código é Zx9kQ2mN7pL4vR8tY1wB", "o segredo do cofre é 4512", "a chave pix é meu email",
 ])
 def test_nao_guarda_o_que_parece_segredo(m, fato):
     ok, motivo = m.lembrar(fato)
@@ -70,12 +71,30 @@ def test_esquecer_vazio_ou_curto_demais_nao_apaga_tudo(m):
     assert m.esquecer("") == 0 and m.esquecer("a") == 0 and len(m.listar()) == 1
 
 
-def test_arquivo_estragado_vira_memoria_vazia_sem_quebrar(tmp_path):
+def test_arquivo_estragado_guarda_copia_e_recomeca(tmp_path):
     p = tmp_path / "memoria.json"
     p.write_text("{isto não é json", encoding="utf-8")
     x = mem.Memoria(str(p))
-    assert x.listar() == []
     assert x.lembrar("minha filha se chama Ana")[0]
+    copias = [f for f in tmp_path.iterdir() if ".corrompido-" in f.name]
+    assert len(copias) == 1 and copias[0].read_text(encoding="utf-8") == "{isto não é json"
+
+
+def test_arquivo_preso_nao_apaga_os_fatos_bons(m, monkeypatch):
+    """Revisão 17/10: o antivírus segurando o arquivo fazia `lembrar` gravar por cima com 1 fato."""
+    m.lembrar("minha filha se chama Ana")
+    import builtins
+    abrir = builtins.open
+
+    def preso(caminho, *a, **k):
+        if str(caminho) == m.caminho:
+            raise PermissionError("em uso")
+        return abrir(caminho, *a, **k)
+    monkeypatch.setattr(builtins, "open", preso)
+    assert m.lembrar("a reunião é sexta") == (False, "erro de disco")
+    assert m.esquecer("filha") == 0
+    monkeypatch.setattr(builtins, "open", abrir)
+    assert m.listar() == ["minha filha se chama Ana"]
 
 
 def test_gravacao_e_atomica_e_em_json(m, tmp_path):
@@ -186,3 +205,45 @@ def test_ficha_de_segredo_recusa_sem_gravar(m):
 
 def test_ficha_de_outra_fala_e_none(m):
     assert mem.ficha("abre o chrome", m) is None
+
+
+
+@pytest.mark.parametrize("fato", [
+    "meu aniversário é 15/10/1985", "o telefone da Ana é 11 98765-4321",
+    "a chave do carro fica na gaveta", "guardei o cartão de visita do médico",
+    "minha filha nasceu em 12-03-2015",
+])
+def test_data_telefone_e_coisas_do_dia_a_dia_nao_sao_segredo(m, fato):
+    """Revisão 17/10: aniversário e telefone são o pedido mais comum de memória pessoal."""
+    assert m.lembrar(fato) == (True, "guardado")
+
+
+def test_pergunta_com_lembra_que_nao_grava():
+    assert mem.entender("lembra que ontem choveu?") is None
+
+
+@pytest.mark.parametrize("fala", ["Dervis, lembra que eu acordo às seis",
+                                  "Ei Dervs, por favor, lembra que eu acordo às seis"])
+def test_lembrar_com_o_nome_na_frente(fala):
+    assert mem.entender(fala) == ("lembrar", "eu acordo às seis")
+
+
+def test_esquecer_varios_diz_quantos_e_guarda_copia(m, tmp_path):
+    m.lembrar("o João é meu irmão")
+    m.lembrar("o João mora em Santos")
+    assert mem.ficha("esquece o João", m)["fala"] == "Esqueci 2 lembranças sobre isso, senhor."
+    assert (tmp_path / "memoria.json.bak").exists() and m.listar() == []
+
+
+def test_fatos_vem_separados_da_identidade_e_com_regra_de_sigilo(m):
+    m.lembrar("eu prefiro café sem açúcar")
+    assert "café" not in m.identidade("Thiago Garcia")
+    assert "particular" in m.identidade("Thiago Garcia")
+    assert m.fatos_cercados().startswith("<memoria>") and "café" in m.fatos_cercados()
+
+
+def test_arquivo_editado_a_mao_enorme_nao_entra_inteiro(m):
+    import json as _json
+    with open(m.caminho, "w", encoding="utf-8") as f:
+        _json.dump({"fatos": [{"texto": "x" * 5000, "quando": ""}] * 500}, f)
+    assert len(m.fatos_cercados()) < mem.MAX_FATOS * (mem.MAX_CARACTERES + 10) + 500

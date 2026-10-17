@@ -313,6 +313,33 @@ Quem for gravado como convidado (por exemplo a sua filha) conversa e faz só coi
 
 Para desligar e voltar ao jeito antigo: `"conversa_natural": false` no `config.json`.
 
+## O jeito JARVIS, a memória dele e o tempo (17/10/2026)
+
+**Como ele fala:** te chama de "senhor", é educado, direto e tem um humor seco, em uma ou
+duas frases. "DERVS" sozinho responde **"Pois não, senhor?"** e "DERVS, está aí?" responde
+**"À sua disposição, senhor."** na hora: essas frases ficam gravadas no computador, na mesma
+voz, e não esperam a internet. Na primeira vez que ele abre, grava essas frases sozinho em
+segundo plano; se o Google recusar (limite da faixa grátis), tenta de novo na próxima abertura.
+
+**Quem é quem:** ele sempre sabe que foi criado por **André Gonçalves e Thiago Garcia**, em
+qualquer computador. O **dono deste computador** pode ser qualquer pessoa: é quem grava a voz
+como **Dono** em **VOZES**, no painel. O texto de gravação começa com "Meu nome é…" e o nome
+que você digitou, e esse nome vira o nome do dono (`nome_do_dono` no `config.json`). Um segundo
+dono gravado depois não troca o nome do primeiro.
+
+**Memória:** diga "lembra que eu prefiro café sem açúcar" e ele guarda; "esquece que eu prefiro
+café" apaga; "o que você lembra de mim?" ele conta. O arquivo fica no seu computador, em
+`%APPDATA%\dervs\memoria.json` (no máximo 100 fatos curtos; ao esquecer, a versão anterior fica
+em `memoria.json.bak`). **Atenção:** a cada conversa os fatos vão junto para o serviço que
+conversa com você (Google, ou OpenAI na reserva), para ele saber deles; por isso ele **não
+guarda** o que parece senha, chave, token, cartão, CPF ou dado de conta. Só o dono mexe na
+memória, só quando ele mesmo diz "lembra que…" ou "esquece que…" (no máximo 3 lembranças novas
+por conversa), e com outras pessoas ele não comenta o que sabe de você.
+
+**Data e tempo:** ele sabe a data de hoje e consulta a previsão do tempo de qualquer bairro ou
+cidade do Brasil ("qual a previsão para amanhã na Mooca?"), pelo Open-Meteo, um serviço
+gratuito que não pede cadastro nem chave.
+
 ## Trocar a voz
 
 Foram geradas 6 amostras para você ouvir, na pasta `amostras_voz` dentro do

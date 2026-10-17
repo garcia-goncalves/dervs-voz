@@ -657,10 +657,12 @@ def montar_opcoes(perfil, *, can_use_tool, gancho, servidor_mcp, resume=None,
     if sdk is None:
         raise RuntimeError("o pacote claude-agent-sdk não está instalado "
                            "(rode: pip install -r requirements.txt)")
+    sistema = None                              # o SDK manda instrução vazia: vale o CLAUDE.md
     if perfil == "dervs":
         # Cérebro próprio: nem um `cwd` pedido de fora o leva para um repositório.
         preparar_cerebro()
         cwd, ambiente, so_o_dervs = pasta_area(), {"CLAUDE_CONFIG_DIR": pasta_cerebro()}, True
+        sistema = instrucao_sobre_o_dono()
     elif not cwd:
         raise ValueError("o Claude Code do dono só é emprestado dentro da pasta de um projeto")
     else:
@@ -686,7 +688,29 @@ def montar_opcoes(perfil, *, can_use_tool, gancho, servidor_mcp, resume=None,
         mcp_servers={"dervs": servidor_mcp},
         allowed_tools=list(FERRAMENTAS_DERVS),  # o gancho ainda roda antes delas
         resume=resume,
+        system_prompt=sistema,
     )
+
+
+def instrucao_sobre_o_dono(base=None):
+    """Criadores e dono do PC (`dervs_memoria.Memoria.identidade`) para o cérebro próprio, num
+    arquivo (`--system-prompt-file`), longe do limite de linha de comando do Windows.
+    Regravado a cada sessão; falha: None (como antes)."""
+    try:
+        import dervs_config
+        import dervs_memoria
+        # só a identidade: este cérebro age no PC, e os fatos (que podem ter vindo de áudio de
+        # fora) não entram como instrução dele (revisão de segurança 17/10)
+        texto = ("Trate o dono por 'senhor', no estilo do JARVIS.\n"
+                 + dervs_memoria.Memoria.identidade(dervs_config.carregar().get("nome_do_dono", "")))
+        caminho = os.path.join(base or pasta_cerebro(), "sobre-o-dono.md")
+        temporario = caminho + ".tmp"
+        with open(temporario, "w", encoding="utf-8", newline="\n") as f:
+            f.write(texto)
+        os.replace(temporario, caminho)
+        return {"type": "file", "path": caminho}
+    except Exception:
+        return None
 
 
 # --- sessão em disco -----------------------------------------------------------

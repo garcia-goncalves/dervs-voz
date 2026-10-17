@@ -98,6 +98,7 @@ SISTEMA = (
 )
 
 RECUSA_MEMORIA = "Minha memória só o dono pode mudar."
+MAX_GRAVACOES_POR_CONVERSA = 3               # teto de "lembrar" por conversa (revisão 17/10)
 
 
 def instrucao_do_sistema(conf, memoria) -> str:
@@ -648,6 +649,7 @@ class ConversaNatural:
         self._registrar_texto = isinstance(conf, dict) and conf.get("porteiro_registrar_texto") is True
         self._ouvido, self._dito = [], []
         self._memoria = memoria if memoria is not None else dervs_memoria.padrao()
+        self._gravacoes_memoria = 0
         self.player = player
         self.perfis = perfis
         self.arbitro = arbitro
@@ -1025,7 +1027,9 @@ class ConversaNatural:
         elif isinstance(ev, dc.TextoSaida):
             self._dito.append(ev.texto or "")
         elif isinstance(ev, dc.ChamadaFerramenta):
-            log.info("ferramenta %s %s", ev.nome, str(ev.args)[:200])
+            # o fato a lembrar pode ser recusado como segredo: não vai em claro para o diário
+            log.info("ferramenta %s %s", ev.nome,
+                     "(texto omitido)" if ev.nome == "lembrar" else str(ev.args)[:200])
         elif isinstance(ev, dc.FimResposta):
             ouvi, disse = "".join(self._ouvido).strip(), "".join(self._dito).strip()
             self._ouvido, self._dito = [], []
@@ -1124,12 +1128,27 @@ class ConversaNatural:
         ferramenta (texto de fora que pode trazer ordem plantada) não grava nem apaga."""
         if papel != "dono" or ctx["origem_ferramenta"]:
             return {"ok": False, "recusado": True, "diga": RECUSA_MEMORIA}
+        # Determinístico, no molde do `_confirmar` (revisão de segurança 17/10): só vale se a
+        # TRANSCRIÇÃO desta vez do dono pede isso ("lembra que…"/"esquece que…"), e o que se
+        # guarda é o que ele disse, não a paráfrase do modelo. Barra o `lembrar` confabulado
+        # ou induzido por texto de fora.
+        with self._trava_estado:
+            dito = " ".join(self._entrada)
+            gravadas = self._gravacoes_memoria
+        pedido = dervs_memoria.entender(dito)
+        if pedido is None or pedido[0] != nome:
+            return {"ok": False, "diga": "Não mexi na memória: preciso ouvir o senhor pedir, "
+                                         "com 'lembra que…' ou 'esquece que…'."}
+        if nome == "lembrar" and gravadas >= MAX_GRAVACOES_POR_CONVERSA:
+            return {"ok": False, "diga": "Já guardei o bastante por agora, senhor."}
+        args = {"assunto": pedido[1]} if nome == "esquecer" else {"fato": pedido[1]}
         if nome == "esquecer":
             saiu = self._memoria.esquecer(args["assunto"])
-            return {"ok": True, "esquecidos": saiu,
-                    "diga": "Esquecido, senhor." if saiu else "Eu não tinha isso guardado, senhor."}
+            return {"ok": True, "esquecidos": saiu, "diga": dervs_memoria.frase_de_esquecidos(saiu)}
         ok, motivo = self._memoria.lembrar(args["fato"])
         if ok:
+            with self._trava_estado:
+                self._gravacoes_memoria += 1
             return {"ok": True, "diga": "Anotado, senhor."}
         if motivo == "parece segredo":
             return {"ok": False, "diga": "Isso parece um segredo, senhor; prefiro não guardar."}

@@ -5,6 +5,7 @@ tinha acesso à internet. Aqui a consulta vai ao Open-Meteo (gratuito, sem cadas
 primeiro acha o lugar pelo nome (bairro ou cidade, no Brasil), depois a previsão dele.
 A resposta é UMA frase falada. Nunca levanta: sem rede, diz com franqueza.
 """
+import http.client
 import json
 import urllib.parse
 import urllib.request
@@ -32,7 +33,7 @@ def descrever(codigo) -> str:
 def _buscar_json(url: str) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": "DERVS"})
     with urllib.request.urlopen(req, timeout=TEMPO_LIMITE_S) as r:
-        return json.loads(r.read())
+        return json.loads(r.read(1_000_000))         # teto: a resposta normal tem ~1 kB
 
 
 def _graus(valor) -> int:
@@ -56,11 +57,11 @@ def previsao(lugar: str, quando: str = "hoje", *, buscar=_buscar_json) -> str:
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
                      "precipitation_probability_max",
             "timezone": "auto", "forecast_days": 2}))
-        dia = 1 if quando == "amanha" else 0
+        dia = 1 if (quando or "").strip().lower() in ("amanha", "amanhã") else 0
         d = dados["daily"]
         ceu = descrever(d["weather_code"][dia])
         chuva = d["precipitation_probability_max"][dia]
-        nome = p.get("name") or lugar
+        nome = str(p.get("name") or lugar)[:60]      # texto de terceiro vai à fala: curto
         if dia == 0:
             atual = dados["current"]
             frase = "Agora em %s faz %d graus%s. Hoje, máxima de %d e mínima de %d" % (
@@ -74,5 +75,6 @@ def previsao(lugar: str, quando: str = "hoje", *, buscar=_buscar_json) -> str:
         if chuva is not None:
             frase += ", com %d%% de chance de chuva" % int(chuva)
         return frase + "."
-    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError,
+            http.client.HTTPException):
         return "Não consegui consultar a previsão agora, senhor."

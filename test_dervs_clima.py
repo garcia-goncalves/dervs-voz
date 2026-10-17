@@ -76,7 +76,7 @@ def test_buscar_de_verdade_le_json(monkeypatch):
         def __exit__(self, *a):
             return False
 
-        def read(self):
+        def read(self, n=-1):
             return json.dumps({"ok": 1}).encode()
     vistos = []
     monkeypatch.setattr(clima.urllib.request, "urlopen",

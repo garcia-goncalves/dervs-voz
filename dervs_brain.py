@@ -661,23 +661,29 @@ def _contexto_extra(conversa: list) -> str:
         return ""
 
 
-def _memoria_do_dono() -> str:
-    """Criadores, dono do PC e fatos lembrados (`dervs_memoria`). Erro: nada, nunca quebra."""
+def _memoria_do_dono() -> tuple:
+    """(identidade, fatos cercados) de `dervs_memoria`. Erro: ("", ""), nunca quebra."""
     try:
         import dervs_config
         import dervs_memoria
-        return dervs_memoria.padrao().bloco(dervs_config.carregar().get("nome_do_dono", ""))
+        m = dervs_memoria.padrao()
+        return (m.identidade(dervs_config.carregar().get("nome_do_dono", "")),
+                m.fatos_cercados())
     except Exception:
-        return ""
+        return "", ""
 
 
 def _mensagens_openai(conversa: list) -> list:
     """Converte a conversa do DERVS no formato de mensagens da OpenAI."""
     msgs = [{"role": "system", "content": SISTEMA},
             {"role": "system", "content": _agora()}]
-    sobre_o_dono = _memoria_do_dono()
-    if sobre_o_dono:
-        msgs.append({"role": "system", "content": sobre_o_dono})
+    identidade, fatos = _memoria_do_dono()
+    if identidade:
+        msgs.append({"role": "system", "content": identidade})
+    if fatos:
+        # os fatos podem ter sido ditados por áudio de fora: como o cofre, vão como DADO
+        # cercado (`_rotular`), nunca como `system` (revisão de segurança 17/10)
+        msgs.append({"role": "user", "content": _rotular({"papel": "resultado", "texto": fatos})})
     extra = _contexto_extra(conversa)
     if extra:
         # role `user` cercado como saída de comando (`_rotular`), NUNCA `system`: nota pode conter

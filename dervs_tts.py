@@ -745,13 +745,28 @@ class Voz:
 
     @staticmethod
     def _guardar_pronto(wav, destino):
+        """Cópia atômica com temporário de nome único: o preparo em fundo e a 1ª fala da mesma
+        frase podem gravar ao mesmo tempo sem um truncar o outro (revisão 17/10)."""
+        temporario = None
         try:
-            os.makedirs(os.path.dirname(destino), exist_ok=True)
-            temporario = destino + ".tmp"
+            pasta = os.path.dirname(destino)
+            os.makedirs(pasta, exist_ok=True)
+            fd, temporario = tempfile.mkstemp(dir=pasta, suffix=".tmp")
+            os.close(fd)
             shutil.copyfile(wav, temporario)
+            with wave.open(temporario, "rb") as w:     # só guarda áudio inteiro e válido
+                if w.getnframes() <= 0:
+                    raise ValueError("wav vazio")
             os.replace(temporario, destino)
-        except OSError:
+            temporario = None
+        except (OSError, ValueError, EOFError, wave.Error):
             pass
+        finally:
+            if temporario:
+                try:
+                    os.remove(temporario)
+                except OSError:
+                    pass
 
     def preparar_frases_prontas(self, bloquear: bool = False):
         """Grava, uma vez, as FRASES_PRONTAS que faltam (voz do Gemini, faixa grátis). Para no
