@@ -520,6 +520,10 @@ class PopUp(QtWidgets.QWidget):
         self.MAX_FILA = 4              # guarda no máximo 4 — depois é conversa velha demais
         self._desperto = False         # já acordou pela palavra "DERVS"?
         self._desperto_ate = 0.0       # até quando fica desperto sem repetir o nome
+        # A conversa natural renova o teto de 90 s a cada vez dele, mas só dentro deste teto
+        # maior, que ninguém renova: só o nome dito de novo (17/10, revisão de privacidade).
+        self._conversa_desde = 0.0
+        self.TETO_CONVERSA = 600.0
         # Teto ABSOLUTO da janela de desperto, em segundos. A janela normal se
         # renova a cada resposta, o que é bom para conversar — mas sem um teto
         # ela nunca fecharia numa conversa longa, e enquanto ele está desperto
@@ -1015,7 +1019,7 @@ class PopUp(QtWidgets.QWidget):
                 and agora < self._desperto_ate
                 and agora < self._desperto_desde + self.TETO_DESPERTO)
 
-    def _acordar(self, novo=False):
+    def _acordar(self, novo=False, renovar_teto=False):
         """Abre ou renova a janela de desperto.
 
         `novo=True` só quando ele OUVIU O NOME — aí o teto absoluto recomeça do
@@ -1028,6 +1032,10 @@ class PopUp(QtWidgets.QWidget):
         self._auto.tocar()          # falou com ele: o microfone não é "esquecido"
         agora = time.time()
         if novo or not self._desperto:
+            self._desperto_desde = agora
+            if novo:
+                self._conversa_desde = agora
+        elif renovar_teto and agora < self._conversa_desde + self.TETO_CONVERSA:
             self._desperto_desde = agora
         elif agora >= self._desperto_desde + self.TETO_DESPERTO:
             return       # teto estourado: só volta a atender se o nome for dito
@@ -1492,11 +1500,14 @@ class PopUp(QtWidgets.QWidget):
     def _cn_tratar(self, tipo, dado):
         """Eventos da conversa natural, já na thread da tela. Exceção aqui não derruba o app."""
         try:
+            if tipo in ("aviso", "pedido", "feito", "plano", "delegar"):
+                # o DERVS respondeu ou agiu: os 20 s para o dono responder contam daqui (17/10)
+                self._acordar()
             if tipo == "turno":
                 # vez fechada na conversa natural = ele está falando COM o DERVS (a trava de voz
-                # já filtrou quem fala): renova o teto também. Sem isto a conversa dormia aos 90 s
-                # da chamada, no meio da frase, e só voltava com "DERVS" de novo (17/10).
-                self._acordar(novo=True)
+                # já filtrou quem fala): renova o teto de 90 s, dentro do TETO_CONVERSA. Sem isto
+                # a conversa dormia aos 90 s da chamada, no meio da frase (17/10).
+                self._acordar(renovar_teto=True)
             elif tipo == "aviso":
                 self._diz("dervs", dado)
                 self._toast(dado)
@@ -1553,7 +1564,14 @@ class PopUp(QtWidgets.QWidget):
             if cn_atual is None:
                 return
             cn_atual.tique()
-            if not cn_atual.ocupado() and (self.escuta is None or not self._esta_desperto()):
+            if cn_atual.ocupado():
+                # falando ou esperando a resposta: a janela só começa a correr quando ele termina.
+                # Antes contava da fala do dono e ele dormia logo depois de responder (17/10).
+                # O teto continua valendo: motor travado em "ocupado" não segura o microfone.
+                self._acordar()
+                if self.escuta is not None and self._esta_desperto():
+                    return
+            if self.escuta is None or not self._esta_desperto():
                 # dormir calado parecia "não me ouve mais" e não deixava rastro (17/10)
                 sys.stderr.write("dervs: conversa natural dormiu (%s)\n" % (
                     "microfone fechado" if self.escuta is None else "sem fala na janela"))

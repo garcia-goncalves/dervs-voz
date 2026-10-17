@@ -37,10 +37,15 @@ _VERBO_TECNICO = (r"(?:consert(?:a|e|ar)|corrij(?:a|o)|corrig(?:e|ir)|refator(?:
                   r"implement(?:a|e|ar)|desenvolv(?:a|e|er))")
 _ALVO_FORTE = (r"(?:site|app|aplicativo|sistema|funcao|codigo|script|bug|api|"
                r"programa de computador|backend|frontend|landing page|endpoint|"
-               r"componente|banco de dados|automacao)")
+               r"componente|banco de dados|automacao|programacao)")
 _ALVO_SOLTO = r"(?:tela|teste|testes|pagina|rotina|projeto|classe|modulo|programa)"
+# "cria um arquivo de teste no projeto dervs-voz" (17/10): o lugar diz que é código
+# — mas só com objeto de código antes: "cria uma pasta no projeto" é do planejador (revisão)
+_OBJ_CODIGO = r"(?:arquivo|teste|testes|funcao|script|classe|modulo|tela|pagina|componente)"
+_NUM_PROJETO = (rf"{_OBJ_CODIGO}\b[^.?!]{{0,40}}?\b"
+                r"(?:no|do|pro|para o|dentro do) (?:projeto|repositorio|repo)")
 _DESENVOLVER = re.compile(
-    rf"^(?:{_VERBO_GERAL}\b[^.?!]{{0,60}}?\b{_ALVO_FORTE}\b"
+    rf"^(?:{_VERBO_GERAL}\b[^.?!]{{0,60}}?\b(?:{_ALVO_FORTE}|{_NUM_PROJETO})\b"
     rf"|{_VERBO_TECNICO}\b[^.?!]{{0,60}}?\b(?:{_ALVO_FORTE}|{_ALVO_SOLTO})\b)")
 
 

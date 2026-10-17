@@ -66,9 +66,10 @@ def test_turno_da_conversa_natural_renova_o_teto():
     pytest.importorskip("PyQt6")
     import dervs
     chamadas = []
-    pop = types.SimpleNamespace(_acordar=lambda novo=False: chamadas.append(novo))
+    pop = types.SimpleNamespace(
+        _acordar=lambda novo=False, renovar_teto=False: chamadas.append((novo, renovar_teto)))
     dervs.PopUp._cn_tratar(pop, "turno", None)
-    assert chamadas == [True], "turno de conversa não renovou o teto: dormia aos 90 s"
+    assert chamadas == [(False, True)], "turno de conversa não renovou o teto: dormia aos 90 s"
 
 
 def test_conversa_natural_que_dorme_deixa_linha_no_diario(capsys):
@@ -135,3 +136,111 @@ def test_cascata_nao_responde_a_alucinacao():
     m._responder = lambda *a, **k: pytest.fail("respondeu a uma legenda inventada")
     m._turno_interno(b"\1\0" * 16000, m._geracao)
     assert [type(e).__name__ for e in eventos] == ["FimResposta"]
+
+
+# ==== 2º teste por voz, 17/10 15:36 ===========================================================
+# Pediu "cria um arquivo de teste no projeto dervs-voz": a conversa dormiu 20 s depois da fala
+# dele, logo que terminou de responder (a janela contava da fala, não do fim da resposta), e o
+# pedido foi ao planejador rápido em vez do Claude Code (o roteador não conhecia "no projeto").
+
+def test_conversa_ocupada_empurra_a_janela_e_nao_dorme():
+    pytest.importorskip("PyQt6")
+    import dervs
+    acordou, desligou = [], []
+    cn_atual = types.SimpleNamespace(tique=lambda: None, ocupado=lambda: True)
+    pop = types.SimpleNamespace(
+        _cn=cn_atual, escuta=object(), _esta_desperto=lambda: bool(acordou),
+        _cn_desligar=lambda: desligou.append(True), _acordar=lambda novo=False: acordou.append(novo))
+    dervs.PopUp._cn_vigiar(pop)
+    assert acordou and not desligou, "falando/trabalhando, a janela tem de contar do fim"
+
+
+def test_motor_preso_em_ocupado_nao_segura_o_microfone_depois_do_teto():
+    pytest.importorskip("PyQt6")
+    import dervs
+    desligou = []
+    cn_atual = types.SimpleNamespace(tique=lambda: None, ocupado=lambda: True)
+    pop = types.SimpleNamespace(   # teto estourado: _acordar não renova, segue dormindo
+        _cn=cn_atual, escuta=object(), _esta_desperto=lambda: False,
+        _cn_desligar=lambda: desligou.append(True), _acordar=lambda novo=False: None)
+    dervs.PopUp._cn_vigiar(pop)
+    assert desligou, "motor travado em ocupado deixou o microfone aberto para sempre"
+
+
+def _pop_teto(agora, conversa_desde, desperto_desde):
+    pytest.importorskip("PyQt6")
+    import dervs
+    pop = types.SimpleNamespace(
+        _auto=types.SimpleNamespace(tocar=lambda: None), _desperto=True,
+        _desperto_desde=desperto_desde, _desperto_ate=0.0, _conversa_desde=conversa_desde,
+        TETO_DESPERTO=90.0, TETO_CONVERSA=600.0, JANELA_DESPERTO=20)
+    return dervs, pop
+
+
+def test_turno_renova_o_teto_dentro_da_conversa(monkeypatch):
+    dervs, pop = _pop_teto(1000.0, conversa_desde=900.0, desperto_desde=905.0)
+    monkeypatch.setattr(dervs.time, "time", lambda: 1000.0)
+    dervs.PopUp._acordar(pop, renovar_teto=True)
+    assert pop._desperto_desde == 1000.0 and pop._desperto_ate == 1020.0
+
+
+def test_teto_da_conversa_ninguem_renova(monkeypatch):
+    # 11 min depois do nome, com fala a cada 20 s: o teto de 90 s não renova mais e ele dorme
+    dervs, pop = _pop_teto(1000.0, conversa_desde=340.0, desperto_desde=905.0)
+    monkeypatch.setattr(dervs.time, "time", lambda: 1000.0)
+    dervs.PopUp._acordar(pop, renovar_teto=True)
+    assert pop._desperto_desde == 905.0 and pop._desperto_ate == 0.0,         "a sala ia para a nuvem sem limite: o teto da conversa foi renovado"
+
+
+def test_nome_dito_de_novo_abre_conversa_nova(monkeypatch):
+    dervs, pop = _pop_teto(1000.0, conversa_desde=340.0, desperto_desde=905.0)
+    monkeypatch.setattr(dervs.time, "time", lambda: 1000.0)
+    dervs.PopUp._acordar(pop, novo=True)
+    assert pop._conversa_desde == 1000.0
+
+
+@pytest.mark.parametrize("tipo, dado", [("feito", None), ("aviso", "pronto"),
+                                        ("pedido", "x"), ("plano", {})])
+def test_resposta_ou_acao_do_dervs_renova_a_janela(tipo, dado):
+    pytest.importorskip("PyQt6")
+    import dervs
+    acordou = []
+    pop = types.SimpleNamespace(
+        _acordar=lambda novo=False: acordou.append(novo), _diz=lambda *a, **k: None,
+        _toast=lambda *a: None, _cn=None, _cerebro_respondeu=lambda f: None,
+        voz=types.SimpleNamespace(ligada=False))
+    dervs.PopUp._cn_tratar(pop, tipo, dado)
+    assert acordou, "%s não renovou a janela: dormia antes de ele responder" % tipo
+
+
+@pytest.mark.parametrize("texto", [
+    "cria um arquivo de teste no projeto dervs-voz",
+    "Cria um arquivo de teste no projeto Dervs Voss.",
+    "faz algo de programação pra mim",
+    "escreve um teste no repositório do grimoire",
+])
+def test_roteador_manda_programacao_ao_claude_code(texto):
+    import dervs_roteador
+    assert dervs_roteador.rotear(texto)["executor"] == "claude_code"
+
+
+@pytest.mark.parametrize("texto", [
+    "abre a calculadora", "que horas são", "cria uma pasta na área de trabalho",
+    "faz um café pra mim", "cria uma pasta no projeto", "faz um resumo do projeto",
+])
+def test_roteador_nao_manda_comando_simples_ao_claude_code(texto):
+    import dervs_roteador
+    assert dervs_roteador.rotear(texto)["executor"] == "planejador"
+
+
+def test_legenda_de_verdade_passa():
+    assert dc.eh_alucinacao_stt("legenda esse vídeo pra mim") is False
+
+
+def test_queda_do_motor_nao_grava_chave(caplog):
+    motor = types.SimpleNamespace(_encerrado=False, nome="gemini_live",
+                                  _emitir=lambda ev: None, encerrar=lambda: None)
+    with caplog.at_level(logging.WARNING, logger="dervs.conversa"):
+        dc._MotorWS._falhar(motor, RuntimeError(
+            "403 header x-goog-api-key: AIzaSEGREDO123 Authorization: Bearer sk-SEGREDO456"))
+    assert "SEGREDO" not in caplog.text

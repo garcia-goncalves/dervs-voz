@@ -434,7 +434,8 @@ class _MotorWS(MotorConversa):
         if self._encerrado:
             return
         # sem esta linha a troca de motor acontecia sem motivo nenhum no diário (17/10)
-        log.warning("motor %s caiu: %s: %s", self.nome, type(exc).__name__, str(exc)[:200])
+        log.warning("motor %s caiu: %s: %s", self.nome, type(exc).__name__,
+                    _SEM_CHAVE.sub(r"\1***", str(exc))[:200])
         self._emitir(erro_de(exc))
         self.encerrar()
 
@@ -860,12 +861,15 @@ def _multipart(campos, arquivo):
 
 _FRASE = re.compile(r"(?<=[.!?…])\s+|\n+")
 
+# Mensagem de erro vai para o diário: se uma biblioteca ecoar o header, a chave não vai junto.
+_SEM_CHAVE = re.compile(r"(bearer\s+|x-goog-api-key:\s*|key=|sk-)[^\s\"',;&]+", re.I)
+
 # O Whisper foi treinado com legenda de vídeo: em ruído ou respiração ele "ouve" o rodapé do vídeo.
 # Respondido como pedido, isso era o DERVS inventando conversa (17/10). Frase inteira, não pedaço:
 # "Obrigado, DERVS, pode abrir o Chrome" é fala de verdade.
 _ALUCINACOES_STT = re.compile(
     r"^(?:obrigad[oa]s?(?: (?:por|pela) (?:assistir|atenção|ver))?|tchau(?:,? tchau)*|"
-    r"legendas? (?:pela|por) .*|legenda .*|inscreva-se.*|.*amara\.org.*|"
+    r"legendas? (?:pela|por) .*|legendas? adriana zanotto|inscreva-se.*|.*amara\.org.*|"
     r"(?:não )?esqueça de se inscrever.*|até a próxima|até mais)$")
 
 
