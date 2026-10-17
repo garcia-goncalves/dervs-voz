@@ -1100,6 +1100,7 @@ def main():
                           ao_modo_escuta=_ao_modo_escuta_inicial, ao_vozes=_ao_vozes_inicial)
     motor = Motor(ponte)
     motor.voz.preparar_acuses()          # áudios de "Certo." etc., uma vez, em segundo plano
+    motor.voz.preparar_frases_prontas()  # "Pois não, senhor?" etc., na voz única, uma vez
     ao_claude_alvo.append(_construir_ao_claude(motor))
     ao_central_alvo.append(motor.central_pc.tratar)
     ao_microfone_alvo.append(motor.pedir_microfone)

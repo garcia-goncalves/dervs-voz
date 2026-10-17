@@ -76,12 +76,22 @@
 
   const EXPLICA_DONO = "Já existe um dono. Para cadastrar outro, fale com o DERVS antes, com a voz de "
     + "um dono já gravado, e volte aqui.";
+  const PRIMEIRO_DONO = "Grave como Dono a voz de quem é dono deste computador: o DERVS passa a "
+    + "chamá-lo por este nome e a obedecer só a ele no que é importante.";
 
   function validarNome(texto) {
     const nome = typeof texto === "string" ? texto.trim() : "";
     if (!nome) return { ok: false, erro: "Escreva um nome para esta voz." };
     if (nome.length > LIMITE_NOME) return { ok: false, erro: `O nome pode ter no máximo ${LIMITE_NOME} letras.` };
     return { ok: true, nome };
+  }
+
+  // A pessoa lê o próprio nome em voz alta no começo ("Meu nome é Thiago, ..."): a gravação
+  // traz o nome dito do jeito certo, por ela mesma (pedido do dono, 17/10/2026).
+  function textoDeLeitura(nome) {
+    const limpo = typeof nome === "string" ? nome.replace(/\s+/g, " ").trim() : "";
+    if (!limpo || limpo.length > LIMITE_NOME || !/^[\p{L} .'-]+$/u.test(limpo)) return TEXTO_LEITURA;
+    return TEXTO_LEITURA.replace("Meu nome é o que eu escolhi para esta gravação,", `Meu nome é ${limpo},`);
   }
 
   function segundosGravados(fracao) {
@@ -218,7 +228,8 @@
       sel.querySelector('option[value="dono"]').disabled = !podeDono;
       if (!podeDono && sel.value === "dono") sel.value = "convidado";
       if (!temDono(lista) && !sel.dataset.tocado) sel.value = "dono";
-      $("voz-papel-ajuda").textContent = podeDono ? "" : EXPLICA_DONO;
+      $("voz-papel-ajuda").textContent = !podeDono ? EXPLICA_DONO
+        : (temDono(lista) ? "" : PRIMEIRO_DONO);
       for (const id of ["voz-nome", "voz-papel", "voz-iniciar"]) $(id).disabled = gravando;
       $("voz-cancelar").hidden = !gravando;
       $("voz-progresso-area").hidden = !gravando;
@@ -243,6 +254,9 @@
     $("voz-fechar").addEventListener("click", () => dialogo.close());
     $("voz-papel").addEventListener("change", () => { $("voz-papel").dataset.tocado = "1"; });
     $("voz-texto").textContent = TEXTO_LEITURA;
+    $("voz-nome").addEventListener("input", () => {
+      $("voz-texto").textContent = textoDeLeitura($("voz-nome").value);
+    });
     $("voz-barra").max = SEGUNDOS;
 
     $("voz-form").addEventListener("submit", (ev) => {
@@ -286,7 +300,10 @@
         if (msg) mensagem(msg.texto, msg.ok);
         else if (m.resultado.ok === false) mensagem(mensagemDoResultado("", m.resultado).texto, false);
         else mensagem("");
-        if (msg && msg.ok && era.tipo === "gravar") $("voz-nome").value = "";
+        if (msg && msg.ok && era.tipo === "gravar") {
+          $("voz-nome").value = "";
+          $("voz-texto").textContent = TEXTO_LEITURA;
+        }
         acao = null;
       } else if ($("voz-mensagem").textContent === "Carregando...") {
         mensagem("");
@@ -297,5 +314,5 @@
 
   return { rotuloDoMotor, avisoDaTrava, statusDaTrava, rotuloDoPapel, temDono, podeGravarDono,
     validarNome, segundosGravados, fraseDoProgresso, mensagemDoResultado, iniciarTela,
-    TEXTO_LEITURA, EXPLICA_DONO, SEGUNDOS, LIMITE_NOME };
+    TEXTO_LEITURA, EXPLICA_DONO, SEGUNDOS, LIMITE_NOME, textoDeLeitura };
 });

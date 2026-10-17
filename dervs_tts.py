@@ -145,6 +145,14 @@ INSTRUCOES_VOZ_BR = (
 # Respostas imediatas: ditas na hora, de um áudio já guardado em disco, enquanto o
 # cérebro pensa e a frase de verdade é gerada na nuvem (~2 s). Curtas e neutras.
 ACUSES = ("Certo.", "Entendido.", "Pois não.", "Um instante.")
+
+# Frases do jeito JARVIS que saem na hora (esteira dervs-jeito-jarvis, 17/10/2026): gravadas uma
+# vez na voz única e tocadas do disco. Antes, "DERVS" sozinho pedia "Oi! Pode falar." à nuvem
+# (~3,4 s, e às vezes 20 s calado quando o Google não respondia).
+FRASE_CHAMADO = "Pois não, senhor?"
+FRASE_PRESENTE = "À sua disposição, senhor."
+FRASE_LIGADO = "Online, senhor. Basta me chamar."
+FRASES_PRONTAS = (FRASE_CHAMADO, FRASE_PRESENTE, FRASE_LIGADO)
 _FIM_FRASE = re.compile(r"(?<=[.!?;:])\s+")
 _FIM_DA_FILA = object()
 
@@ -604,8 +612,15 @@ class Voz:
             if self.motor == "gemini":
                 # voz única (a mesma da conversa natural). Falhou: fica calado — o texto já está na
                 # tela — em vez de trocar para uma segunda voz no meio da conversa.
+                pronto = self._arquivo_pronto(texto)
+                if pronto and os.path.isfile(pronto) and os.path.getsize(pronto) > 0:
+                    if not evento.is_set():
+                        self._tocar(pronto)             # do disco, na hora; não apaga
+                    return
                 wav = (sintetizar_gemini(texto, self.voz_gemini, self._chave_gemini())
                        if self._gemini_disponivel() and not evento.is_set() else None)
+                if wav is not None and pronto:
+                    self._guardar_pronto(wav, pronto)
                 if wav is not None and not evento.is_set():
                     self._tocar_e_apagar(wav)
                 return
@@ -712,6 +727,52 @@ class Voz:
                                             INSTRUCOES_VOZ_BR, self._chave_openai(), self.tempo_openai)
                     if wav:
                         shutil.move(wav, destino)
+            except Exception:
+                pass
+        if bloquear:
+            _gerar()
+        else:
+            threading.Thread(target=_gerar, daemon=True).start()
+
+    def _arquivo_pronto(self, frase: str):
+        """Onde mora o áudio pronto de uma das FRASES_PRONTAS (None para qualquer outra). O nome
+        muda com a voz e o modelo: trocar a voz grava de novo em vez de tocar a voz velha."""
+        if frase not in FRASES_PRONTAS:
+            return None
+        chave = "|".join(("gemini", self.voz_gemini, GEMINI_TTS_URL, frase))
+        return os.path.join(self._dir_acuses(),
+                            "pronta_" + hashlib.sha1(chave.encode("utf-8")).hexdigest()[:16] + ".wav")
+
+    @staticmethod
+    def _guardar_pronto(wav, destino):
+        try:
+            os.makedirs(os.path.dirname(destino), exist_ok=True)
+            temporario = destino + ".tmp"
+            shutil.copyfile(wav, temporario)
+            os.replace(temporario, destino)
+        except OSError:
+            pass
+
+    def preparar_frases_prontas(self, bloquear: bool = False):
+        """Grava, uma vez, as FRASES_PRONTAS que faltam (voz do Gemini, faixa grátis). Para no
+        primeiro erro (cota 429, sem rede): tenta de novo na próxima abertura. Nunca levanta."""
+        def _gerar():
+            try:
+                if not self.ligada or not self._gemini_disponivel():
+                    return
+                for frase in FRASES_PRONTAS:
+                    destino = self._arquivo_pronto(frase)
+                    if os.path.isfile(destino):
+                        continue
+                    wav = sintetizar_gemini(frase, self.voz_gemini, self._chave_gemini())
+                    if wav is None:
+                        return
+                    self._guardar_pronto(wav, destino)
+                    try:
+                        os.remove(wav)
+                    except OSError:
+                        pass
+                    time.sleep(2)                       # a faixa grátis aceita poucas por minuto
             except Exception:
                 pass
         if bloquear:

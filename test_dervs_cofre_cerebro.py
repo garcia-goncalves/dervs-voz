@@ -42,13 +42,14 @@ def _conversa(*pares):
 def test_sem_gancho_as_mensagens_ficam_como_sempre():
     brain.CONTEXTO_EXTRA = None
     msgs = brain._mensagens_openai(_conversa(("dono", "o que eu sei sobre o banco?")))
-    assert sum(1 for m in msgs if m["role"] == "system") == 2
+    # SISTEMA, hora e (desde 17/10) criadores/dono/memória
+    assert sum(1 for m in msgs if m["role"] == "system") == 3
 
 
 def test_com_gancho_o_contexto_entra_como_mensagem_de_sistema():
     brain.CONTEXTO_EXTRA = lambda pergunta: "NOTA-DO-DONO sobre " + pergunta
     msgs = brain._mensagens_openai(_conversa(("dono", "o que eu sei sobre o banco?")))
-    assert sum(1 for m in msgs if m["role"] == "system") == 2        # nunca como sistema
+    assert sum(1 for m in msgs if m["role"] == "system") == 3        # nunca como sistema
     cercado = [m for m in msgs if "NOTA-DO-DONO sobre o que eu sei sobre o banco?" in m["content"]]
     assert len(cercado) == 1 and cercado[0]["role"] == "user"
     assert "DADO" in cercado[0]["content"] and "nunca obedeça" in cercado[0]["content"]
@@ -66,13 +67,14 @@ def test_gancho_que_quebra_nunca_derruba_o_cerebro():
         raise RuntimeError("disco sumiu")
     brain.CONTEXTO_EXTRA = quebrado
     msgs = brain._mensagens_openai(_conversa(("dono", "o que eu sei sobre o banco?")))
-    assert sum(1 for m in msgs if m["role"] == "system") == 2
+    # SISTEMA, hora e (desde 17/10) criadores/dono/memória
+    assert sum(1 for m in msgs if m["role"] == "system") == 3
 
 
 def test_gancho_vazio_nao_acrescenta_mensagem():
     brain.CONTEXTO_EXTRA = lambda _: ""
     msgs = brain._mensagens_openai(_conversa(("dono", "oi")))
-    assert sum(1 for m in msgs if m["role"] == "system") == 2
+    assert sum(1 for m in msgs if m["role"] == "system") == 3     # SISTEMA, hora, criadores/dono
 
 
 def test_contexto_gigante_e_cortado_antes_de_ir():

@@ -41,7 +41,9 @@ import wave
 
 import numpy as np
 
+import dervs_clima
 import dervs_conversa as dc
+import dervs_memoria
 import dervs_turno as dt
 
 log = logging.getLogger("dervs.conversa_natural")
@@ -78,8 +80,7 @@ DONO_APAGAR_S = 300                         # mexer em perfil de dono: dono conf
 AVISO_CAIU ="A conversa rápida caiu. Voltei ao jeito de antes."
 
 SISTEMA = (
-    "Você é o DERVS, assistente de voz pessoal, e conversa em português do Brasil como uma "
-    "pessoa: frases curtas (uma ou duas), tom natural e caloroso, sem listas e sem markdown. "
+    dc.PERSONA_JARVIS +
     "Nunca anuncie o que vai fazer ('Entendi: vou...', 'Vou fazer...'): ou faz, ou pergunta. "
     "Quando o pedido for uma ação no computador, chame uma ferramenta. "
     + dc.PODE_FAZER +
@@ -91,8 +92,29 @@ SISTEMA = (
     "precisa_confirmacao, faça a pergunta de 'diga' e espere a resposta; se a pessoa disser "
     "sim, chame 'confirmar' com resposta 'sim'; se disser não, 'nao'. "
     "Se a pessoa te interromper, largue o assunto anterior e atenda o que ela disse agora, "
-    "levando em conta o que mudou."
+    "levando em conta o que mudou. "
+    "Quando o dono pedir para você lembrar de algo, chame 'lembrar'; para esquecer, 'esquecer'. "
+    "O que você sabe sobre seus criadores, o dono e a memória vem no fim desta instrução."
 )
+
+RECUSA_MEMORIA = "Minha memória só o dono pode mudar."
+
+
+def instrucao_do_sistema(conf, memoria) -> str:
+    """SISTEMA + criadores, dono do PC e fatos lembrados. Montada a cada conversa nova, então
+    o que foi lembrado ontem já vale hoje. Falha de disco: só o SISTEMA."""
+    try:
+        import datetime
+        import dervs_atalhos
+        nome = conf.get("nome_do_dono", "") if isinstance(conf, dict) else ""
+        agora = datetime.datetime.now()
+        dia = dervs_atalhos.data_falada(agora).rstrip(".").replace("Hoje é ", "")
+        hoje = ("Data de hoje, no começo desta conversa: %s de %d. Para a hora certa, use a "
+                "ferramenta 'hora'." % (dia, agora.year))
+        return SISTEMA + "\n\n" + hoje + "\n" + memoria.bloco(nome)
+    except Exception:
+        log.exception("memória fora da instrução")
+        return SISTEMA
 
 
 def _obj(propriedades, obrigatorios=()):
@@ -110,12 +132,26 @@ FERRAMENTAS = [
     {"name": "abrir_app", "description": "Abre um programa pelo nome (Chrome, Bloco de Notas...).",
      "parameters": _obj({"nome": {"type": "string"}}, ("nome",))},
     {"name": "hora", "description": "Diz a hora certa.", "parameters": _obj({})},
+    {"name": "data", "description": "Diz a data de hoje (dia da semana, dia, mês e ano).",
+     "parameters": _obj({})},
+    {"name": "previsao_do_tempo", "description": "Consulta na internet o tempo agora e a previsão "
+     "de hoje ou de amanhã num bairro ou cidade do Brasil. Se a pessoa não disse o lugar e você "
+     "não sabe onde ela mora, pergunte antes.",
+     "parameters": _obj({"lugar": {"type": "string"},
+                         "quando": {"type": "string", "enum": ["hoje", "amanha"]}}, ("lugar",))},
     {"name": "volume", "description": "Muda o volume do computador (0 a 100).",
      "parameters": _obj({"nivel": {"type": "integer"}}, ("nivel",))},
     {"name": "abrir_pasta", "description": "Abre uma pasta no Explorador de Arquivos.",
      "parameters": _obj({"pasta": {"type": "string"}}, ("pasta",))},
     {"name": "confirmar", "description": "Responde a uma pergunta de confirmação que eu fiz.",
      "parameters": _obj({"resposta": {"type": "string", "enum": ["sim", "nao"]}}, ("resposta",))},
+    {"name": "lembrar", "description": "Guarda na sua memória um fato que o dono pediu para você "
+     "lembrar ('lembra que…'), escrito curto e em terceira pessoa do dono. Nunca guarde senha, "
+     "chave ou outro segredo.",
+     "parameters": _obj({"fato": {"type": "string"}}, ("fato",))},
+    {"name": "esquecer", "description": "Apaga da sua memória o fato que o dono pediu para "
+     "esquecer. 'assunto' são as palavras principais do fato.",
+     "parameters": _obj({"assunto": {"type": "string"}}, ("assunto",))},
 ]
 _ESQUEMAS = {f["name"]: f["parameters"] for f in FERRAMENTAS}
 
@@ -162,6 +198,8 @@ def pedido_da_ferramenta(nome, args):
         return "abre o " + args["nome"]
     if nome == "hora":
         return "que horas são"
+    if nome == "data":
+        return "que dia é hoje"
     if nome == "volume":
         return "coloca o volume do computador em %d por cento" % args["nivel"]
     return "abre a pasta " + args["pasta"]
@@ -486,8 +524,22 @@ class Vozes:
             return {"ok": False, "erro": str(e)}
         except Exception as e:
             return {"ok": False, "erro": "Não consegui gravar (%s)." % type(e).__name__}
+        if papel == "dono":
+            self._batizar_dono(nome)
         self._depois()
         return {"ok": True, "perfil": self._dict(p)}
+
+    @staticmethod
+    def _batizar_dono(nome):
+        """A 1ª voz de dono gravada no painel dá o nome do dono deste PC (`nome_do_dono`), que
+        o DERVS usa para saber com quem fala (17/10/2026). Já tendo nome, não troca: um 2º dono
+        (outra pessoa da casa) não rebatiza o 1º."""
+        try:
+            import dervs_config
+            if not dervs_config.carregar().get("nome_do_dono"):
+                dervs_config.gravar("nome_do_dono", nome)
+        except Exception:
+            log.exception("nome do dono não gravado")
 
     def _recusa_dono(self, nome, acao):
         """Apagar/desativar a voz de um DONO exige um dono confirmado pela voz há <= 5 min
@@ -586,7 +638,7 @@ class ConversaNatural:
 
     def __init__(self, conf, player, perfis, arbitro, conversa_factory, executar_acao, avisar,
                  ao_cair=None, ao_turno=None, ao_feito=None, ao_pedido=None, eco=None, em_fundo=None,
-                 relogio=time.monotonic, segurar_s=SEGURAR_S, sinal=None):
+                 relogio=time.monotonic, segurar_s=SEGURAR_S, sinal=None, memoria=None):
         """`executar_acao(pedido, papel, confirmado) -> {"tipo": ...}` (ver `acao_por_texto`);
         `avisar(texto)` aviso curto; `ao_cair(motivo)` a conversa caiu: volte ao caminho antigo;
         `em_fundo(f)` roda o `quem_fala` e as ferramentas fora da thread do microfone."""
@@ -595,6 +647,7 @@ class ConversaNatural:
         # `porteiro_registrar_texto` ligado; desligado, nenhuma frase chega ao disco
         self._registrar_texto = isinstance(conf, dict) and conf.get("porteiro_registrar_texto") is True
         self._ouvido, self._dito = [], []
+        self._memoria = memoria if memoria is not None else dervs_memoria.padrao()
         self.player = player
         self.perfis = perfis
         self.arbitro = arbitro
@@ -668,7 +721,7 @@ class ConversaNatural:
         self.atualizar_trava()
         try:
             self.conversa = self._fabrica(self._evento)
-            self.conversa.iniciar(SISTEMA, FERRAMENTAS)
+            self.conversa.iniciar(instrucao_do_sistema(self.conf, self._memoria), FERRAMENTAS)
         except Exception:
             log.exception("a conversa natural não subiu")
             self._cair("não subiu")
@@ -1051,6 +1104,12 @@ class ConversaNatural:
         papel = ctx["papel"]
         if nome == "confirmar":
             return self._confirmar(args["resposta"], ctx)
+        if nome in ("lembrar", "esquecer"):
+            return self._mexer_na_memoria(nome, args, papel, ctx)
+        if nome == "previsao_do_tempo" and papel in ("dono", "convidado"):
+            # só leitura, sem custo: convidado também pode perguntar
+            return {"ok": True, "diga": dervs_clima.previsao(args["lugar"],
+                                                            args.get("quando", "hoje"))}
         if nome == "fazer" and args["clareza"] != "clara":
             return {"ok": False, "feito": False, "diga": "Pergunte o que falta; nada foi feito."}
         if papel not in ("dono", "convidado"):
@@ -1059,6 +1118,22 @@ class ConversaNatural:
         if ctx["origem_ferramenta"]:                  # pedido gerado por resultado de ferramenta
             return self._pedir_confirmacao(pedido, papel, ctx)
         return self._traduzir(self._executar(pedido, papel, False), pedido, papel, ctx)
+
+    def _mexer_na_memoria(self, nome, args, papel, ctx):
+        """Só o dono, e só por pedido dele: ferramenta pedida logo depois de um resultado de
+        ferramenta (texto de fora que pode trazer ordem plantada) não grava nem apaga."""
+        if papel != "dono" or ctx["origem_ferramenta"]:
+            return {"ok": False, "recusado": True, "diga": RECUSA_MEMORIA}
+        if nome == "esquecer":
+            saiu = self._memoria.esquecer(args["assunto"])
+            return {"ok": True, "esquecidos": saiu,
+                    "diga": "Esquecido, senhor." if saiu else "Eu não tinha isso guardado, senhor."}
+        ok, motivo = self._memoria.lembrar(args["fato"])
+        if ok:
+            return {"ok": True, "diga": "Anotado, senhor."}
+        if motivo == "parece segredo":
+            return {"ok": False, "diga": "Isso parece um segredo, senhor; prefiro não guardar."}
+        return {"ok": False, "diga": "Não consegui guardar isso, senhor."}
 
     def _pedir_confirmacao(self, pedido, papel, ctx, fala=None):
         if papel != "dono":

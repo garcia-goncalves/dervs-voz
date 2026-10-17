@@ -661,10 +661,23 @@ def _contexto_extra(conversa: list) -> str:
         return ""
 
 
+def _memoria_do_dono() -> str:
+    """Criadores, dono do PC e fatos lembrados (`dervs_memoria`). Erro: nada, nunca quebra."""
+    try:
+        import dervs_config
+        import dervs_memoria
+        return dervs_memoria.padrao().bloco(dervs_config.carregar().get("nome_do_dono", ""))
+    except Exception:
+        return ""
+
+
 def _mensagens_openai(conversa: list) -> list:
     """Converte a conversa do DERVS no formato de mensagens da OpenAI."""
     msgs = [{"role": "system", "content": SISTEMA},
             {"role": "system", "content": _agora()}]
+    sobre_o_dono = _memoria_do_dono()
+    if sobre_o_dono:
+        msgs.append({"role": "system", "content": sobre_o_dono})
     extra = _contexto_extra(conversa)
     if extra:
         # role `user` cercado como saída de comando (`_rotular`), NUNCA `system`: nota pode conter

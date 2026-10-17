@@ -708,10 +708,11 @@ def test_motor_disponivel_so_olha_se_a_chave_existe():
 
 def test_sistema_pede_frases_curtas_pergunta_na_duvida_e_proibe_o_entendi_vou():
     s = cn.SISTEMA
-    assert "português do Brasil" in s and "curtas" in s and "Entendi: vou" in s
+    assert "português do brasil" in s.lower() and "curtas" in s and "Entendi: vou" in s
     assert "pergunte" in s and "silencioso=true" in s
     assert {f["name"] for f in cn.FERRAMENTAS} == {"fazer", "abrir_app", "hora", "volume",
-                                                    "abrir_pasta", "confirmar"}
+                                                    "abrir_pasta", "confirmar", "lembrar",
+                                                    "esquecer", "data", "previsao_do_tempo"}
 
 
 def test_calar_do_atalho_interrompe_a_resposta_em_curso():
@@ -1404,7 +1405,7 @@ def test_antigo_fala_curta_com_o_nome_acorda_mas_nao_atende_o_pedido(motor_app, 
     motor_app._cn_pcm = CURTO
     motor_app._entrada_continua("DERVS, abre o Chrome")
     assert rodados == [] and motor_app._esta_desperto()      # acordou, mas o pedido não passou
-    assert any("Pode falar" in t for _, t in ditos)
+    assert any("Pois não, senhor?" in t for _, t in ditos)
 
 
 def test_antigo_fala_curta_sem_o_nome_e_recusada_mesmo_desperto(motor_app, monkeypatch):
@@ -1518,3 +1519,40 @@ def test_pedido_delegado_ja_confirmado_com_tarefa_ocupada_nao_some(motor_app, mo
     motor_app._tarefa = object()
     motor_app._cn_tratar("delegar", "pede pro Codex analisar a ponte")
     assert list(motor_app._pedidos_em_espera) == ["pede pro Codex analisar a ponte"]
+
+
+# ---- jeito JARVIS (17/10): chamado e presença respondem com frase pronta, na hora ----
+
+@pytest.mark.parametrize("fala,frase", [("DERVS", "Pois não, senhor?"),
+                                        ("DERVS, está aí?", "À sua disposição, senhor."),
+                                        ("DERVS, tá me ouvindo?", "À sua disposição, senhor.")])
+def test_chamado_e_presenca_respondem_com_a_frase_pronta(motor_app, monkeypatch, fala, frase):
+    rodados, ditos = _caminho_antigo(motor_app, monkeypatch, None)
+    falados = []
+    monkeypatch.setattr(motor_app.voz, "falar", falados.append)
+    monkeypatch.setattr(motor_app.voz, "ligada", True, raising=False)
+    motor_app._cn_pcm = None
+    motor_app._entrada_continua(fala)
+    assert rodados == [] and motor_app._esta_desperto()
+    assert ("dervs", frase) in ditos and falados == [frase]
+
+
+def test_pergunta_de_verdade_depois_do_nome_nao_vira_frase_pronta(motor_app, monkeypatch):
+    rodados, ditos = _caminho_antigo(motor_app, monkeypatch, None)
+    motor_app._cn_pcm = None
+    motor_app._entrada_continua("DERVS, está aí o arquivo que eu pedi?")
+    assert rodados == ["está aí o arquivo que eu pedi?"]
+
+
+def test_primeira_voz_de_dono_da_o_nome_do_dono_e_a_segunda_nao_rebatiza(tmp_path, monkeypatch):
+    """17/10: o dono do PC configura quem é gravando a voz como dono no painel."""
+    import dervs_config
+    gravados = {}
+    monkeypatch.setattr(dervs_config, "carregar", lambda: dict(gravados))
+    monkeypatch.setattr(dervs_config, "gravar", lambda k, v: gravados.__setitem__(k, v) or True)
+    perfis = L.Perfis(str(tmp_path / "vozes"), extrator=extrator_falso)
+    v = cn.Vozes(perfis, gravar_audio=lambda s, p: tom(250, 20))
+    assert v.gravar("Thiago Garcia", "dono")["ok"]
+    assert gravados == {"nome_do_dono": "Thiago Garcia"}
+    v._conversa = lambda: CnFalsa(recente=True)
+    assert v.gravar("Ana", "convidado")["ok"] and gravados == {"nome_do_dono": "Thiago Garcia"}

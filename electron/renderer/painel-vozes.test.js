@@ -73,3 +73,10 @@ test("texto de leitura tem tamanho de ~30 s (70 a 110 palavras)", () => {
   const n = V.TEXTO_LEITURA.split(/\s+/).length;
   assert.ok(n >= 70 && n <= 110, `palavras: ${n}`);
 });
+
+test("textoDeLeitura: a pessoa fala o próprio nome no começo da gravação (17/10)", () => {
+  assert.match(V.textoDeLeitura("Thiago"), /^Meu nome é Thiago, e eu estou falando com calma/);
+  assert.match(V.textoDeLeitura("  Thiago   Garcia "), /^Meu nome é Thiago Garcia,/);
+  assert.equal(V.textoDeLeitura(""), V.TEXTO_LEITURA);
+  assert.equal(V.textoDeLeitura("<b>x</b>"), V.TEXTO_LEITURA);      // nome inválido: texto neutro
+});

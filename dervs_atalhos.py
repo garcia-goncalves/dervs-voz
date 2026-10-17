@@ -370,6 +370,19 @@ def _lembretes_do_dono(n: str, fala: str, agora: datetime, agenda) -> dict | Non
     return None
 
 
+_PRESENCA = {
+    "esta ai", "ta ai", "voce esta ai", "voce ta ai", "ce ta ai", "ainda esta ai",
+    "esta me ouvindo", "ta me ouvindo", "voce esta me ouvindo", "voce ta me ouvindo",
+    "me ouve", "acorda", "presente", "alo", "oi", "ola",
+}
+
+
+def eh_presenca(fala: str) -> bool:
+    """O resto da frase depois do nome só confere se ele está ali ("DERVS, está aí?")? Aí a
+    resposta é a frase pronta do jeito JARVIS, na hora, sem a nuvem (17/10/2026)."""
+    return _norm(fala) in _PRESENCA
+
+
 def tentar(fala: str, agora: datetime | None = None, agenda=None) -> dict | None:
     """Devolve a ficha pronta se a fala é trivial e conhecida; senão None.
 

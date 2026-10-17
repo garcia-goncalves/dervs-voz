@@ -29,11 +29,13 @@ import dervs_exec as execu
 import dervs_browser as navegador
 import dervs_enrich as enriquecimento
 import dervs_atalhos as atalhos
+import dervs_memoria as memoria
 import dervs_lembretes as lembretes
 import dervs_config as cfg
 import dervs_instancia as instancia
 import dervs_processos as processos
 import dervs_registro as registro
+import dervs_tts as tts
 from dervs_tts import Voz
 from dervs_listen import (Endpointer, Microfone, VigiaDeSilencio,
                           faxina_de_audio, salvar_wav, separar_chamada,
@@ -845,7 +847,7 @@ class PopUp(QtWidgets.QWidget):
             if not self._por_atalho:
                 self._toast("ouvindo 🎙️ — me chame por 'DERVS'")
                 if self.voz.ligada:
-                    self.voz.falar("Tô ligado. É só me chamar de DERVS.")
+                    self.voz.falar(tts.FRASE_LIGADO)
         else:
             if self.escuta is not None:
                 self.escuta.parar()        # fecha o microfone; a thread sai sozinha
@@ -1118,16 +1120,19 @@ class PopUp(QtWidgets.QWidget):
                 # fala curta demais para provar quem é: o nome acorda, o pedido não passa
                 self._acordar(novo=True)
                 self._cn_ligar()
-                self._dizer_e_falar("Oi! Pode falar.")
+                self._dizer_e_falar(tts.FRASE_CHAMADO)
                 return
         self._acordar(novo=tem_nome)
         self._cn_ligar()
 
-        if not texto.strip():
-            # você só chamou o nome: atende e fica ouvindo o pedido
-            self._diz("dervs", "Oi! Pode falar.")
-            if self.voz.ligada:
-                self.voz.falar("Oi! Pode falar.")
+        if not texto.strip() or atalhos.eh_presenca(texto):
+            # só o nome ("DERVS") ou só "está aí?": frase pronta do jeito JARVIS, tocada do disco
+            # na hora, e fica ouvindo o pedido (17/10/2026)
+            frase = tts.FRASE_PRESENTE if texto.strip() else tts.FRASE_CHAMADO
+            if texto.strip():
+                self._diz("dono", texto)
+            sys.stderr.write("dervs: frase pronta (%s)\n" % ("presença" if texto.strip() else "chamado"))
+            self._dizer_e_falar(frase)
             return
         sys.stderr.write("dervs: frase acordada -> %s\n" % (
             "conversa natural" if self._cn is not None and pcm else "caminho antigo"))
@@ -1749,6 +1754,12 @@ class PopUp(QtWidgets.QWidget):
         # ATALHO LOCAL: se a fala é trivial e conhecida (hora, data, abrir app),
         # responde na hora, sem os ~2,7 s do cérebro. Se não reconhece, cai no
         # cérebro como sempre. É só otimização — nunca decide errado no lugar dele.
+        # MEMÓRIA DO DONO: "lembra que…", "esquece que…", "o que você lembra de mim?". Aqui só
+        # chega o dono (convidado para em `_atender_no_antigo`).
+        ficha = memoria.ficha(texto)
+        if ficha is not None:
+            self._cerebro_respondeu(ficha)
+            return
         if self._atalhos_ligados:
             ficha = atalhos.tentar(texto, agenda=self.agenda)
             if ficha is not None:

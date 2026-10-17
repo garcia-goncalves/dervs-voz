@@ -155,6 +155,9 @@ PADRAO = {
     # por uma semana se o DERVS estiver "ignorando" você e for preciso ver o
     # que o porteiro entendeu; depois desligue e apague o arquivo.
     "porteiro_registrar_texto": False,
+    # Como o DERVS chama o dono e sabe quem ele é ("o dono se chama X e é o seu criador").
+    # Vazio: ele não presume nome nenhum. Até 40 letras.
+    "nome_do_dono": "",
     # CHAMADA ESTRITA: só acorda se o nome vier no COMEÇO da fala ("DERVS, ...",
     # "Ei DERVS", "OK DERVS"). Falar SOBRE ele ("vou mostrar o dervs pra ele")
     # não liga o agente. Foi pedido do dono: "não pode ativar do nada". Desligue
@@ -352,6 +355,9 @@ def _validar(conf: dict) -> dict:
         conf["porteiro"] = PADRAO["porteiro"]
     if not isinstance(conf.get("porteiro_registrar_texto"), bool):
         conf["porteiro_registrar_texto"] = PADRAO["porteiro_registrar_texto"]
+    nome = conf.get("nome_do_dono")
+    nome = "".join(c for c in nome if c.isalpha() or c in " .'-").strip() if isinstance(nome, str) else ""
+    conf["nome_do_dono"] = nome[:40]
     if not isinstance(conf.get("chamada_estrita"), bool):
         conf["chamada_estrita"] = PADRAO["chamada_estrita"]
     if not isinstance(conf.get("porteiro_modelo"), str) or not conf["porteiro_modelo"]:
