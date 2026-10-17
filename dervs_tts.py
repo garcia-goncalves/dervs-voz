@@ -285,7 +285,8 @@ def sintetizar_gemini(texto: str, voz: str, chave: str):
     import wave
     try:
         corpo = json.dumps({
-            "contents": [{"parts": [{"text": "Diga em tom natural e ágil: " + texto}]}],
+            # só a frase: com instrução de tom antes, o modelo às vezes a lia em voz alta (17/10)
+            "contents": [{"parts": [{"text": texto}]}],
             "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
                 "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voz}}}},
         }).encode("utf-8")

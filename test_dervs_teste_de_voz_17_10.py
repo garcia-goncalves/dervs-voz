@@ -275,3 +275,22 @@ def test_com_registro_desligado_nada_do_que_foi_dito_vai_ao_diario(caplog):
                    dc.FimResposta()):
             x._tratar_evento(ev)
     assert "segredo falado" not in caplog.text and "resposta" not in caplog.text
+
+
+# ---- 5o teste (17/10 18:20): a voz leu em voz alta "Diga em tom natural e ágil" ----
+
+def test_voz_do_gemini_manda_so_a_frase_sem_instrucao_que_ela_le_em_voz_alta(monkeypatch):
+    import json as _json
+    import dervs_tts as tts
+    corpos = []
+
+    def urlopen(req, timeout):
+        corpos.append(_json.loads(req.data))
+        raise TimeoutError()
+    monkeypatch.setattr(tts.urllib.request, "urlopen", urlopen)
+    tts.sintetizar_gemini("Tô ligado.", "Charon", "k")
+    assert corpos and all(c["contents"][0]["parts"][0]["text"] == "Tô ligado." for c in corpos)
+
+
+def test_cascata_nao_tem_instrucao_de_tom_na_frase():
+    assert not getattr(dc, "INSTRUCAO_TTS_GEMINI", "")

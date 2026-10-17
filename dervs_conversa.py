@@ -898,9 +898,9 @@ PROMPT_CASCATA = (
 )
 
 
-# Curta de propósito (16/10/2026): a instrução longa ("natural e caloroso, como um amigo
-# competente") fazia a mesma frase durar 9,2 s em vez de 5,5 s — fala arrastada, "mole".
-INSTRUCAO_TTS_GEMINI = "Diga em tom natural e ágil: "
+# Vazia de propósito (17/10/2026): a instrução longa (16/10) arrastava a fala, e a curta
+# ("Diga em tom natural e ágil: ") às vezes era lida em voz alta. Sem ela a fala sai ágil.
+INSTRUCAO_TTS_GEMINI = ""
 
 
 class MotorCascata(MotorConversa):
