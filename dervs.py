@@ -372,6 +372,9 @@ class Escuta(QtCore.QThread):
     # O microfone está aberto e entregando silêncio digital: ninguém vai
     # apertar nada para descobrir isso, então a escuta tem de gritar.
     mudo = QtCore.pyqtSignal()
+    # O som voltou depois do `mudo`. Sem isto o vermelho só saía quando o porteiro decidia uma
+    # frase, e com a conversa natural no microfone o porteiro não roda: ficava preso (17/10).
+    som_voltou = QtCore.pyqtSignal()
     # Nível do frame atual (0.0 a 1.0), para a onda do HUD desenhar.
     nivel = QtCore.pyqtSignal(float)
 
@@ -412,8 +415,11 @@ class Escuta(QtCore.QThread):
                         break               # a fonte caiu: sai para religar
                     # Antes da pausa de propósito: microfone morto é morto
                     # esteja o DERVS falando ou não.
+                    avisando = vigia.avisando
                     if vigia.ver(frame):
                         self.mudo.emit()
+                    elif avisando and not vigia.avisando:
+                        self.som_voltou.emit()
                     if self.pausado:
                         if not estava_pausado:
                             ep.reset()      # entrou na pausa: descarta a frase pela metade
@@ -820,6 +826,7 @@ class PopUp(QtWidgets.QWidget):
             self._registrar(self.escuta)   # mantém referência até a thread morrer
             self.escuta.fala.connect(self._fala_continua)
             self.escuta.mudo.connect(self._escuta_sem_som)
+            self.escuta.som_voltou.connect(self._som_voltou)
             self.escuta.start()
             for velho in self._fila_fala:
                 self._descartar_wav(velho)
@@ -1486,7 +1493,10 @@ class PopUp(QtWidgets.QWidget):
         """Eventos da conversa natural, já na thread da tela. Exceção aqui não derruba o app."""
         try:
             if tipo == "turno":
-                self._acordar()
+                # vez fechada na conversa natural = ele está falando COM o DERVS (a trava de voz
+                # já filtrou quem fala): renova o teto também. Sem isto a conversa dormia aos 90 s
+                # da chamada, no meio da frase, e só voltava com "DERVS" de novo (17/10).
+                self._acordar(novo=True)
             elif tipo == "aviso":
                 self._diz("dervs", dado)
                 self._toast(dado)
@@ -1544,6 +1554,9 @@ class PopUp(QtWidgets.QWidget):
                 return
             cn_atual.tique()
             if not cn_atual.ocupado() and (self.escuta is None or not self._esta_desperto()):
+                # dormir calado parecia "não me ouve mais" e não deixava rastro (17/10)
+                sys.stderr.write("dervs: conversa natural dormiu (%s)\n" % (
+                    "microfone fechado" if self.escuta is None else "sem fala na janela"))
                 self._cn_desligar()
         except Exception as e:
             sys.stderr.write("dervs: vigia da conversa natural falhou: %s\n" % e)

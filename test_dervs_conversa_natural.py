@@ -754,7 +754,7 @@ class _SinalNulo:
 
 class EscutaFalsa:
     def __init__(self):
-        self.fala = self.mudo = self.nivel = self.finished = _SinalNulo()
+        self.fala = self.mudo = self.som_voltou = self.nivel = self.finished = _SinalNulo()
         self.pausado = False
         self.desvio = self.gravacao = None
 

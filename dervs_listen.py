@@ -298,11 +298,12 @@ def separar_chamada(texto: str, nomes=NOMES, estrito: bool = False):
 
 
 # Abaixo deste pico (numa escala de 0 a 32767) nao ha som nenhum: e silencio
-# digital, nao "falou baixinho". Um microfone LIGADO num quarto silencioso ja
-# entrega chiado com pico na casa das centenas; o do dono, com o cabo fora da
-# entrada rosa, entregava pico 1. 30 e folgado de proposito para nunca chamar
-# de mudo uma fala fraca de verdade.
-PICO_SILENCIO = 30
+# digital, nao "falou baixinho". O do dono, com o cabo fora da entrada rosa,
+# entregava pico 1. Era 30, supondo que microfone ligado em sala quieta da
+# chiado na casa das centenas -- falso para o Realtek dele: medido em 17/10,
+# 43% dos quadros de 30 ms ficavam abaixo de 30, e 8 s de sala quieta viravam
+# "nao chegou som nenhum" com ele falando. 4 separa os dois casos com folga.
+PICO_SILENCIO = 4
 
 
 def pico(pcm: bytes) -> int:
@@ -355,6 +356,11 @@ class VigiaDeSilencio:
         self._limite = max(1, int(segundos * 1000 / FRAME_MS))
         self._seguidos = 0
         self._ja_avisou = False
+
+    @property
+    def avisando(self) -> bool:
+        """O aviso de mudo esta de pe (avisou e o som ainda nao voltou)."""
+        return self._ja_avisou
 
     def ver(self, frame: bytes) -> bool:
         """True UMA unica vez, no quadro em que o silencio completa o tempo.

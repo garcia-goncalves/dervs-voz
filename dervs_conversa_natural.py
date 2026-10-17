@@ -82,6 +82,7 @@ SISTEMA = (
     "pessoa: frases curtas (uma ou duas), tom natural e caloroso, sem listas e sem markdown. "
     "Nunca anuncie o que vai fazer ('Entendi: vou...', 'Vou fazer...'): ou faz, ou pergunta. "
     "Quando o pedido for uma ação no computador, chame uma ferramenta. "
+    + dc.PODE_FAZER +
     "Se faltar informação ou houver mais de uma leitura ('apaga aquilo', 'abre o projeto' sem "
     "dizer qual), não chame ferramenta de ação: pergunte, numa frase, o que falta. Se mesmo "
     "assim chamar 'fazer' sem certeza, use clareza 'duvida'. "
@@ -99,8 +100,10 @@ def _obj(propriedades, obrigatorios=()):
 
 
 FERRAMENTAS = [
-    {"name": "fazer", "description": "Faz um pedido de ação no computador do dono. 'pedido' é a "
-     "frase completa, em português. 'clareza' é 'clara' só se não há dúvida nenhuma.",
+    {"name": "fazer", "description": "Faz um pedido de ação no computador do dono, inclusive "
+     "programar, criar ou mudar código, abrir um projeto, usar o terminal ou o VS Code, mexer em "
+     "servidor ou no GitHub. 'pedido' é a frase completa, em português. 'clareza' é 'clara' só se "
+     "não há dúvida nenhuma.",
      "parameters": _obj({"pedido": {"type": "string"},
                          "clareza": {"type": "string", "enum": ["clara", "duvida"]}},
                         ("pedido", "clareza"))},
@@ -989,6 +992,7 @@ class ConversaNatural:
                        "papel": self._papel()}
             self._em_fundo(lambda: self._ferramenta(ev, ctx))
         elif isinstance(ev, dc.Troca):
+            log.warning("motor trocado: %s -> %s (%s)", ev.de, ev.para, ev.motivo)
             self._avisar("Mudei a voz para o modo %s." % NOMES_DOS_MOTORES.get(ev.para, ev.para))
         elif isinstance(ev, dc.Erro):
             self._cair(ev.tipo)

@@ -27,7 +27,7 @@ class EscutaFalsa:
     paradas = 0
 
     def __init__(self):
-        self.fala = self.mudo = self.nivel = self.finished = _Sinal()
+        self.fala = self.mudo = self.som_voltou = self.nivel = self.finished = _Sinal()
         self.pausado = False
 
     def start(self):
