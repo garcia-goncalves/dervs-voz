@@ -238,3 +238,17 @@ def test_projeto_que_faz_do_pedido_um_trabalho_empresta_o_harness(raizes):
 def test_pedido_com_o_nome_certo_do_projeto_fica_igual(raizes):
     d = r.destino("corrige o bug do login no projeto grimoire", raizes)
     assert d["pedido"] == "corrige o bug do login no projeto grimoire"
+
+
+@pytest.mark.parametrize("fala", [
+    "criar um arquivo de teste no repositório dervs-voz",
+    'criar arquivo de teste no projeto "dervs-voz"',
+    "Criar um arquivo de teste no projeto Dervs Voz, com um teste simples em Python",
+    "criar um arquivo de teste no projeto dervs voz com um teste simples",
+])
+def test_projeto_no_meio_da_frase_ou_entre_aspas_e_achado(fala, raizes):
+    """4o teste por voz (17/10 17:59): o Gemini reescreve o pedido com detalhes depois do
+    nome do projeto, e o DERVS respondia "Em qual projeto?"."""
+    d = r.destino(fala, raizes)
+    assert d["executor"] == "claude_code" and d["perfil"] == "projeto"
+    assert d["projeto"].endswith("dervs-voz")

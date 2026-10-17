@@ -244,3 +244,34 @@ def test_queda_do_motor_nao_grava_chave(caplog):
         dc._MotorWS._falhar(motor, RuntimeError(
             "403 header x-goog-api-key: AIzaSEGREDO123 Authorization: Bearer sk-SEGREDO456"))
     assert "SEGREDO" not in caplog.text
+
+
+# ---- 4o teste (17/10 17:58): sem o texto da conversa no diário, depurar era às cegas ----
+
+def _cn_texto(registrar):
+    return cn.ConversaNatural({"porteiro_registrar_texto": registrar}, types.SimpleNamespace(),
+                              None, None, None, lambda *a: None, lambda t: None,
+                              em_fundo=lambda f: None)
+
+
+def test_com_registro_ligado_o_diario_guarda_o_que_ouviu_disse_e_pediu(caplog):
+    x = _cn_texto(True)
+    with caplog.at_level(logging.INFO, logger="dervs.conversa_natural"):
+        for ev in (dc.TextoEntrada("cria um arquivo "), dc.TextoEntrada("de teste"),
+                   dc.TextoSaida("Quer que eu "), dc.TextoSaida("faça isto?"),
+                   dc.ChamadaFerramenta("1", "fazer", {"pedido": "criar arquivo"}),
+                   dc.FimResposta()):
+            x._tratar_evento(ev)
+    assert "ouvi: cria um arquivo de teste" in caplog.text
+    assert "disse: Quer que eu faça isto?" in caplog.text
+    assert "ferramenta fazer" in caplog.text and "criar arquivo" in caplog.text
+
+
+def test_com_registro_desligado_nada_do_que_foi_dito_vai_ao_diario(caplog):
+    x = _cn_texto(False)
+    with caplog.at_level(logging.INFO, logger="dervs.conversa_natural"):
+        for ev in (dc.TextoEntrada("segredo falado"), dc.TextoSaida("resposta"),
+                   dc.ChamadaFerramenta("1", "fazer", {"pedido": "segredo falado"}),
+                   dc.FimResposta()):
+            x._tratar_evento(ev)
+    assert "segredo falado" not in caplog.text and "resposta" not in caplog.text

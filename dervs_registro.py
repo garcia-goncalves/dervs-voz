@@ -184,8 +184,8 @@ class _ComHora(io.TextIOBase):
 def abrir_diario_de_execucao(caminho: str, limite: int = 2_000_000):
     """O diário do que o app faz por dentro (o que ia para o `stderr`). Aberto por `pythonw` o app
     não tem stderr, e no teste de voz de 15/10/2026 nenhuma decisão deixou rastro. Passou do
-    `limite`, o atual vira `.1` (um só). Nunca guarda o que o dono falou: só o que o código escreve
-    no stderr. Qualquer falha devolve None e o app segue sem diário."""
+    `limite`, o atual vira `.1` (um só). Não guarda o que o dono falou (só o que o código escreve
+    no stderr), salvo com `porteiro_registrar_texto` ligado, que é de investigação e temporário. Qualquer falha devolve None e o app segue sem diário."""
     try:
         os.makedirs(os.path.dirname(caminho) or ".", exist_ok=True)
         if os.path.exists(caminho) and os.path.getsize(caminho) > limite:

@@ -88,6 +88,11 @@ _PROJETO_NO_COMECO_SEM_VIRGULA = re.compile(rf"^{_PREP}(?P<n>\S+)\s+(?P<p>.+)$")
 _PROJETO_NO_FIM = re.compile(
     r"^(?P<p>.+?)[\s,]+(?P<prep>no|do|na|da|em|o)\s+projeto\s+(?:d[oae]\s+)?"
     r"(?P<n>[a-z0-9][\w .-]{0,60})$")
+# o Gemini reescreve o pedido: "... no projeto Dervs Voz, com um teste simples", aspas,
+# "repositório". O nome é a palavra (até três) logo depois de projeto/repositório (17/10).
+_PROJETO_NO_MEIO = re.compile(
+    r"\b(?:no|do|na|da|em|o|dentro do)\s+(?:projeto|repositorio|repo)\s+(?:d[oae]\s+)?[\"']?"
+    r"(?P<n>[a-z0-9][\w.-]*(?:\s+[a-z0-9][\w.-]*){0,2})")
 
 
 def _projeto_citado(texto: str):
@@ -103,6 +108,9 @@ def _projeto_citado(texto: str):
     if m:
         # "analisa o projeto X": o projeto É o objeto do verbo, a frase inteira vale.
         return m.group("n").strip(" .-"), (t if m.group("prep") == "o" else m.group("p"))
+    m = _PROJETO_NO_MEIO.search(t)
+    if m:
+        return m.group("n").strip(" .-"), (t[:m.start()] + t[m.end():]).strip(" ,\"'")
     return None
 
 
@@ -121,10 +129,16 @@ def destino(texto: str, raizes) -> dict:
         if rota["executor"] != "claude_code":
             return rota                  # cita um projeto mas não pede trabalho: fica com o DERVS
         rota_projeto = rota              # "cria um arquivo de teste no projeto X": o projeto faz o trabalho
-    try:
-        pasta, empate = dervs_voz_infra.achar_projeto(nome, raizes or [])
-    except Exception:
-        pasta, empate = None, []
+    pasta, empate = None, []
+    palavras = nome.split()
+    for k in range(len(palavras), 0, -1):    # "dervs voz com um": tenta o nome mais longo antes
+        try:
+            pasta, empate = dervs_voz_infra.achar_projeto(" ".join(palavras[:k]), raizes or [])
+        except Exception:
+            pasta, empate = None, []
+        if pasta or empate:
+            nome = " ".join(palavras[:k])
+            break
     if pasta:
         # o nome como o ouvido escreveu ("Dervis Vos") vira o da pasta, na tela e para o Claude
         real = os.path.basename(pasta)

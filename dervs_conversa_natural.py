@@ -591,6 +591,10 @@ class ConversaNatural:
         `avisar(texto)` aviso curto; `ao_cair(motivo)` a conversa caiu: volte ao caminho antigo;
         `em_fundo(f)` roda o `quem_fala` e as ferramentas fora da thread do microfone."""
         self.conf = conf
+        # investigação (17/10): o texto ouvido e dito vai ao diário só enquanto o dono deixa o
+        # `porteiro_registrar_texto` ligado; desligado, nenhuma frase chega ao disco
+        self._registrar_texto = isinstance(conf, dict) and conf.get("porteiro_registrar_texto") is True
+        self._ouvido, self._dito = [], []
         self.player = player
         self.perfis = perfis
         self.arbitro = arbitro
@@ -962,7 +966,22 @@ class ConversaNatural:
         with self._trava_estado:
             return self._sem_resposta
 
+    def _registrar(self, ev):
+        if isinstance(ev, dc.TextoEntrada):
+            self._ouvido.append(ev.texto or "")
+        elif isinstance(ev, dc.TextoSaida):
+            self._dito.append(ev.texto or "")
+        elif isinstance(ev, dc.ChamadaFerramenta):
+            log.info("ferramenta %s %s", ev.nome, str(ev.args)[:200])
+        elif isinstance(ev, dc.FimResposta):
+            ouvi, disse = "".join(self._ouvido).strip(), "".join(self._dito).strip()
+            self._ouvido, self._dito = [], []
+            if ouvi or disse:
+                log.info("ouvi: %s | disse: %s", ouvi[:200], disse[:300])
+
     def _tratar_evento(self, ev):
+        if self._registrar_texto:
+            self._registrar(ev)
         if isinstance(ev, (dc.AudioSaida, dc.TextoSaida, dc.ChamadaFerramenta)):
             with self._trava_estado:
                 self._sem_resposta = False
