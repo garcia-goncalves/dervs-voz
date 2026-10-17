@@ -261,7 +261,7 @@ def sintetizar_openai(texto: str, voz: str, modelo: str, instrucoes: str, chave:
 
 GEMINI_TTS_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
                   "gemini-3.8-flash-lite-tts:generateContent")
-GEMINI_TTS_TIMEOUT_S = 20
+GEMINI_TTS_TIMEOUT_S = 8
 GEMINI_TTS_TAXA = 24000
 
 
@@ -291,8 +291,18 @@ def sintetizar_gemini(texto: str, voz: str, chave: str):
         }).encode("utf-8")
         req = urllib.request.Request(GEMINI_TTS_URL, data=corpo, method="POST", headers={
             "x-goog-api-key": chave, "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=GEMINI_TTS_TIMEOUT_S) as r:
-            d = json.loads(r.read())
+        for tentativa in (1, 2):
+            # leva ~3,4 s; às vezes o Google não responde, e esperar 20 s calado era o
+            # "travou" do teste de 17/10. Espera curta e uma segunda tentativa só no tempo esgotado.
+            try:
+                with urllib.request.urlopen(req, timeout=GEMINI_TTS_TIMEOUT_S) as r:
+                    d = json.loads(r.read())
+                break
+            except (TimeoutError, urllib.error.URLError) as erro:
+                esgotou = isinstance(erro, TimeoutError) or isinstance(
+                    getattr(erro, "reason", None), TimeoutError)
+                if tentativa == 2 or isinstance(erro, urllib.error.HTTPError) or not esgotou:
+                    raise
         pcm = b"".join(base64.b64decode((p.get("inlineData") or {}).get("data") or "")
                        for c in d.get("candidates", [])
                        for p in (c.get("content") or {}).get("parts", []))

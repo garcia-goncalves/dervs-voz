@@ -117,3 +117,49 @@ def test_aparar_silencio_tira_o_mudo_das_pontas():
     x = tts.aparar_silencio(np.concatenate([mudo, fala, mudo]).tobytes())
     assert len(x) // 2 < 2400 + 2 * int(24000 * 0.12) + 2
     assert tts.aparar_silencio(mudo.tobytes()) == b""
+
+
+class _RespostaGemini:
+    def __init__(self):
+        import base64
+        import json as _json
+        pcm = (b"\x00\x10" * 4800)
+        self._corpo = _json.dumps({"candidates": [{"content": {"parts": [
+            {"inlineData": {"data": base64.b64encode(pcm).decode()}}]}}]}).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._corpo
+
+
+def test_voz_do_gemini_que_demora_tenta_de_novo_com_espera_curta(monkeypatch):
+    """17/10: a voz leva 3,4 s, mas às vezes o Google não responde; esperar 20 s calado e
+    desistir era o "travou". Agora espera pouco e tenta uma segunda vez."""
+    esperas = []
+
+    def urlopen(req, timeout):
+        esperas.append(timeout)
+        if len(esperas) == 1:
+            raise TimeoutError()
+        return _RespostaGemini()
+    monkeypatch.setattr(tts.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(tts, "aparar_silencio", lambda pcm: pcm)
+    wav = tts.sintetizar_gemini("Olá.", "Charon", "k")
+    assert wav is not None and len(esperas) == 2 and max(esperas) <= 10
+    os.remove(wav)
+
+
+def test_voz_do_gemini_recusada_nao_tenta_de_novo(monkeypatch):
+    import urllib.error
+    chamadas = []
+
+    def urlopen(req, timeout):
+        chamadas.append(1)
+        raise urllib.error.HTTPError("u", 429, "cota", {}, None)
+    monkeypatch.setattr(tts.urllib.request, "urlopen", urlopen)
+    assert tts.sintetizar_gemini("Olá.", "Charon", "k") is None and len(chamadas) == 1
